@@ -21,3 +21,10 @@ const getMonthDays = (year: number, month: number) => {
 
 // (※仮に2025年11月を対象とする)
 export const MONTH_DAYS = getMonthDays(2025, 11);
+
+// ★★★↓ v5.9 追加: 「今月の土日祝日の数」を計算 (祝日は未対応) ↓★★★
+export const getDefaultRequiredHolidays = (): number => {
+  // (※注: 現状は祝日を考慮できず、土日の数だけをカウントしています)
+  return MONTH_DAYS.filter(d => d.dayOfWeek === 0 || d.dayOfWeek === 6).length;
+};
+// ★★★↑ v5.9 追加ここまで ↑★★★

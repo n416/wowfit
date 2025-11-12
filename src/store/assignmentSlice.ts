@@ -1,6 +1,7 @@
 import { createSlice, PayloadAction, createAsyncThunk } from '@reduxjs/toolkit';
 import { IStaff, IShiftPattern, db, IAssignment, IUnit } from '../db/dexie'; // ★★★ v5: IAssignment, IUnit をインポート
 import { GeminiApiClient } from '../api/geminiApiClient'; 
+import { extractJson } from '../utils/jsonExtractor'; // ★ v5.8 JSON抽出関数をインポート
 
 // ★★★ v5修正: AI助言Thunk (v5スキーマ) ★★★
 // (「このスタッフの、この日のアサインをどうすべきか？」をAIに問う)
@@ -63,12 +64,98 @@ ${JSON.stringify(allAssignments.filter(s => s.staffId), null, 2)}
 );
 
 
+// ★★★ v5.8 追加: AIによる「全体調整」Thunk ★★★
+interface FetchAiAdjustmentArgs {
+  instruction: string; // (例: "夜勤さんXの夜勤を減らして")
+  allStaff: IStaff[];
+  allPatterns: IShiftPattern[];
+  allUnits: IUnit[];
+  allAssignments: IAssignment[]; // (現在の下書きアサイン)
+  monthInfo: { year: number, month: number, days: any[] };
+}
+
+export const fetchAiAdjustment = createAsyncThunk(
+  'assignment/fetchAiAdjustment',
+  async (args: FetchAiAdjustmentArgs, { rejectWithValue }) => {
+    const { instruction, allStaff, allPatterns, allUnits, allAssignments, monthInfo } = args;
+
+    const gemini = new GeminiApiClient();
+    if (!gemini.isAvailable) {
+      return rejectWithValue('Gemini APIが設定されていません。');
+    }
+
+    const prompt = `あなたは勤務表の自動調整AIです。以下の入力に基づき、月全体の勤務表アサイン（IAssignment[]）を最適化し、修正後のアサイン配列「全体」をJSON形式で出力してください。
+
+# 1. 管理者からの指示
+${instruction || '特記事項なし。デマンド（必要人数）を満たし、スタッフの負担（特に連勤・インターバル・公休数）が公平になるよう全体を最適化してください。'}
+
+# 2. スタッフ一覧 (勤務可能パターンと制約)
+${JSON.stringify(allStaff, null, 2)}
+
+# 3. 勤務パターン定義 (時間や種類)
+${JSON.stringify(allPatterns, null, 2)}
+
+# 4. ユニット別・24時間デマンド（あるべき必要人数）
+${JSON.stringify(allUnits, null, 2)}
+
+# 5. 現在のアサイン（下書き）
+${JSON.stringify(allAssignments, null, 2)}
+
+# 6. 対象月
+${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
+
+# 指示 (最重要)
+1. **制約の遵守**: 必ず「スタッフ一覧」で定義された "constraints"（最大連勤・最短インターバル）と "availablePatternIds"（勤務可能パターン）を遵守してください。
+2. **デマンドの充足**: 「ユニット別デマンド」を可能な限り満たすように、「労働」タイプのパターン（"workType": "Work"）を配置してください。
+3. **公休の配置**: 「公休」（"workType": "StatutoryHoliday"）や「有給」（"workType": "PaidLeave"）は、"unitId": null としてアサインしてください。
+4. **管理者の指示**: 「管理者からの指示」を最優先で考慮してください（例：「夜勤さんXの夜勤を減らす」）。
+5. **出力形式**: 修正後のアサイン配列（IAssignment[]）「全体」を、以下のJSON形式でのみ出力してください。他のテキストは一切含めないでください。
+\`\`\`json
+[
+  { "date": "2025-11-01", "staffId": "s001", "patternId": "N", "unitId": "U01" },
+  { "date": "2025-11-01", "staffId": "s003", "patternId": "A", "unitId": "U01" },
+  { "date": "2025-11-01", "staffId": "s007", "patternId": "半1", "unitId": "U01" },
+  { "date": "2025-11-01", "staffId": "s002", "patternId": "公休", "unitId": null },
+  ...
+  { "date": "2025-11-30", "staffId": "s010", "patternId": "有給", "unitId": null }
+]
+\`\`\`
+`;
+
+    try {
+      const resultText = await gemini.generateContent(prompt);
+      const newAssignments: IAssignment[] = extractJson(resultText);
+      
+      // (※返ってきたJSONがIAssignmentの配列であるか簡易チェック)
+      if (!Array.isArray(newAssignments) || newAssignments.length === 0 || !newAssignments[0].date || !newAssignments[0].staffId) {
+        throw new Error("AIが不正な形式のJSONを返しました。");
+      }
+      
+      // DBを全上書き
+      await db.assignments.clear();
+      await db.assignments.bulkPut(newAssignments);
+      
+      // (DBからID付きで再取得)
+      const allAssignmentsFromDB = await db.assignments.toArray();
+      return allAssignmentsFromDB;
+
+    } catch (e: any) {
+      return rejectWithValue(e.message);
+    }
+  }
+);
+// ★★★ v5.8 追加ここまで ★★★
+
+
 interface AssignmentState {
   assignments: IAssignment[]; // ★★★ v5: IAssignment[] ★★★
   // (※ requiredSlots は廃止)
   adviceLoading: boolean;
   adviceError: string | null;
   adviceResult: string | null;
+  // ★ v5.8 追加: 全体調整用のState
+  adjustmentLoading: boolean; 
+  adjustmentError: string | null;
 }
 
 const initialState: AssignmentState = {
@@ -76,6 +163,9 @@ const initialState: AssignmentState = {
   adviceLoading: false,
   adviceError: null,
   adviceResult: null,
+  // ★ v5.8 追加
+  adjustmentLoading: false,
+  adjustmentError: null,
 };
 
 const assignmentSlice = createSlice({
@@ -91,10 +181,16 @@ const assignmentSlice = createSlice({
       state.adviceLoading = false;
       state.adviceError = null;
       state.adviceResult = null;
+    },
+    // ★ v5.8 追加
+    clearAdjustmentError: (state) => {
+      state.adjustmentLoading = false;
+      state.adjustmentError = null;
     }
   },
   extraReducers: (builder) => {
     builder
+      // (AI助言)
       .addCase(fetchAssignmentAdvice.pending, (state) => {
         state.adviceLoading = true;
         state.adviceError = null;
@@ -106,10 +202,24 @@ const assignmentSlice = createSlice({
       })
       .addCase(fetchAssignmentAdvice.rejected, (state, action) => {
         state.adviceLoading = false;
-        state.error = action.payload as string;
+        state.adviceError = action.payload as string; // ★ v5.8 修正: adviceError に
+      })
+
+      // ★ v5.8 追加: (AI全体調整)
+      .addCase(fetchAiAdjustment.pending, (state) => {
+        state.adjustmentLoading = true;
+        state.adjustmentError = null;
+      })
+      .addCase(fetchAiAdjustment.fulfilled, (state, action: PayloadAction<IAssignment[]>) => {
+        state.assignments = action.payload; // ★ AIの結果でアサイン全体を上書き
+        state.adjustmentLoading = false;
+      })
+      .addCase(fetchAiAdjustment.rejected, (state, action) => {
+        state.adjustmentLoading = false;
+        state.adjustmentError = action.payload as string;
       });
   }
 });
 
-export const { setAssignments, clearAdvice } = assignmentSlice.actions;
+export const { setAssignments, clearAdvice, clearAdjustmentError } = assignmentSlice.actions; // ★ v5.8 clearAdjustmentError をエクスポート
 export default assignmentSlice.reducer;

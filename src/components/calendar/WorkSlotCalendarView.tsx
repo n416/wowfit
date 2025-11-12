@@ -147,18 +147,7 @@ export default function WorkSlotCalendarView({
                   const key = `${dayInfo.dateStr}_${unit.unitId}`;
                   const assignmentsForCell = assignmentsMap.get(key) || [];
                   
-                  // v5.2: 人員不足の警告チェック (0時～23時)
-                  let isUnderstaffed = false;
-                  for (let hour = 0; hour < 24; hour++) {
-                    const demandKey = `${dayInfo.dateStr}_${unit.unitId}_${hour}`;
-                    const demand = demandMap.get(demandKey);
-                    if (demand && demand.actual < demand.required) {
-                      isUnderstaffed = true;
-                      break;
-                    }
-                  }
-                  const cellStyle = isUnderstaffed ? { bgcolor: 'error.light' } : {};
-
+                  // ★★★ v5.9 修正: 24時間ステータスバーを表示 ★★★
                   return (
                     <TableCell 
                       key={key} 
@@ -168,15 +157,54 @@ export default function WorkSlotCalendarView({
                         borderColor: 'divider',
                         p: 0.5, 
                         cursor: 'pointer',
-                        ...cellStyle
                       }}
                       onClick={() => onCellClick(dayInfo.dateStr, unit.unitId)}
                     >
-                      {isUnderstaffed && (
-                        <Tooltip title="このユニットはこの日、人員不足の時間帯があります">
-                          <WarningAmberIcon color="error" sx={{ fontSize: 16, float: 'right' }} />
-                        </Tooltip>
-                      )}
+                      {/* ★★★ 24時間デマンドバー ★★★ */}
+                      <Box sx={{ 
+                        display: 'flex', 
+                        width: '100%', 
+                        height: '16px', 
+                        mb: 0.5, 
+                        border: '1px solid', 
+                        borderColor: 'divider',
+                        backgroundColor: 'grey.100' // デマンド0のデフォルト色
+                      }}>
+                        {Array.from({ length: 24 }).map((_, hour) => {
+                          const demandKey = `${dayInfo.dateStr}_${unit.unitId}_${hour}`;
+                          const demandData = demandMap.get(demandKey);
+                          let bgColor = 'transparent'; // デマンド0は親の背景色(grey.100)
+                          let title = `${hour}:00 - ${hour+1}:00\n必要: 0`;
+
+                          if (demandData && demandData.required > 0) {
+                            if (demandData.actual < demandData.required) {
+                              bgColor = 'error.main'; // 不足 (赤)
+                              title = `${hour}:00 - ${hour+1}:00\n必要: ${demandData.required}\n配置: ${demandData.actual} (不足)`;
+                            } else if (demandData.actual > demandData.required) {
+                              bgColor = 'success.light'; // 過剰 (薄緑)
+                              title = `${hour}:00 - ${hour+1}:00\n必要: ${demandData.required}\n配置: ${demandData.actual} (過剰)`;
+                            } else {
+                              bgColor = 'primary.main'; // 充足 (青)
+                              title = `${hour}:00 - ${hour+1}:00\n必要: ${demandData.required}\n配置: ${demandData.actual} (充足)`;
+                            }
+                          }
+                          
+                          return (
+                            <Tooltip title={title} key={hour}>
+                              <Box sx={{ 
+                                flex: 1, 
+                                backgroundColor: bgColor,
+                                // (6時間ごとの区切り線)
+                                borderRight: (hour + 1) % 6 === 0 && hour < 23 ? '1px solid' : 'none',
+                                borderColor: 'grey.400'
+                              }} />
+                            </Tooltip>
+                          );
+                        })}
+                      </Box>
+                      {/* ★★★ 提案ここまで ★★★ */}
+
+                      {/* (既存のChip表示) */}
                       {assignmentsForCell.map(assignment => {
                         const staff = staffMap.get(assignment.staffId);
                         const pattern = patternMap.get(assignment.patternId);
@@ -192,6 +220,7 @@ export default function WorkSlotCalendarView({
                       })}
                     </TableCell>
                   );
+                  // ★★★ v5.9 修正ここまで ★★★
                 })}
               </TableRow>
             ))}

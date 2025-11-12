@@ -49,7 +49,7 @@ export default function StaffCalendarView({ onCellClick }: StaffCalendarViewProp
   return (
     <>
       <Typography variant="h6" gutterBottom>スタッフビュー（カレンダー）</Typography>
-      {/* ★★★↓ v5.6 修正: 横スクロール (overflowX) を追加 ↓★★★ */}
+      {/* ★ v5.6 修正: 横スクロール (overflowX) を追加 */}
       <TableContainer component={Paper} variant="outlined" sx={{ 
         maxHeight: 600, 
         overflowX: 'auto' 
@@ -86,7 +86,8 @@ export default function StaffCalendarView({ onCellClick }: StaffCalendarViewProp
               }
 
               return (
-                <TableRow key={staff.staffId} hover sx={rowStyle}> {/* (行自体への適用は不要だが念のため残す) */}
+                // ★★★ v5.7 修正: 行内のJSXコメントを削除 ★★★
+                <TableRow key={staff.staffId} hover sx={rowStyle}>
                   <TableCell component="th" scope="row" sx={rowStyle}>
                     {staff.name}
                     <Typography variant="caption" display="block" color={staff.employmentType === 'FullTime' ? 'primary' : 'textSecondary'}>
@@ -108,7 +109,7 @@ export default function StaffCalendarView({ onCellClick }: StaffCalendarViewProp
                           p: 0.5,
                           background: (dayInfo.dayOfWeek === 0 || dayInfo.dayOfWeek === 6) ? 'grey.100' : 'default',
                           cursor: 'pointer',
-                          ...rowStyle // ★★★↑ v5.6 修正: 二重線スタイルを日付セルにも適用 ★★★
+                          ...rowStyle // ★ v5.6 修正: 二重線スタイルを日付セルにも適用
                         }}
                         onClick={() => onCellClick(dayInfo.dateStr, staff.staffId)}
                       >

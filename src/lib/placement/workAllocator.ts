@@ -1,7 +1,8 @@
 import { 
   IAssignment, IStaff, IUnit, IShiftPattern, db 
 } from '../../db/dexie';
-import { MONTH_DAYS, getPrevDateStr } from '../../utils/dateUtils'; // ★ v5.83 getPrevDateStr をインポート
+// ★★★ v5.85 修正: 未使用の getPrevDateStr を削除 ★★★
+import { MONTH_DAYS } from '../../utils/dateUtils'; 
 import type { AppDispatch } from '../../store';
 import { setAssignments } from '../../store/assignmentSlice';
 
@@ -232,6 +233,7 @@ export const allocateWork = async ({
             const nextDayShortages = shortageMap.get(`${nextDateStr}_${affectedUnitId}`);
             if (nextDayShortages) {
               for (let h = 0; h < endH; h++) {
+                // (nextDayShortagesは当日の24時始まりのIndex。 h は 0〜endH)
                 if (nextDayShortages[h] > 0) nextDayShortages[h] -= 1; 
               }
             }

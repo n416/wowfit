@@ -38,8 +38,8 @@ import DailyUnitGanttModal from '../components/calendar/DailyUnitGanttModal';
 import { MONTH_DAYS, getDefaultRequiredHolidays, getPrevDateStr } from '../utils/dateUtils';
 // ★★★↓ v5.9 モックデータをインポート ↓★★★
 import { MOCK_PATTERNS_V5, MOCK_UNITS_V5, MOCK_STAFF_V4 } from '../db/mockData';
-// ★★★↓ v5.9 ロジックをインポート ↓★★★
-import { allocateHolidays } from '../lib/placement/holidayAllocator';
+// ★★★ v5.57 修正: 未使用の allocateHolidays を削除 ★★★
+// import { allocateHolidays } from '../lib/placement/holidayAllocator';
 // ★★★ v5.21 修正: allocateWork (応援スタッフ穴埋め) をインポート ★★★
 import { allocateWork } from '../lib/placement/workAllocator';
 
@@ -47,7 +47,7 @@ import { allocateWork } from '../lib/placement/workAllocator';
 // (折りたたみ用アイコンのインポートは削除済み)
 
 
-// ★★★ v5.43 修正: INP 232ms だった v5.39 (条件付きレンダリング) に戻す ★★★
+// ★★★ v5.70 修正: TabPanelが親の高さ(flex: 1)を継承できるように修正 ★★★
 interface TabPanelProps {
   children?: React.ReactNode;
   index: number;
@@ -62,15 +62,26 @@ function TabPanel(props: TabPanelProps) {
       id={`simple-tabpanel-${index}`}
       aria-labelledby={`simple-tab-${index}`}
       {...other}
+      // ★★★ v5.70 修正: flex: 1 を追加して高さを拡張 ★★★
+      style={{ flex: 1, minHeight: 0 }}
     >
       {/* valueがindexと一致する場合のみ、中身を描画（マウント）する */}
       {value === index && (
-        <Box sx={{ p: 3 }}>{children}</Box>
+        // ★★★ v5.70 修正: p: 3 を height: 100% と flex-column に変更 ★★★
+        <Box sx={{ 
+          p: 3, 
+          height: '100%', 
+          boxSizing: 'border-box', 
+          display: 'flex', 
+          flexDirection: 'column' 
+        }}>
+          {children}
+        </Box>
       )}
     </div>
   );
 }
-// ★★★ v5.43 修正ここまで ★★★
+// ★★★ v5.70 修正ここまで ★★★
 
 
 // (モックデータ、ローカル定義の Modal/Function はすべて削除済み)
@@ -441,7 +452,8 @@ function ShiftCalendarPage() {
     setTabValue(newValue);
   };
 
-  // ★★★ v5.19 修正: 公休配置ロジックを外部関数呼び出しに変更 ★★★
+  // ★★★ v5.57 修正: 未使用の handleHolidayPlacementClick を削除 ★★★
+  /*
   const handleHolidayPlacementClick = useCallback(async () => {
     console.log("★ (1/2) [ShiftCalendarPage] '公休配置' ボタンクリック"); // ログ
     await allocateHolidays({
@@ -454,9 +466,11 @@ function ShiftCalendarPage() {
       dispatch
     });
   }, [assignments, staffList, unitList, patternMap, staffHolidayRequirements, dispatch, staffMap]);
+  */
 
 
   // ★★★ v5.21 修正: 労働配置ロジック(ざっくり埋める) を「応援スタッフ穴埋め」機能に変更 ★★★
+  // (※ AiSupportPane でまだ使用されているため残します)
   const handleFillRental = useCallback(async () => {
     // ★★★ v5.21 ログ修正 ★★★
     console.log("★ (2/2) [ShiftCalendarPage] '応援スタッフ穴埋め' ボタンクリック (handleFillRental 実行)");
@@ -590,12 +604,14 @@ function ShiftCalendarPage() {
         minHeight: 0 
       }}>
         {/* メインエリア (スクロール可能) */}
+        {/* ★★★ v5.70 修正: overflow: 'auto' を削除し、minHeight: 0 を追加 ★★★ */}
         <Paper sx={{ 
           flex: 1, 
           display: 'flex', 
           flexDirection: 'column',
-          overflow: 'auto', 
+          // overflow: 'auto', // 削除
           minWidth: 0, 
+          minHeight: 0, // 追加
         }}>
           <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
             {/* ★★★ v5.45 修正: TS2769を修正 ★★★ */}
@@ -605,6 +621,7 @@ function ShiftCalendarPage() {
             </Tabs>
           </Box>
           
+          {/* ★★★ v5.70 修正: TabPanelがflex: 1で高さを継承するように ★★★ */}
           <TabPanel value={tabValue} index={0}>
             <StaffCalendarView 
               onCellClick={handleCellClick} 
@@ -617,10 +634,11 @@ function ShiftCalendarPage() {
           <TabPanel value={tabValue} index={1}>
             <WorkSlotCalendarView 
               onCellClick={handleCellClick}
-              onHolidayPlacementClick={handleHolidayPlacementClick} // (公休配置)
-              onFillRentalClick={handleFillRental} // (応援スタッフ穴埋め)
-              onResetClick={handleResetClick} // (リセット)
-              demandMap={demandMap} // ★★★ v5.35 追加 ★★★
+              // ★★★ v5.57 修正: 未使用の props を削除 ★★★
+              // onHolidayPlacementClick={handleHolidayPlacementClick} 
+              // onFillRentalClick={handleFillRental} 
+              onResetClick={handleResetClick} 
+              demandMap={demandMap} 
             />
           </TabPanel>
         </Paper>

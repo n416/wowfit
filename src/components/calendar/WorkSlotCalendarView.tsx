@@ -1,7 +1,9 @@
 import React, { useMemo, CSSProperties } from 'react';
-import {
-  Typography, Button,
-  Table, TableBody, TableCell, TableHead, TableRow
+import { 
+  // ★★★ v5.71 修正: 未使用の Typography を削除 ★★★
+  Button, 
+  Table, TableBody, TableCell, TableHead, TableRow,
+  Box
 } from '@mui/material';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../../store';
@@ -16,7 +18,7 @@ interface WorkSlotCalendarViewProps {
   demandMap: Map<string, { required: number; actual: number }>;
 }
 
-// ★★★ v5.67 修正: CLS対策 ＋ 日付列の幅を 100px に変更 ★★★
+// ★★★ v5.68 修正: CLS対策 ＋ 日付列の幅を '1em' に変更 ★★★
 const styles: { [key: string]: CSSProperties } = {
   th: {
     border: '1px solid #e0e0e0',
@@ -27,8 +29,8 @@ const styles: { [key: string]: CSSProperties } = {
     zIndex: 1,
     fontWeight: 'bold',
     textAlign: 'left',
-    overflow: 'hidden', // ★ CLS対策
-    textOverflow: 'ellipsis', // ★ CLS対策
+    overflow: 'hidden', 
+    textOverflow: 'ellipsis', 
   },
   td: {
     border: '1px solid #e0e0e0',
@@ -44,10 +46,11 @@ const styles: { [key: string]: CSSProperties } = {
     zIndex: 2,
     minWidth: '1em', // ★ 修正
     width: '1em', // ★ 修正
+    padding: '6px', // ★ v5.67のthに合わせてpadding調整
   },
   unitHeaderCell: {
     minWidth: '150px',
-    width: '150px',
+    width: '150px', 
   },
   clickableCell: {
     cursor: 'pointer',
@@ -64,11 +67,11 @@ const styles: { [key: string]: CSSProperties } = {
     whiteSpace: 'nowrap',
   },
   barContainer: {
-    display: 'flex',
-    width: '100%',
-    height: '16px',
-    marginBottom: '4px',
-    border: '1px solid #e0e0e0',
+    display: 'flex', 
+    width: '100%', 
+    height: '16px', 
+    marginBottom: '4px', 
+    border: '1px solid #e0e0e0', 
     backgroundColor: '#f5f5f5'
   }
 };
@@ -86,14 +89,14 @@ export default function WorkSlotCalendarView({
 
   const staffMap = useMemo(() => new Map(staffList.map((s: IStaff) => [s.staffId, s])), [staffList]);
   const patternMap = useMemo(() => new Map(shiftPatterns.map((p: IShiftPattern) => [p.patternId, p])), [shiftPatterns]);
-
+  
   const assignmentsMap = useMemo(() => {
-    const map = new Map<string, IAssignment[]>();
-    for (const assignment of assignments) {
+    const map = new Map<string, IAssignment[]>(); 
+    for (const assignment of assignments) { 
       if (assignment.unitId) {
         const key = `${assignment.date}_${assignment.unitId}`;
         if (!map.has(key)) map.set(key, []);
-        map.get(key)!.push(assignment);
+        map.get(key)!.push(assignment); 
       }
     }
     return map;
@@ -101,7 +104,8 @@ export default function WorkSlotCalendarView({
 
   const fixedHeaderContent = () => (
     <TableRow>
-      <TableCell style={{ ...styles.th, ...styles.dateCell, zIndex: 3 }}>日付</TableCell>
+      {/* ★★★ v5.68 修正: ヘッダーのスタイルも dateCell に準拠 ★★★ */}
+      <TableCell style={{ ...styles.th, ...styles.dateCell, zIndex: 3, top: 0 }}>日付</TableCell>
       {unitList.map((unit: IUnit) => (
         <TableCell key={unit.unitId} style={{ ...styles.th, ...styles.unitHeaderCell }}>
           {unit.name}
@@ -113,19 +117,20 @@ export default function WorkSlotCalendarView({
   const itemContent = (_: number, dayInfo: typeof MONTH_DAYS[0]) => {
     return (
       <>
+        {/* ★★★ v5.68 修正: 改行 <br /> を追加 ★★★ */}
         <TableCell style={{ ...styles.td, ...styles.dateCell }}>
           {dayInfo.dateStr.split('-')[2]}日
           <br />
           ({dayInfo.weekday})
         </TableCell>
-
+        
         {unitList.map((unit: IUnit) => {
           const key = `${dayInfo.dateStr}_${unit.unitId}`;
           const assignmentsForCell = assignmentsMap.get(key) || [];
-
+          
           return (
-            <TableCell
-              key={key}
+            <TableCell 
+              key={key} 
               style={{ ...styles.td, ...styles.clickableCell }}
               onClick={() => onCellClick(dayInfo.dateStr, unit.unitId)}
             >
@@ -137,11 +142,11 @@ export default function WorkSlotCalendarView({
                   let bgColor = 'transparent', title = `${hour}:00 Need:0`;
                   if (demandData && demandData.required > 0) {
                     if (demandData.actual < demandData.required) {
-                      bgColor = '#d32f2f'; title = `${hour}:00 - ${hour + 1}:00\n必要: ${demandData.required}\n配置: ${demandData.actual} (不足)`;
+                      bgColor = '#d32f2f'; title = `${hour}:00 - ${hour+1}:00\n必要: ${demandData.required}\n配置: ${demandData.actual} (不足)`;
                     } else if (demandData.actual > demandData.required) {
-                      bgColor = '#66bb6a'; title = `${hour}:00 - ${hour + 1}:00\n必要: ${demandData.required}\n配置: ${demandData.actual} (過剰)`;
+                      bgColor = '#66bb6a'; title = `${hour}:00 - ${hour+1}:00\n必要: ${demandData.required}\n配置: ${demandData.actual} (過剰)`;
                     } else {
-                      bgColor = '#1976d2'; title = `${hour}:00 - ${hour + 1}:00\n必要: ${demandData.required}\n配置: ${demandData.actual} (充足)`;
+                      bgColor = '#1976d2'; title = `${hour}:00 - ${hour+1}:00\n必要: ${demandData.required}\n配置: ${demandData.actual} (充足)`;
                     }
                   }
                   return <div key={hour} title={title} style={{ flex: 1, backgroundColor: bgColor, borderRight: (hour + 1) % 6 === 0 && hour < 23 ? '1px solid #bdbdbd' : 'none' }} />;
@@ -167,26 +172,29 @@ export default function WorkSlotCalendarView({
 
 
   return (
-    <>
+    // ★★★ v5.70 修正: ルートを Box (flex-column) に変更 ★★★
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
         <Button variant="outlined" color="error" onClick={onResetClick}>
           アサインをリセット
         </Button>
       </div>
 
-      <TableVirtuoso
-        style={{ height: 600, border: '1px solid #e0e0e0', borderRadius: '4px' }}
-        data={MONTH_DAYS}
-        fixedHeaderContent={fixedHeaderContent}
-        itemContent={itemContent}
-        components={{
-          // ★★★ v5.66/v5.67 修正: tableLayout: 'fixed' を追加 ★★★
-          Table: (props) => <Table {...props} style={{ borderCollapse: 'collapse', width: '100%', tableLayout: 'fixed' }} />,
-          TableHead: TableHead,
-          TableRow: TableRow,
-          TableBody: React.forwardRef((props, ref) => <TableBody {...props} ref={ref} />),
-        }}
-      />
-    </>
+      {/* ★★★ v5.70 修正: 仮想化テーブルをBoxでラップし、flex: 1 で伸縮させる ★★★ */}
+      <Box sx={{ flex: 1, minHeight: 0 }}>
+        <TableVirtuoso
+          style={{ height: '100%', border: '1px solid #e0e0e0', borderRadius: '4px' }}
+          data={MONTH_DAYS}
+          fixedHeaderContent={fixedHeaderContent}
+          itemContent={itemContent}
+          components={{
+            Table: (props) => <Table {...props} style={{ borderCollapse: 'collapse', width: '100%', tableLayout: 'fixed' }} />,
+            TableHead: TableHead,
+            TableRow: TableRow,
+            TableBody: React.forwardRef((props, ref) => <TableBody {...props} ref={ref} />),
+          }}
+        />
+      </Box>
+    </Box>
   );
 };

@@ -1,7 +1,9 @@
 import React, { CSSProperties, useMemo, useCallback } from 'react';
 import { 
   IconButton, 
-  Table, TableBody, TableCell, TableContainer, TableHead, TableRow
+  Table, TableBody, TableCell, TableHead, TableRow,
+  // ★★★ v5.70 修正: Box をインポート ★★★
+  Box
 } from '@mui/material';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../../store';
@@ -225,24 +227,27 @@ export default function StaffCalendarView({
   }, [sortedStaffList, staffHolidayRequirements, assignmentsMap, patternMap, onCellClick, onHolidayDecrement, onHolidayIncrement]);
 
   return (
-    <>
+    // ★★★ v5.70 修正: ルートを Box (flex-column) に変更 ★★★
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <h6 style={{ margin: '0 0 16px 0', fontSize: '1.25rem', fontWeight: 500 }}>
         スタッフビュー（カレンダー）
       </h6>
       
-      <TableVirtuoso
-        style={{ height: 600, border: '1px solid #e0e0e0', borderRadius: '4px' }}
-        data={sortedStaffList}
-        fixedHeaderContent={fixedHeaderContent}
-        itemContent={itemContent}
-        components={{
-          // ★★★ v5.66/v5.67 修正: tableLayout: 'fixed' を追加 ★★★
-          Table: (props) => <Table {...props} style={{ borderCollapse: 'collapse', width: '100%', tableLayout: 'fixed' }} />,
-          TableHead: TableHead,
-          TableRow: TableRow,
-          TableBody: React.forwardRef((props, ref) => <TableBody {...props} ref={ref} />),
-        }}
-      />
-    </>
+      {/* ★★★ v5.70 修正: 仮想化テーブルをBoxでラップし、flex: 1 で伸縮させる ★★★ */}
+      <Box sx={{ flex: 1, minHeight: 0 }}>
+        <TableVirtuoso
+          style={{ height: '100%', border: '1px solid #e0e0e0', borderRadius: '4px' }}
+          data={sortedStaffList}
+          fixedHeaderContent={fixedHeaderContent}
+          itemContent={itemContent}
+          components={{
+            Table: (props) => <Table {...props} style={{ borderCollapse: 'collapse', width: '100%', tableLayout: 'fixed' }} />,
+            TableHead: TableHead,
+            TableRow: TableRow,
+            TableBody: React.forwardRef((props, ref) => <TableBody {...props} ref={ref} />),
+          }}
+        />
+      </Box>
+    </Box>
   );
 };

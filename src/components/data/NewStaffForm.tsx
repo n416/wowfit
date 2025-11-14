@@ -8,14 +8,14 @@ import type { AppDispatch, RootState } from '../../store';
 import { IStaff, IUnit, IShiftPattern } from '../../db/dexie'; 
 import { addNewStaff } from '../../store/staffSlice'; 
 
-// (DataManagementPage.tsx から NewStaffForm のコードをそのまま移動)
 export default function NewStaffForm() {
   const dispatch: AppDispatch = useDispatch();
   const unitList = useSelector((state: RootState) => state.unit.units);
   const patternList = useSelector((state: RootState) => state.pattern.patterns);
   
   const [name, setName] = useState('');
-  const [employmentType, setEmploymentType] = useState<'FullTime' | 'PartTime'>('FullTime');
+  // ★★★ v5.11 修正: 型定義を拡張 ★★★
+  const [employmentType, setEmploymentType] = useState<'FullTime' | 'PartTime' | 'Rental'>('FullTime');
   const [unitId, setUnitId] = useState<string | null>(null);
   const [availablePatternIds, setAvailablePatternIds] = useState<string[]>([]);
 
@@ -40,9 +40,11 @@ export default function NewStaffForm() {
       <TextField label="氏名" value={name} onChange={(e) => setName(e.target.value)} required size="small" />
       <FormControl size="small" sx={{ minWidth: 120 }}>
         <InputLabel>雇用形態</InputLabel>
+        {/* ★★★ v5.11 修正: Rentalを追加 ★★★ */}
         <Select value={employmentType} label="雇用形態" onChange={(e) => setEmploymentType(e.target.value as any)}>
           <MenuItem value="FullTime">常勤</MenuItem>
           <MenuItem value="PartTime">パート</MenuItem>
+          <MenuItem value="Rental">応援・派遣</MenuItem>
         </Select>
       </FormControl>
       <FormControl size="small" sx={{ minWidth: 150 }}>
@@ -54,6 +56,7 @@ export default function NewStaffForm() {
           ))}
         </Select>
       </FormControl>
+      {/* ... (以降変更なし) ... */}
       <FormControl size="small" sx={{ minWidth: 250 }}>
         <InputLabel>勤務可能パターン (労働のみ)</InputLabel>
         <Select

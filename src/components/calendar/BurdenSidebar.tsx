@@ -3,8 +3,8 @@ import {
   Box, Paper, Typography, 
   List, ListItem, ListItemText, Avatar, Chip,
   Collapse,
-  IconButton,
-  ListItemButton // ★ v5.9 修正
+  IconButton
+  // ★ ListItemButton, Stack, Add/Remove アイコンを削除
 } from '@mui/material';
 import { IStaff } from '../../db/dexie'; 
 
@@ -28,17 +28,17 @@ type StaffBurdenData = {
 };
 
 interface BurdenSidebarProps {
-  // ★ v5.9 サイドバーに必要な props を定義
+  // ★ v5.9 サイドバーに必要な props を修正
   isOpen: boolean;
   onToggle: () => void;
-  staffBurdenData: Map<string, StaffBurdenData>; // ★ Map をそのまま受け取る
-  staffMap: Map<string, IStaff>; // ★ スタッフオブジェクト全体も受け取る
-  onStaffClick: (staff: IStaff) => void;
+  staffBurdenData: Map<string, StaffBurdenData>; 
+  staffMap: Map<string, IStaff>; 
+  // ★ v5.9 修正: onStaffClick と +/- ハンドラを削除
 }
 
 // export default を追加
 export default function BurdenSidebar({ 
-  isOpen, onToggle, staffBurdenData, staffMap, onStaffClick 
+  isOpen, onToggle, staffBurdenData, staffMap
 }: BurdenSidebarProps) {
 
   return (
@@ -78,7 +78,7 @@ export default function BurdenSidebar({
         {/* Collapse で中身を隠す */}
         <Collapse in={isOpen} sx={{ flexGrow: 1, overflowY: 'auto', minHeight: 0 }}>
           <List dense>
-            {/* ListItemButton を使用 */}
+            {/* ★ v5.9 修正: ListItemButton を解除し、通常の ListItem に変更 */}
             {Array.from(staffBurdenData.values()).map(staffData => {
               const hourViolation = staffData.totalHours > staffData.maxHours; 
               const holidayViolation = staffData.holidayCount < staffData.requiredHolidays; 
@@ -86,38 +86,34 @@ export default function BurdenSidebar({
               return (
                 <ListItem 
                   key={staffData.staffId} 
-                  disablePadding 
                   divider
+                  // (onClick は削除)
                 >
-                  <ListItemButton
-                    // ★ v5.9 staffMap から完全な IStaff を引いて渡す
-                    onClick={() => {
-                      const staff = staffMap.get(staffData.staffId);
-                      if (staff) onStaffClick(staff);
-                    }} 
-                  >
-                    <Avatar sx={{ width: 32, height: 32, mr: 2, fontSize: '0.8rem' }}>
-                      {staffData.name.charAt(0)}
-                    </Avatar>
-                    <ListItemText
-                      primary={staffData.name}
-                      secondary={
-                        <Box component="span" sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mt: 0.5 }}>
-                          <Chip label={`計: ${staffData.assignmentCount} 回`} size="small" variant="outlined" />
-                          <Chip 
-                            label={`公: ${staffData.holidayCount}/${staffData.requiredHolidays} 日`} 
-                            size="small" 
-                            variant="outlined" 
-                            color={holidayViolation ? 'error' : 'default'} 
-                          />
-                          <Chip label={`夜: ${staffData.nightShiftCount} 回`} size="small" variant="outlined" color={staffData.nightShiftCount > 0 ? 'secondary' : 'default'} />
-                          <Chip label={`土日: ${staffData.weekendCount} 回`} size="small" variant="outlined" />
-                          <Chip label={`時: ${staffData.totalHours} h`} size="small" variant="outlined" color={hourViolation ? 'error' : 'default'} />
-                        </Box>
-                      }
-                      secondaryTypographyProps={{ component: 'div' }}
-                    />
-                  </ListItemButton>
+                  <Avatar sx={{ width: 32, height: 32, mr: 2, fontSize: '0.8rem' }}>
+                    {staffData.name.charAt(0)}
+                  </Avatar>
+                  <ListItemText
+                    primary={staffData.name}
+                    secondary={
+                      <Box component="span" sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mt: 0.5, alignItems: 'center' }}>
+                        <Chip label={`計: ${staffData.assignmentCount} 回`} size="small" variant="outlined" />
+                        
+                        {/* ★ v5.9 修正: 公休調整ボタンを削除 */}
+                        <Chip 
+                          label={`公: ${staffData.holidayCount}/${staffData.requiredHolidays} 日`} 
+                          size="small" 
+                          variant="outlined" 
+                          color={holidayViolation ? 'error' : 'default'} 
+                        />
+                        {/* ★ v5.9 修正ここまで */}
+
+                        <Chip label={`夜: ${staffData.nightShiftCount} 回`} size="small" variant="outlined" color={staffData.nightShiftCount > 0 ? 'secondary' : 'default'} />
+                        <Chip label={`土日: ${staffData.weekendCount} 回`} size="small" variant="outlined" />
+                        <Chip label={`時: ${staffData.totalHours} h`} size="small" variant="outlined" color={hourViolation ? 'error' : 'default'} />
+                      </Box>
+                    }
+                    secondaryTypographyProps={{ component: 'div' }}
+                  />
                 </ListItem>
               );
             })}

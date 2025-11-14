@@ -41,7 +41,7 @@ export default function AssignPatternModal({
   // ★ v5.9 モーダルが開く/対象が変わるたびに state をリセット
   useEffect(() => {
     if (target) {
-      const existing = allAssignments.find(a => a.date === target.date && a.staffId === target.staff.staffId);
+      const existing = allAssignments.find(a => a.date === target.date && a.staffId === target.staff.Id);
       setSelectedPatternId(existing?.patternId || null);
       dispatch(clearAdvice());
     }
@@ -49,6 +49,7 @@ export default function AssignPatternModal({
 
 
   // ★ v5.9 担当者決定ロジック (ShiftCalendarPageから移動)
+  // ★ v5.9 修正: locked: true を追加
   const handleAssignPattern = async () => {
     if (!target) return;
     const { date, staff } = target;
@@ -67,7 +68,8 @@ export default function AssignPatternModal({
             date: date,
             staffId: staff.staffId,
             patternId: selectedPatternId,
-            unitId: (pattern.workType === 'Work') ? staff.unitId : null
+            unitId: (pattern.workType === 'Work') ? staff.unitId : null,
+            locked: true // ★★★ 手動アサインはロックする ★★★
           };
           await db.assignments.add(newAssignment);
         }

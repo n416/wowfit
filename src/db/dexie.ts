@@ -33,10 +33,11 @@ export interface IShiftPattern {
 export interface IStaff {
   staffId: string;
   name: string;
-  employmentType: 'FullTime' | 'PartTime';
+  // ★★★ v5.11 修正: 'Rental' を追加 ★★★
+  employmentType: 'FullTime' | 'PartTime' | 'Rental';
   skills: string[];
-  unitId: string | null; // 所属ユニット
-  availablePatternIds: string[]; // 勤務可能パターン
+  unitId: string | null; // 所属ユニット (レンタルなら「応援元」の意味合いでも可)
+  availablePatternIds: string[]; // 勤務可能パターン (レンタルなら可能なシフト)
   constraints: {
     maxConsecutiveDays: number;
     minIntervalHours: number;
@@ -44,6 +45,7 @@ export interface IStaff {
   memo?: string;
 }
 
+// ★★★ v5.9 修正: locked フラグを追加 ★★★
 // --- 5. アサイン結果 (v4から変更なし) ---
 export interface IAssignment {
   id?: number;
@@ -51,12 +53,16 @@ export interface IAssignment {
   staffId: string;
   patternId: string; // "SA", "N", "公休", "有給" など
   unitId: string | null; // 勤務したユニット
+  locked?: boolean; // ★ AIが変更不可なアサインは true
 }
 
-// ★★★ v5版: 24時間分のデフォルトDemand（すべて0人）を生成するヘルパー ★★★
+
+// ★★★ v5.9 修正: 24時間分のデフォルトDemand（すべて0人）を生成するヘルパー ★★★
+// (※NewUnitForm.tsx から移動)
 export const getDefaultDemand = (): number[] => {
   return Array(24).fill(0);
 };
+
 
 // --- Dexie データベース定義 (v5) ---
 export class ShiftWorkDB extends Dexie {
@@ -75,7 +81,8 @@ export class ShiftWorkDB extends Dexie {
       units: '&unitId, name', // (demand 配列はインデックス化しない)
       shiftPatterns: '&patternId, name, mainCategory, workType, crossUnitWorkType',
       staffList: '&staffId, name, employmentType, unitId, *availablePatternIds, *skills',
-      assignments: '++id, [date+staffId], [date+patternId], [date+unitId], staffId, patternId, unitId',
+      // ★★★ v5.9 修正: assignments に locked インデックスを追加 ★★★
+      assignments: '++id, [date+staffId], [date+patternId], [date+unitId], staffId, patternId, unitId, locked',
       // (※ timeSlotRules は削除)
     }).upgrade(tx => {
       // v4 -> v5 へのアップグレード

@@ -1,43 +1,125 @@
-import React from 'react';
+import React, { CSSProperties } from 'react'; // ★ CSSProperties をインポート
 import { 
-  Paper, Typography, Chip,
-  Table, TableBody, TableCell, TableContainer, TableHead, TableRow
+  // ★★★ v5.44 修正: 未使用の Paper, Typography, Stack を削除 ★★★
+  IconButton, 
 } from '@mui/material';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../../store';
 import { IStaff, IShiftPattern, IAssignment } from '../../db/dexie';
-
-// 共通ファイルからインポート
 import { MONTH_DAYS } from '../../utils/dateUtils';
+import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
+import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
 
 interface StaffCalendarViewProps {
   onCellClick: (date: string, staffId: string) => void; 
+  onHolidayIncrement: (staffId: string) => void;
+  onHolidayDecrement: (staffId: string) => void;
+  staffHolidayRequirements: Map<string, number>; 
 }
 
-export default function StaffCalendarView({ onCellClick }: StaffCalendarViewProps) {
+// ★★★ v5.41 修正: CSS Grid用のスタイル定義 ★★★
+const styles: { [key: string]: CSSProperties } = {
+  gridContainer: {
+    maxHeight: 600,
+    overflow: 'auto', // 縦横のスクロール
+    border: '1px solid #e0e0e0',
+    borderRadius: '4px',
+    backgroundColor: '#fff',
+  },
+  grid: {
+    display: 'grid',
+    // 列定義: [スタッフ名] [公休調整] [日付...] (日付は30日分)
+    gridTemplateColumns: `150px 120px repeat(${MONTH_DAYS.length}, minmax(80px, 1fr))`,
+    position: 'relative', // sticky の基準
+  },
+  headerCell: {
+    padding: '8px',
+    borderBottom: '1px solid #e0e0e0',
+    borderRight: '1px solid #e0e0e0',
+    backgroundColor: '#f9f9f9',
+    position: 'sticky',
+    top: 0,
+    zIndex: 11,
+    fontWeight: 'bold',
+  },
+  dateHeaderCell: {
+    textAlign: 'center',
+    minWidth: 80,
+  },
+  stickyCol1: { // スタッフ名
+    position: 'sticky',
+    left: 0,
+    zIndex: 10,
+  },
+  stickyCol2: { // 公休調整
+    position: 'sticky',
+    left: 150, // Col1の幅
+    zIndex: 10,
+  },
+  cell: {
+    padding: '4px',
+    borderBottom: '1px solid #e0e0e0',
+    borderRight: '1px solid #e0e0e0',
+    minHeight: '50px', // セルの最小高さ
+  },
+  cellClickable: {
+    cursor: 'pointer',
+  },
+  staffNameCell: {
+    backgroundColor: '#fff', // スクロール時に日付が透けないように
+  },
+  adjustCell: {
+    backgroundColor: '#fff', // スクロール時に日付が透けないように
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  weekendBg: {
+    backgroundColor: '#f5f5f5',
+  },
+  rowBorderTop: {
+    borderTop: '3px double #000',
+  },
+  assignmentChip: {
+    borderRadius: '16px',
+    padding: '4px 8px',
+    fontSize: '0.75rem',
+    marginBottom: '4px',
+    textAlign: 'center',
+    width: '100%',
+    boxSizing: 'border-box',
+    border: '1px solid #9e9e9e',
+  }
+};
+// ★★★ v5.41 修正ここまで ★★★
+
+
+export default function StaffCalendarView({ 
+  onCellClick, 
+  onHolidayIncrement, 
+  onHolidayDecrement,
+  staffHolidayRequirements 
+}: StaffCalendarViewProps) {
+  
   const { staff: staffList } = useSelector((state: RootState) => state.staff);
   const { patterns: shiftPatterns } = useSelector((state: RootState) => state.pattern);
   const { assignments } = useSelector((state: RootState) => state.assignment);
   const patternMap = React.useMemo(() => new Map(shiftPatterns.map((p: IShiftPattern) => [p.patternId, p])), [shiftPatterns]);
   
-  // ユニットIDでソートするロジック
   const sortedStaffList = React.useMemo(() => {
     return [...staffList].sort((a, b) => {
-      const unitA = a.unitId || 'ZZZ'; // null (フリー) を最後にするため 'ZZZ' 等の大きな文字列として扱う
+      const unitA = a.unitId || 'ZZZ';
       const unitB = b.unitId || 'ZZZ';
-
       if (unitA === unitB) {
-        // 同じユニットの場合は氏名でソート
         return a.name.localeCompare(b.name);
       }
-      // ユニットIDでソート
+      // ★★★ v5.44 修正: b.unitB を unitB に修正 ★★★
       return unitA.localeCompare(unitB);
     });
   }, [staffList]);
 
-  // アサインメントを (スタッフID x 日付) のマップに変換
   const assignmentsMap = React.useMemo(() => {
-    const map = new Map<string, IAssignment[]>(); // (キー: "スタッフID_日付")
+    const map = new Map<string, IAssignment[]>(); 
     for (const assignment of assignments) { 
       const key = `${assignment.staffId}_${assignment.date}`;
       if (!map.has(key)) map.set(key, []);
@@ -48,107 +130,126 @@ export default function StaffCalendarView({ onCellClick }: StaffCalendarViewProp
 
   return (
     <>
-      <Typography variant="h6" gutterBottom>スタッフビュー（カレンダー）</Typography>
-      {/* ★ v5.6 修正: 横スクロール (overflowX) を追加 */}
-      <TableContainer component={Paper} variant="outlined" sx={{ 
-        maxHeight: 600, 
-        overflowX: 'auto' 
-      }}>
-        <Table stickyHeader size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell sx={{ minWidth: 150 }}>スタッフ</TableCell>
-              {MONTH_DAYS.map(dayInfo => (
-                <TableCell 
-                  key={dayInfo.dateStr} 
-                  sx={{ 
-                    minWidth: 80, 
-                    textAlign: 'center', 
-                    background: (dayInfo.dayOfWeek === 0 || dayInfo.dayOfWeek === 6) ? 'grey.200' : 'default' 
-                  }}
-                >
-                  {dayInfo.dateStr.split('-')[2]}<br/>({dayInfo.weekday})
-                </TableCell>
-              ))}
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {sortedStaffList.map((staff: IStaff, index: number) => {
-              
-              let rowStyle = {};
-              if (index > 0) {
-                const prevStaff = sortedStaffList[index - 1];
-                if (staff.unitId !== prevStaff.unitId) {
-                  rowStyle = {
-                    borderTop: '3px double #000', // (黒の二重線)
-                  };
-                }
-              }
+      {/* ★★★ v5.41 修正: Typography を h6 に ★★★ */}
+      <h6 style={{ margin: '0 0 16px 0', fontSize: '1.25rem', fontWeight: 500 }}>
+        スタッフビュー（カレンダー）
+      </h6>
+      
+      {/* ★★★ v5.41 修正: <table> を CSS Grid (div) に置換 ★★★ */}
+      <div style={styles.gridContainer}>
+        <div style={styles.grid}>
+          
+          {/* Header Row */}
+          <div style={{ ...styles.headerCell, ...styles.stickyCol1, zIndex: 12 }}>スタッフ</div>
+          <div style={{ ...styles.headerCell, ...styles.stickyCol2, zIndex: 12 }}>公休調整</div>
+          {MONTH_DAYS.map(dayInfo => (
+            <div 
+              key={dayInfo.dateStr}
+              style={{
+                ...styles.headerCell,
+                ...styles.dateHeaderCell,
+                backgroundColor: (dayInfo.dayOfWeek === 0 || dayInfo.dayOfWeek === 6) ? '#eeeeee' : '#f9f9f9'
+              }}
+            >
+              {dayInfo.dateStr.split('-')[2]}<br/>({dayInfo.weekday})
+            </div>
+          ))}
 
-              return (
-                // ★★★ v5.7 修正: 行内のJSXコメントを削除 ★★★
-                <TableRow key={staff.staffId} hover sx={rowStyle}>
-                  <TableCell component="th" scope="row" sx={rowStyle}>
-                    {staff.name}
-                    <Typography variant="caption" display="block" color={staff.employmentType === 'FullTime' ? 'primary' : 'textSecondary'}>
-                      ({staff.unitId || 'フリー'})
-                    </Typography>
-                  </TableCell>
+          {/* Data Rows (CSS Gridは行を意識せずセルを並べるだけ) */}
+          {sortedStaffList.map((staff: IStaff, index: number) => {
+            
+            let rowBorderStyle: CSSProperties = {};
+            if (index > 0) {
+              const prevStaff = sortedStaffList[index - 1];
+              if (staff.unitId !== prevStaff.unitId) {
+                rowBorderStyle = styles.rowBorderTop;
+              }
+            }
+            
+            const requiredHolidays = staffHolidayRequirements.get(staff.staffId) || 0; 
+
+            return (
+              <React.Fragment key={staff.staffId}>
+                {/* Staff Name Cell */}
+                <div style={{ ...styles.cell, ...styles.stickyCol1, ...styles.staffNameCell, ...rowBorderStyle }}>
+                  {staff.name}
+                  <span style={{ 
+                    display: 'block', 
+                    fontSize: '0.75rem', 
+                    color: staff.employmentType === 'FullTime' ? '#1976d2' : '#666'
+                  }}>
+                    ({staff.unitId || 'フリー'})
+                  </span>
+                </div>
+                
+                {/* Holiday Adjust Cell */}
+                <div style={{ ...styles.cell, ...styles.stickyCol2, ...styles.adjustCell, ...rowBorderStyle }}>
+                  <IconButton size="small" onClick={() => onHolidayDecrement(staff.staffId)}>
+                    <RemoveCircleOutlineIcon sx={{ fontSize: '1.25rem' }} />
+                  </IconButton>
+                  <span style={{ padding: '0 4px', fontWeight: 'bold' }}>
+                    {requiredHolidays} 日
+                  </span>
+                  <IconButton size="small" onClick={() => onHolidayIncrement(staff.staffId)}>
+                    <AddCircleOutlineIcon sx={{ fontSize: '1.25rem' }} />
+                  </IconButton>
+                </div>
+
+                {/* Date Cells */}
+                {MONTH_DAYS.map(dayInfo => {
+                  const key = `${staff.staffId}_${dayInfo.dateStr}`;
+                  const assignmentsForCell = assignmentsMap.get(key) || [];
+                  const isWeekend = dayInfo.dayOfWeek === 0 || dayInfo.dayOfWeek === 6;
                   
-                  {MONTH_DAYS.map(dayInfo => {
-                    const key = `${staff.staffId}_${dayInfo.dateStr}`;
-                    const assignmentsForCell = assignmentsMap.get(key) || [];
-                    
-                    return (
-                      <TableCell 
-                        key={key} 
-                        sx={{ 
-                          verticalAlign: 'top', 
-                          borderLeft: '1px solid', 
-                          borderColor: 'divider',
-                          p: 0.5,
-                          background: (dayInfo.dayOfWeek === 0 || dayInfo.dayOfWeek === 6) ? 'grey.100' : 'default',
-                          cursor: 'pointer',
-                          ...rowStyle // ★ v5.6 修正: 二重線スタイルを日付セルにも適用
-                        }}
-                        onClick={() => onCellClick(dayInfo.dateStr, staff.staffId)}
-                      >
-                        {assignmentsForCell.length === 0 ? (
-                          <Typography variant="caption" color="textSecondary" sx={{display: 'block', textAlign: 'center'}}>
-                            -
-                          </Typography>
-                        ) : (
-                          assignmentsForCell.map(assignment => {
-                            const pattern = assignment.patternId ? patternMap.get(assignment.patternId) : null;
-                            let bgColor = 'default';
+                  return (
+                    <div 
+                      key={key} 
+                      style={{
+                        ...styles.cell,
+                        ...styles.cellClickable,
+                        ...(isWeekend ? styles.weekendBg : {}),
+                        ...rowBorderStyle
+                      }}
+                      onClick={() => onCellClick(dayInfo.dateStr, staff.staffId)}
+                    >
+                      {assignmentsForCell.length === 0 ? (
+                        <span style={{ display: 'block', textAlign: 'center', color: '#888' }}>
+                          -
+                        </span>
+                      ) : (
+                        assignmentsForCell.map(assignment => {
+                          const pattern = assignment.patternId ? patternMap.get(assignment.patternId) : null;
+                          let bgColor = '#e0e0e0'; // default
+                          let textColor = 'rgba(0, 0, 0, 0.87)';
+                            
                             if (pattern?.workType === 'StatutoryHoliday' || pattern?.workType === 'PaidLeave') {
-                              bgColor = 'error.light'; // 休みは赤系
+                              bgColor = '#ef9a9a'; // 赤系
                             } else if (pattern?.isNightShift) {
-                              bgColor = 'grey.400'; // 夜勤はグレー
+                              bgColor = '#bdbdbd'; // 濃いグレー
                             }
-                            return (
-                              <Chip 
-                                key={assignment.id} 
-                                label={pattern?.patternId || '??'} 
-                                size="small" 
-                                sx={{ 
-                                  width: '100%', 
-                                  mb: 0.5,
-                                  background: bgColor,
-                                }}
-                              />
-                            );
-                          })
-                        )}
-                      </TableCell>
-                    );
-                  })}
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </TableContainer>
+
+                          return (
+                            <div 
+                              key={assignment.id}
+                              style={{
+                                ...styles.assignmentChip,
+                                backgroundColor: bgColor,
+                                color: textColor,
+                              }}
+                            >
+                              {pattern?.patternId || '??'}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  );
+                })}
+              </React.Fragment>
+            );
+          })}
+        </div>
+      </div>
     </>
   );
 };

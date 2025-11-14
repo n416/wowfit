@@ -1,83 +1,221 @@
-import React, { useState } from 'react';
+import { useState } from 'react'; // ★ v5.44 修正: React を削除
 import { 
   Box, Paper, Typography, TextField, Button, 
   CircularProgress, Alert, AlertTitle,
   Collapse,
-  IconButton
+  IconButton,
+  Stack,
+  Divider
 } from '@mui/material';
 
-// アイコンのインポート
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
-
-// (ShiftCalendarPage.tsx から AIサポートペインのコードを移動)
+import FindInPageIcon from '@mui/icons-material/FindInPage'; 
+import CloseIcon from '@mui/icons-material/Close';
+import SupportAgentIcon from '@mui/icons-material/SupportAgent'; 
+import BalanceIcon from '@mui/icons-material/Balance'; // ★ 追加: 天秤アイコン
 
 interface AiSupportPaneProps {
-  // ★ v5.9 AIペインに必要な props を定義
   instruction: string;
   onInstructionChange: (value: string) => void;
   isLoading: boolean;
   error: string | null;
   onClearError: () => void;
   onExecute: () => void;
+  
+  isAnalysisLoading: boolean;
+  analysisResult: string | null;
+  analysisError: string | null;
+  onClearAnalysis: () => void;
+  onExecuteAnalysis: () => void;
+
+  onFillRental: () => void;
+  // ★★★ v5.17 追加: 強制補正用ハンドラ ★★★
+  onForceAdjustHolidays: () => void;
 }
 
-// export default を追加
 export default function AiSupportPane({
-  instruction, onInstructionChange, isLoading, error, onClearError, onExecute
+  instruction, onInstructionChange, isLoading, error, onClearError, onExecute,
+  isAnalysisLoading, analysisResult, analysisError, onClearAnalysis, onExecuteAnalysis,
+  onFillRental, onForceAdjustHolidays
 }: AiSupportPaneProps) {
 
-  // ★ v5.9 折りたたみ状態は、このコンポーネントの内部で管理
   const [isAiSupportOpen, setIsAiSupportOpen] = useState(true);
+
+  const handleExecute = (fixedInstruction?: string) => {
+    if (fixedInstruction) {
+      onInstructionChange(fixedInstruction);
+    }
+    onExecute(); 
+  };
+  
+  const isAnyLoading = isLoading || isAnalysisLoading;
+  const displayResult = analysisResult;
 
   return (
     <Paper 
       variant="outlined" 
       sx={{ 
-        flexShrink: 0, // 高さが縮まないように
-        borderColor: isLoading ? 'primary.main' : 'divider',
-        borderWidth: isLoading ? 2 : 1,
-        overflow: 'hidden' // Collapse のため
+        width: '100%', 
+        flexShrink: 0, 
+        borderColor: isAnyLoading ? 'primary.main' : 'divider',
+        borderWidth: isAnyLoading ? 2 : 1,
+        overflow: 'hidden' 
       }}
     >
       <Box 
         sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', p: 2 }}
         onClick={() => setIsAiSupportOpen(!isAiSupportOpen)}
       >
-        <Typography variant="h6">AIサポート</Typography>
+        <Typography variant="h6">AIサポート & 自動調整</Typography>
         <IconButton size="small">
           {isAiSupportOpen ? <KeyboardArrowDownIcon /> : <KeyboardArrowUpIcon />}
         </IconButton>
       </Box>
       
       <Collapse in={isAiSupportOpen}>
-        <Box sx={{ p: 2, pt: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {error && (
-            <Alert severity="error" onClose={onClearError}>
-              <AlertTitle>AI調整エラー</AlertTitle>
-              {error}
-            </Alert>
+        <Box sx={{ p: 2, pt: 0 }}>
+          
+          {(error || analysisError) && (
+            <Box sx={{ mb: 2 }}>
+              {error && (
+                <Alert severity="error" onClose={onClearError} sx={{ mb: 1 }}>
+                  <AlertTitle>AI草案作成エラー</AlertTitle>
+                  {error}
+                </Alert>
+              )}
+              {analysisError && (
+                <Alert severity="warning" onClose={onClearAnalysis}>
+                  <AlertTitle>AI現況分析エラー</AlertTitle>
+                  {analysisError}
+                </Alert>
+              )}
+            </Box>
           )}
-          <TextField
-            label="AIへの指示 (情緒的な要望など)"
-            multiline
-            rows={3}
-            fullWidth
-            value={instruction}
-            onChange={(e) => onInstructionChange(e.target.value)}
-            placeholder="例: 夜勤さんXは今月夜勤を少なめに。日勤Aさんと日勤Bさんはなるべく同じ日に休ませないで。"
-            disabled={isLoading}
-          />
-          <Button 
-            variant="contained" 
-            color="primary"
-            startIcon={isLoading ? <CircularProgress size={20} color="inherit" /> : <AutoFixHighIcon />}
-            onClick={onExecute}
-            disabled={isLoading}
-          >
-            {isLoading ? 'AI調整中...' : 'AIで調整を実行'}
-          </Button>
+          
+          {displayResult && (
+            <Box sx={{ mb: 2 }}>
+              <Alert 
+                severity="info" 
+                sx={{ 
+                  width: '100%',
+                  '& .MuiAlert-message': { flexGrow: 1, minWidth: 0, overflow: 'hidden' } 
+                }} 
+              >
+                <Box sx={{ display: 'flex', flexDirection: 'column', width: '100%', minWidth: 0 }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
+                    <AlertTitle sx={{ mb: 1, flexGrow: 1 }}>AI現況分析レポート</AlertTitle>
+                    <IconButton size="small" onClick={onClearAnalysis} sx={{ mt: -0.5, mr: -1, color: 'info.main' }}>
+                      <CloseIcon fontSize="small" />
+                    </IconButton>
+                  </Box>
+                  <Box sx={{ maxHeight: '200px', overflowY: 'auto', pr: 1 }}>
+                    <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                      {displayResult}
+                    </Typography>
+                  </Box>
+                </Box>
+              </Alert>
+            </Box>
+          )}
+
+          <Stack spacing={3}>
+            
+            {/* グループ1: 基本作成 */}
+            <Box>
+              <Typography variant="caption" color="textSecondary" sx={{ mb: 1, display: 'block', fontWeight: 'bold' }}>
+                [作成・埋める]
+              </Typography>
+              <Stack direction="row" spacing={2}>
+                <Button 
+                  variant="contained" 
+                  color="primary"
+                  startIcon={isLoading ? <CircularProgress size={20} color="inherit" /> : <AutoFixHighIcon />}
+                  onClick={onExecute} 
+                  disabled={isAnyLoading} 
+                  fullWidth
+                  sx={{ py: 1.5 }}
+                >
+                  {isLoading ? '作成中...' : 'AIで草案を作成'}
+                </Button>
+                <Button 
+                  variant="contained" 
+                  color="success"
+                  startIcon={<SupportAgentIcon />}
+                  onClick={onFillRental}
+                  disabled={isAnyLoading} 
+                  fullWidth
+                  sx={{ py: 1.5 }}
+                >
+                  応援スタッフで埋める (ロジック)
+                </Button>
+              </Stack>
+            </Box>
+
+            <Divider />
+
+            {/* グループ2: 調整・分析 */}
+            <Box>
+              <Typography variant="caption" color="textSecondary" sx={{ mb: 1, display: 'block', fontWeight: 'bold' }}>
+                [調整・分析]
+              </Typography>
+              <Stack direction="row" spacing={2}>
+                {/* ★★★ v5.17 追加: 公休数強制補正ボタン ★★★ */}
+                <Button 
+                  variant="outlined" 
+                  color="warning"
+                  startIcon={<BalanceIcon />}
+                  onClick={onForceAdjustHolidays}
+                  disabled={isAnyLoading} 
+                  fullWidth
+                >
+                  公休数強制補正 (ロジック)
+                </Button>
+                {/* ★★★ 追加ここまで ★★★ */}
+
+                <Button 
+                  variant="outlined" 
+                  color="secondary"
+                  startIcon={isAnalysisLoading ? <CircularProgress size={20} color="inherit" /> : <FindInPageIcon />}
+                  onClick={() => onExecuteAnalysis()} 
+                  disabled={isAnyLoading} 
+                  fullWidth
+                >
+                  {isAnalysisLoading ? '分析中...' : 'AI現況分析'}
+                </Button>
+              </Stack>
+            </Box>
+
+            <Divider />
+
+            {/* グループ3: カスタム指示 */}
+            <Box>
+              <Typography variant="caption" color="textSecondary" sx={{ mb: 1, display: 'block', fontWeight: 'bold' }}>
+                [カスタム指示]
+              </Typography>
+              <Stack direction="row" spacing={1}>
+                <TextField
+                  size="small"
+                  fullWidth
+                  placeholder="例: Aさんの夜勤を減らして..."
+                  value={instruction}
+                  onChange={(e) => onInstructionChange(e.target.value)}
+                  disabled={isAnyLoading}
+                />
+                <Button 
+                  variant="contained" 
+                  color="info"
+                  onClick={() => handleExecute()} 
+                  disabled={isAnyLoading} 
+                  sx={{ minWidth: '120px' }}
+                >
+                  AI調整
+                </Button>
+              </Stack>
+            </Box>
+
+          </Stack>
         </Box>
       </Collapse>
     </Paper>

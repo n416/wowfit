@@ -1,10 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Box, Paper, Typography, TextField, Button, Select, 
-  MenuItem, InputLabel, FormControl, Checkbox, FormControlLabel,
-  CircularProgress,
+  MenuItem, InputLabel, FormControl, Checkbox, ListItemText, Chip, Divider,
   Dialog, DialogActions, DialogContent, DialogTitle,
-  List, ListItem, ListItemButton, ListItemText, Chip, Divider,
 } from '@mui/material';
 import { useSelector, useDispatch } from 'react-redux';
 import type { AppDispatch, RootState } from '../../store';
@@ -13,9 +11,7 @@ import {
 } from '../../db/dexie'; 
 import { parseAndSaveConstraints } from '../../store/staffSlice'; 
 
-// (DataManagementPage.tsx から EditStaffModal のコードをそのまま移動)
-
-// ★★★ (v4の簡略化された制約のデフォルトをコピー) ★★★
+// ローカル定義のデフォルト制約
 const getDefaultConstraints = (): IStaffConstraints => ({
   maxConsecutiveDays: 5,
   minIntervalHours: 12,
@@ -27,22 +23,21 @@ interface EditStaffModalProps {
   onSave: (updatedStaff: IStaff) => void;
 }
 
-// export default を追加
 export default function EditStaffModal({ staff, onClose, onSave }: EditStaffModalProps) {
   const dispatch: AppDispatch = useDispatch();
   const unitList = useSelector((state: RootState) => state.unit.units);
   const patternList = useSelector((state: RootState) => state.pattern.patterns);
-  const shiftPatterns = useSelector((state: RootState) => state.pattern.patterns); // (AI解釈用)
+  const shiftPatterns = useSelector((state: RootState) => state.pattern.patterns);
 
-  // (v5スキーマ対応)
   const [name, setName] = useState('');
-  const [employmentType, setEmploymentType] = useState<'FullTime' | 'PartTime'>('FullTime');
+  // ★★★ v5.11 修正: Rental を追加 ★★★
+  const [employmentType, setEmploymentType] = useState<'FullTime' | 'PartTime' | 'Rental'>('FullTime');
   const [skills, setSkills] = useState('');
   const [unitId, setUnitId] = useState<string | null>(null);
   const [availablePatternIds, setAvailablePatternIds] = useState<string[]>([]);
   const [memo, setMemo] = useState('');
   const [constraints, setConstraints] = useState<IStaffConstraints>(getDefaultConstraints());
-  const [aiLoading, setAiLoading] = useState(false); // (AI解釈専用ローディング)
+  const [aiLoading, setAiLoading] = useState(false);
 
   useEffect(() => {
     if (staff) {
@@ -72,7 +67,6 @@ export default function EditStaffModal({ staff, onClose, onSave }: EditStaffModa
     onSave(updatedStaff);
   };
   
-  // (AI解釈ハンドラ)
   const handleParseMemo = () => {
     if (!staff) return;
     setAiLoading(true);
@@ -80,9 +74,8 @@ export default function EditStaffModal({ staff, onClose, onSave }: EditStaffModa
       staffId: staff.staffId,
       memo: memo,
       shiftPatterns: shiftPatterns,
-      currentMonthInfo: { month: '2025-11', dayOfWeekOn10th: '月曜日' } // (仮)
+      currentMonthInfo: { month: '2025-11', dayOfWeekOn10th: '月曜日' } 
     })).then((action) => {
-      // (AIの実行結果をモーダルのStateに即時反映)
       if (parseAndSaveConstraints.fulfilled.match(action)) {
         setAvailablePatternIds(action.payload.availablePatternIds || []);
         setMemo(action.payload.memo || '');
@@ -104,9 +97,11 @@ export default function EditStaffModal({ staff, onClose, onSave }: EditStaffModa
           <TextField label="氏名" value={name} onChange={(e) => setName(e.target.value)} required size="small" fullWidth />
           <FormControl size="small" fullWidth>
             <InputLabel>雇用形態</InputLabel>
+            {/* ★★★ v5.11 修正: Rental を選択肢に追加 ★★★ */}
             <Select value={employmentType} label="雇用形態" onChange={(e) => setEmploymentType(e.target.value as any)}>
               <MenuItem value="FullTime">常勤</MenuItem>
               <MenuItem value="PartTime">パート</MenuItem>
+              <MenuItem value="Rental">応援・派遣</MenuItem>
             </Select>
           </FormControl>
           <FormControl size="small" fullWidth>
@@ -155,13 +150,13 @@ export default function EditStaffModal({ staff, onClose, onSave }: EditStaffModa
           <Divider sx={{ my: 1 }}><Chip label="基本制約" /></Divider>
           <TextField 
             label="最大連勤日数" 
-            value={constraints?.maxConsecutiveDays || 5} // (フォールバック)
+            value={constraints?.maxConsecutiveDays || 5}
             onChange={(e) => setConstraints(c => ({...c, maxConsecutiveDays: Number(e.target.value)}))}
             size="small" type="number"
           />
           <TextField 
             label="最短勤務間隔 (時間)" 
-            value={constraints?.minIntervalHours || 12} // (フォールバック)
+            value={constraints?.minIntervalHours || 12}
             onChange={(e) => setConstraints(c => ({...c, minIntervalHours: Number(e.target.value)}))}
             size="small" type="number"
           />

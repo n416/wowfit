@@ -2,12 +2,15 @@ import { createSlice, PayloadAction, createAsyncThunk } from '@reduxjs/toolkit';
 import { IStaff, IShiftPattern, db, IAssignment, IUnit } from '../db/dexie'; 
 import { GeminiApiClient } from '../api/geminiApiClient'; 
 import { extractJson } from '../utils/jsonExtractor'; 
+// ★★★ v5.78 修正: 未使用の MONTH_DAYS を削除 ★★★
+import { getDefaultRequiredHolidays } from '../utils/dateUtils';
 
-// (FetchAdviceArgs, fetchAssignmentAdvice は変更なし)
+
+// (FetchAdviceArgs, fetchAssignmentAdvice は v5.75 のまま変更なし)
 interface FetchAdviceArgs {
   targetDate: string;
   targetStaff: IStaff;
-  allStaff: IStaff[];
+  allStaff: IStaff[]; 
   allPatterns: IShiftPattern[];
   allUnits: IUnit[]; 
   burdenData: any; 
@@ -17,6 +20,7 @@ interface FetchAdviceArgs {
 export const fetchAssignmentAdvice = createAsyncThunk(
   'assignment/fetchAdvice',
   async (args: FetchAdviceArgs, { rejectWithValue }) => {
+    // ★★★ v5.78 修正: 未使用の allStaff を削除 ★★★
     const { targetDate, targetStaff, allPatterns, allUnits, burdenData, allAssignments } = args;
 
     const gemini = new GeminiApiClient();
@@ -62,7 +66,7 @@ ${JSON.stringify(allAssignments.filter(s => s.staffId), null, 2)}
 );
 
 
-// AIによる「全体調整（草案作成）」Thunk
+// ★★★ v5.75 (v5.74) の「AI草案作成」ロジック (JSONエラー対策版) - 変更なし ★★★
 interface FetchAiAdjustmentArgs {
   instruction: string; 
   allStaff: IStaff[];
@@ -81,26 +85,26 @@ export const fetchAiAdjustment = createAsyncThunk(
     const { instruction, allStaff, allPatterns, allUnits, allAssignments, monthInfo, staffHolidayRequirements } = args;
 
     const gemini = new GeminiApiClient();
-    console.log("★ AI草案作成: API利用可能かチェック...", { isAvailable: gemini.isAvailable });
     if (!gemini.isAvailable) {
-      console.error("★ AI草案作成: APIが利用不可 (設定ページを確認してください)");
       return rejectWithValue('Gemini APIが設定されていません。');
     }
     
-    const defaultHolidayCount = getDefaultRequiredHolidays(monthInfo.days);
+    const defaultHolidayCount = getDefaultRequiredHolidays();
 
-    // ★★★ v5.14 修正: Rentalスタッフの特別扱いロジックを削除 ★★★
     const staffWithHolidayReq = allStaff.map(staff => ({
       ...staff,
       requiredHolidays: staffHolidayRequirements.get(staff.staffId) || defaultHolidayCount 
     }));
     
-    // ★★★ v5.14 修正: Rentalスタッフに関する指示を削除 ★★★
-    // ★★★ v5.23 修正: 「パートのみ禁止」ルールを追加 ★★★
-    const prompt = `あなたは勤務表の自動調整AIです。以下の入力に基づき、月全体の勤務表アサイン（IAssignment[]）を最適化し、修正後のアサイン配列「全体」をJSON形式で出力してください。
+    let finalInstruction = instruction || '特記事項なし。デマンド（必要人数）を満たし、スタッフの負担（特に連勤・インターバル・公休数）が公平になるよう全体を最適化してください。';
+    if (instruction.includes("公休数強制補正")) {
+      finalInstruction = "最優先事項: スタッフ一覧で定義された `requiredHolidays`（必要公休数）を厳密に守ってください。デマンド（必要人数）やその他の制約（連勤など）を満たすのが難しい場合でも、公休数の確保を最優先としてください。";
+    }
+
+    const prompt = `あなたは勤務表の自動調整AIです。以下の入力に基づき、月全体の勤務表アサイン（IAssignment[]）を最適化し、修正後のアサイン配列「全体」をJSON形式で**のみ**出力してください。
 
 # 1. 管理者からの指示
-${instruction || '特記事項なし。デマンド（必要人数）を満たし、スタッフの負担（特に連勤・インターバル・公休数）が公平になるよう全体を最適化してください。'}
+${finalInstruction}
 
 # 2. スタッフ一覧 (勤務可能パターンと制約、★必要公休数)
 ${JSON.stringify(staffWithHolidayReq, null, 2)}
@@ -130,8 +134,12 @@ ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
 5. **制約の遵守**: 「スタッフ一覧」で定義された "constraints"（最大連勤・最短インターバル）と "availablePatternIds"（勤務可能パターン）を遵守してください（ロックされたアサインは除く）。
 6. **デマンドの充足**: 可能な限りデマンドを満たしてください。
 7. **公休の配置**: 公休・有給は \`unitId: null\` としてください。
-8. **管理者の指示**: 「管理者からの指示」を（上記1〜5の制約の次に）優先して考慮してください。
-9. **出力形式**: 修正後のアサイン配列（IAssignment[]）「全体」を、以下のJSON形式でのみ出力してください。他のテキストは一切含めないでください。
+8. **管理者の指示**: 「管理者からの指示」(#1)を（上記1〜5の制約の次に）優先して考慮してください。
+
+# 9. 出力形式 (【厳守】)
+- **修正後のアサイン配列（IAssignment[]）「全体」を、以下のJSON形式でのみ出力してください。**
+- **\`\`\`json ... \`\`\` のマークダウンや、前後の挨拶・説明文（「はい、承知いたしました。」など）は絶対に（MUST NOT）含めないでください。**
+- **応答は必ず \`[\` で始まり、 \`]\` で終わる必要があります。**
 \`\`\`json
 [
   { "date": "2025-11-01", "staffId": "s001", "patternId": "N", "unitId": "U01", "locked": true },
@@ -169,7 +177,122 @@ ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
 );
 
 
-// AIによる「現況分析」Thunk
+// ★★★ v5.76 修正: 「公休数差分補正」専用の新しいThunkを作成 ★★★
+interface FetchAiHolidayPatchArgs {
+  allStaff: IStaff[];
+  allPatterns: IShiftPattern[];
+  allUnits: IUnit[];
+  allAssignments: IAssignment[]; 
+  monthInfo: { year: number, month: number, days: any[] };
+  staffHolidayRequirements: Map<string, number>;
+}
+
+export const fetchAiHolidayPatch = createAsyncThunk(
+  'assignment/fetchAiHolidayPatch',
+  async (args: FetchAiHolidayPatchArgs, { rejectWithValue }) => {
+    console.log("★ AI公休補正: Thunk (fetchAiHolidayPatch) 開始");
+    
+    const { allStaff, allPatterns, allUnits, allAssignments, monthInfo, staffHolidayRequirements } = args;
+
+    const gemini = new GeminiApiClient();
+    if (!gemini.isAvailable) {
+      return rejectWithValue('Gemini APIが設定されていません。');
+    }
+    
+    const defaultHolidayCount = getDefaultRequiredHolidays();
+    const staffWithHolidayReq = allStaff.map(staff => ({
+      ...staff,
+      requiredHolidays: staffHolidayRequirements.get(staff.staffId) || defaultHolidayCount 
+    }));
+
+    // (公休パターンIDを特定)
+    const holidayPatternId = allPatterns.find(p => p.workType === 'StatutoryHoliday')?.patternId || '公休';
+
+    // ★★★ v5.77 修正: バッククォートをエスケープ ( \` ) ★★★
+    const prompt = `あなたは勤務表の「差分補正」AIです。
+以下の「現在の勤務表」と「スタッフの必要公休数」を比較し、**公休数に過不足があるスタッフ**のみを修正してください。
+
+# 1. スタッフ一覧 (★必要公休数)
+${JSON.stringify(staffWithHolidayReq.filter(s => s.employmentType !== 'Rental'), null, 2)}
+
+# 2. 勤務パターン定義
+${JSON.stringify(allPatterns, null, 2)}
+
+# 3. ユニット別・24時間デマンド（必要人数）
+${JSON.stringify(allUnits, null, 2)}
+
+# 4. 現在の勤務表 (※可能な限り維持してください)
+${JSON.stringify(allAssignments, null, 2)}
+
+# 5. 対象月
+${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
+
+# 指示 (最重要)
+1. **最小限の変更 (最重要)**: 「現在の勤務表」(#4)は、**\`locked: true\`でなくても、可能な限り（99%）維持**してください。
+2. **公休数の過不足を計算**: スタッフごとに「必要公休数」(#1)と、「現在の勤務表」(#4)内の "workType": "StatutoryHoliday" の数を比較してください。
+3. **公休が不足している場合**:
+   - そのスタッフの「勤務（"workType": "Work"）」アサインのうち、デマンド（#3）への影響が最も少ない日（例：デマンドが0、または既に人員が充足している日）を探してください。
+   - その日の勤務アサインを、公休アサイン（例: \`{ "date": "...", "staffId": "...", "patternId": "${holidayPatternId}", "unitId": null }\`）に**置き換えて**ください。
+4. **公休が過剰な場合**:
+   - そのスタッフの「公休」アサインのうち、デマンド（#3）が**不足**している日（＝本当は出勤してほしい日）を探してください。
+   - その日の公休アサインを、そのスタッフが勤務可能な労働パターン（例: "A" や "N"）に**置き換えて**ください。
+5. **ロックされたアサインは変更不可**: \`"locked": true\` のアサインは絶対に変更しないでください。
+
+# 出力形式 (【厳守】)
+- **変更（置換）が必要なアサインのみ**を、IAssignment[] 形式のJSON配列で出力してください。
+- **変更が不要なアサインは、絶対に出力に含めないでください。**
+- **応答は必ず \`[\` で始まり、 \`]\` で終わる必要があります。**
+- もし変更が不要な場合（全員の公休数が一致している場合）は、空の配列 \`[]\` を返してください。
+
+\`\`\`json
+[
+  { "date": "2025-11-10", "staffId": "s003", "patternId": "${holidayPatternId}", "unitId": null },
+  { "date": "2025-11-15", "staffId": "s004", "patternId": "A", "unitId": "U01" }
+]
+\`\`\`
+`;
+
+    try {
+      console.log("★ AI公休補正: APIにプロンプトを送信します");
+      const resultText = await gemini.generateContent(prompt);
+      console.log("★ AI公休補正: APIから応答受信。JSONを解析します。");
+
+      const patchAssignments: IAssignment[] = extractJson(resultText);
+      
+      if (!Array.isArray(patchAssignments)) {
+        throw new Error("AIが不正な形式のJSON（配列）を返しませんでした。");
+      }
+      
+      if (patchAssignments.length === 0) {
+        alert("AIによる公休数の診断が完了しました。\n（全員の公休数が既に一致しているため、変更はありませんでした）");
+        return allAssignments; // 変更がないため、現在のアサインをそのまま返す
+      }
+
+      // ★ 差分（パッチ）を適用 ★
+      // (1. 既存のアサインから、パッチに含まれる [date+staffId] と一致するものを削除)
+      const patchKeys = new Set(patchAssignments.map(p => `${p.date}_${p.staffId}`));
+      const assignmentsToDelete = allAssignments.filter(a => patchKeys.has(`${a.date}_${a.staffId}`));
+      await db.assignments.bulkDelete(assignmentsToDelete.map(a => a.id!));
+
+      // (2. パッチ（変更後のアサイン）を追加)
+      // (※AIはIDを返さないため、Omit<IAssignment, 'id'> に変換)
+      const assignmentsToAdd = patchAssignments.map(({ id, ...rest }) => rest);
+      await db.assignments.bulkAdd(assignmentsToAdd);
+      
+      const allAssignmentsFromDB = await db.assignments.toArray();
+      alert(`AIによる公休数の強制補正が完了しました。（${patchAssignments.length}件の変更）`);
+      return allAssignmentsFromDB;
+
+    } catch (e: any) {
+      console.error("★ AI公休補正: APIリクエストまたはJSON解析でエラー発生", e);
+      return rejectWithValue(e.message);
+    }
+  }
+);
+// ★★★ v5.77 修正ここまで ★★★
+
+
+// ★★★ v5.78 修正: 削除し忘れていた FetchAiAnalysisArgs を復活 ★★★
 interface FetchAiAnalysisArgs {
   allStaff: IStaff[];
   allPatterns: IShiftPattern[];
@@ -179,6 +302,7 @@ interface FetchAiAnalysisArgs {
   staffHolidayRequirements: Map<string, number>;
 }
 
+// (fetchAiAnalysis は v5.75 のまま変更なし)
 export const fetchAiAnalysis = createAsyncThunk(
   'assignment/fetchAiAnalysis',
   async (args: FetchAiAnalysisArgs, { rejectWithValue }) => {
@@ -189,16 +313,16 @@ export const fetchAiAnalysis = createAsyncThunk(
       return rejectWithValue('Gemini APIが設定されていません。');
     }
     
-    // ★★★ v5.14 修正: Rentalスタッフの特別扱いロジックを削除 ★★★
-    const staffWithHolidayReq = allStaff.map(staff => ({
+    // ★★★ v5.78 修正: allStaff.map((staff: IStaff) => ...) のように型を明示 (TS7006 修正) ★★★
+    const staffWithHolidayReq = allStaff.map((staff: IStaff) => ({
       ...staff,
-      requiredHolidays: staffHolidayRequirements.get(staff.staffId) || getDefaultRequiredHolidays(monthInfo.days)
+      requiredHolidays: staffHolidayRequirements.get(staff.staffId) || getDefaultRequiredHolidays()
     }));
-    const defaultHolidayCount = getDefaultRequiredHolidays(monthInfo.days);
+    const defaultHolidayCount = getDefaultRequiredHolidays();
 
-    const lockedAssignments = allAssignments.filter(a => a.locked);
+    // ★★★ v5.78 修正: allAssignments.filter((a: IAssignment) => ...) のように型を明示 (TS7006 修正) ★★★
+    const lockedAssignments = allAssignments.filter((a: IAssignment) => a.locked);
 
-    // ★★★ v5.14 修正: Rentalスタッフに関する指示を削除 ★★★
     const prompt = `あなたは勤務表システムのデータ診断医です。
 以下の「マスタデータ（スタッフ設定、デマンド設定）」と「固定されたアサイン（管理者による確定事項）」を診断し、**論理的な矛盾**や**物理的な達成不可能性**を指摘してください。
 
@@ -251,9 +375,7 @@ ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
 );
 
 
-const getDefaultRequiredHolidays = (monthDays: any[]): number => {
-  return monthDays.filter((d:any) => d.dayOfWeek === 0 || d.dayOfWeek === 6).length;
-};
+// (getDefaultRequiredHolidays は v5.75 で削除済み)
 
 
 interface AssignmentState {
@@ -266,6 +388,9 @@ interface AssignmentState {
   analysisLoading: boolean;
   analysisError: string | null;
   analysisResult: string | null;
+  // ★★★ v5.76 追加: 差分補正用のローディング/エラー ★★★
+  patchLoading: boolean;
+  patchError: string | null;
 }
 
 const initialState: AssignmentState = {
@@ -278,6 +403,9 @@ const initialState: AssignmentState = {
   analysisLoading: false,
   analysisError: null,
   analysisResult: null,
+  // ★★★ v5.76 追加 ★★★
+  patchLoading: false,
+  patchError: null,
 };
 
 const assignmentSlice = createSlice({
@@ -295,6 +423,9 @@ const assignmentSlice = createSlice({
     clearAdjustmentError: (state) => {
       state.adjustmentLoading = false;
       state.adjustmentError = null;
+      // ★ vD.76 修正: patchError もクリアする
+      state.patchLoading = false;
+      state.patchError = null;
     },
     clearAnalysis: (state) => {
       state.analysisLoading = false;
@@ -318,6 +449,7 @@ const assignmentSlice = createSlice({
         state.adviceError = action.payload as string;
       })
 
+      // (fetchAiAdjustment の reducer - 変更なし)
       .addCase(fetchAiAdjustment.pending, (state) => {
         state.adjustmentLoading = true;
         state.adjustmentError = null;
@@ -331,11 +463,27 @@ const assignmentSlice = createSlice({
         state.adjustmentError = action.payload as string;
       })
       
+      // ★★★ v5.76 追加: fetchAiHolidayPatch の reducer ★★★
+      .addCase(fetchAiHolidayPatch.pending, (state) => {
+        state.patchLoading = true;
+        state.patchError = null;
+      })
+      .addCase(fetchAiHolidayPatch.fulfilled, (state, action: PayloadAction<IAssignment[]>) => {
+        state.assignments = action.payload; // (DBから読み直した最新のアサイン)
+        state.patchLoading = false;
+      })
+      .addCase(fetchAiHolidayPatch.rejected, (state, action) => {
+        state.patchLoading = false;
+        state.patchError = action.payload as string;
+      })
+      
+      // (fetchAiAnalysis の reducer - 変更なし)
       .addCase(fetchAiAnalysis.pending, (state) => {
         state.analysisLoading = true;
         state.analysisError = null;
         state.analysisResult = null;
       })
+      // ★★★ v5.79 修正: タイポ ( D => ) を削除 ★★★
       .addCase(fetchAiAnalysis.fulfilled, (state, action: PayloadAction<string>) => {
         state.analysisLoading = false;
         state.analysisResult = action.payload;

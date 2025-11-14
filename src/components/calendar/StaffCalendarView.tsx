@@ -2,7 +2,6 @@ import React, { CSSProperties, useMemo, useCallback } from 'react';
 import { 
   IconButton, 
   Table, TableBody, TableCell, TableHead, TableRow,
-  // ★★★ v5.70 修正: Box をインポート ★★★
   Box
 } from '@mui/material';
 import { useSelector } from 'react-redux';
@@ -18,6 +17,8 @@ interface StaffCalendarViewProps {
   onHolidayIncrement: (staffId: string) => void;
   onHolidayDecrement: (staffId: string) => void;
   staffHolidayRequirements: Map<string, number>; 
+  // ★★★ v5.85 修正: スタッフ名クリックハンドラを追加 ★★★
+  onStaffNameClick: (staff: IStaff) => void;
 }
 
 // ★★★ v5.66/v5.67 修正: CLS対策のため width を明示 ★★★
@@ -53,6 +54,7 @@ const styles: { [key: string]: CSSProperties } = {
   staffNameCell: {
     minWidth: 150,
     width: 150, // ★ CLS対策
+    cursor: 'pointer', // ★★★ v5.85 修正: クリック可能カーソル ★★★
   },
   holidayAdjustCell: {
     minWidth: 120,
@@ -85,7 +87,9 @@ export default function StaffCalendarView({
   onCellClick, 
   onHolidayIncrement, 
   onHolidayDecrement,
-  staffHolidayRequirements 
+  staffHolidayRequirements,
+  // ★★★ v5.85 修正: props を受け取る ★★★
+  onStaffNameClick
 }: StaffCalendarViewProps) {
   
   const { staff: staffList } = useSelector((state: RootState) => state.staff);
@@ -152,7 +156,11 @@ export default function StaffCalendarView({
 
     return (
       <>
-        <TableCell style={{ ...styles.td, ...styles.stickyCell, ...rowBorderStyle }}>
+        {/* ★★★ v5.85 修正: onClick を追加 ★★★ */}
+        <TableCell 
+          style={{ ...styles.td, ...styles.stickyCell, ...styles.staffNameCell, ...rowBorderStyle }}
+          onClick={() => onStaffNameClick(staff)}
+        >
           {staff.name}
           <span style={{ 
             display: 'block', 
@@ -224,7 +232,7 @@ export default function StaffCalendarView({
         })}
       </>
     );
-  }, [sortedStaffList, staffHolidayRequirements, assignmentsMap, patternMap, onCellClick, onHolidayDecrement, onHolidayIncrement]);
+  }, [sortedStaffList, staffHolidayRequirements, assignmentsMap, patternMap, onCellClick, onHolidayDecrement, onHolidayIncrement, onStaffNameClick]); // ★ 依存配列に追加
 
   return (
     // ★★★ v5.70 修正: ルートを Box (flex-column) に変更 ★★★

@@ -19,7 +19,9 @@ import { setUnits } from '../store/unitSlice';
 import { 
   setAssignments, clearAdvice, // ★★★ v5.44 修正: fetchAssignmentAdvice を削除
   fetchAiAdjustment, clearAdjustmentError, 
-  fetchAiAnalysis, clearAnalysis 
+  fetchAiAnalysis, clearAnalysis,
+  // ★★★ v5.76 修正: fetchAiHolidayPatch をインポート ★★★
+  fetchAiHolidayPatch 
 } from '../store/assignmentSlice'; 
 import type { AppDispatch, RootState } from '../store';
 
@@ -34,11 +36,13 @@ import AssignPatternModal from '../components/calendar/AssignPatternModal';
 import AiSupportPane from '../components/calendar/AiSupportPane'; 
 import BurdenSidebar from '../components/calendar/BurdenSidebar'; 
 import DailyUnitGanttModal from '../components/calendar/DailyUnitGanttModal';
+// ★★★ v5.85 修正: 新しいモーダルをインポート ★★★
+import ClearStaffAssignmentsModal from '../components/calendar/ClearStaffAssignmentsModal'; 
 // ★★★ v5.35 修正: getPrevDateStr をインポート ★★★
 import { MONTH_DAYS, getDefaultRequiredHolidays, getPrevDateStr } from '../utils/dateUtils';
 // ★★★↓ v5.9 モックデータをインポート ↓★★★
 import { MOCK_PATTERNS_V5, MOCK_UNITS_V5, MOCK_STAFF_V4 } from '../db/mockData';
-// ★★★ v5.57 修正: 未使用の allocateHolidays を削除 ★★★
+// ★★★ v5.72 修正: allocateHolidays のインポートを（再度）削除 ★★★
 // import { allocateHolidays } from '../lib/placement/holidayAllocator';
 // ★★★ v5.21 修正: allocateWork (応援スタッフ穴埋め) をインポート ★★★
 import { allocateWork } from '../lib/placement/workAllocator';
@@ -116,7 +120,9 @@ function ShiftCalendarPage() {
     assignments, 
     // ★★★ v5.44 修正: adviceXXX を削除 (AssignPatternModalが直接useSelectorする)
     adjustmentLoading, adjustmentError,
-    analysisLoading, analysisResult, analysisError 
+    analysisLoading, analysisResult, analysisError,
+    // ★★★ v5.76 修正: patchLoading, patchError を取得 ★★★
+    patchLoading, patchError
   } = useSelector((state: RootState) => state.assignment);
 
   // v5版: 手動調整ダイアログ用の State
@@ -124,6 +130,9 @@ function ShiftCalendarPage() {
   
   // ★ v5.18.2 追加: ガントチャートモーダル用 State
   const [showingGanttTarget, setShowingGanttTarget] = useState<{ date: string; unitId: string; } | null>(null);
+  
+  // ★★★ v5.85 修正: スタッフアサインクリア用モーダルの State ★★★
+  const [clearingStaff, setClearingStaff] = useState<IStaff | null>(null);
 
   // ★ v5.7 追加: スタッフ毎の必要公休数 (Map<staffId,日数>)
   const [staffHolidayRequirements, setStaffHolidayRequirements] = useState<Map<string, number>>(new Map());
@@ -452,37 +461,29 @@ function ShiftCalendarPage() {
     setTabValue(newValue);
   };
 
-  // ★★★ v5.57 修正: 未使用の handleHolidayPlacementClick を削除 ★★★
+  // ★★★ v5.72 修正: handleHolidayPlacementClick を（再度）削除 ★★★
   /*
   const handleHolidayPlacementClick = useCallback(async () => {
-    console.log("★ (1/2) [ShiftCalendarPage] '公休配置' ボタンクリック"); // ログ
-    await allocateHolidays({
-      assignments,
-      staffList,
-      unitList,
-      patternMap,
-      staffMap,
-      staffHolidayRequirements,
-      dispatch
-    });
+    // ...
   }, [assignments, staffList, unitList, patternMap, staffHolidayRequirements, dispatch, staffMap]);
   */
 
 
-  // ★★★ v5.21 修正: 労働配置ロジック(ざっくり埋める) を「応援スタッフ穴埋め」機能に変更 ★★★
-  // (※ AiSupportPane でまだ使用されているため残します)
+  // ★★★ v5.79 修正: handleFillRental が demandMap を渡すように修正 ★★★
   const handleFillRental = useCallback(async () => {
-    // ★★★ v5.21 ログ修正 ★★★
     console.log("★ (2/2) [ShiftCalendarPage] '応援スタッフ穴埋め' ボタンクリック (handleFillRental 実行)");
+    
+    // ★★★ v5.79 修正: allocateWork に demandMap を渡す ★★★
     await allocateWork({
       assignments,
       staffList,
       unitList,
       patternMap,
       shiftPatterns, 
-      dispatch
+      dispatch,
+      demandMap // ★★★ この行を追加 ★★★
     });
-  }, [assignments, staffList, unitList, patternMap, shiftPatterns, dispatch]);
+  }, [assignments, staffList, unitList, patternMap, shiftPatterns, dispatch, demandMap]); // ★★★ 依存配列にも demandMap を追加 ★★★
 
 
   // v4版: アサインリセット
@@ -512,10 +513,36 @@ function ShiftCalendarPage() {
       }
     }
   };
+  
+  // ★★★ v5.85 修正: スタッフ名クリックのハンドラを追加 ★★★
+  const handleStaffNameClick = (staff: IStaff) => {
+    setClearingStaff(staff);
+  };
 
   const handleCloseDialog = () => {
     setEditingTarget(null);
   };
+
+  // ★★★ v5.85 修正: スタッフのアサインを全クリアするロジック ★★★
+  const handleClearStaffAssignments = useCallback(async (staffId: string) => {
+    const staff = clearingStaff; // (確認メッセージ用)
+    if (!staff) return;
+
+    const assignmentsToRemove = assignments.filter(a => a.staffId === staffId);
+    
+    if (window.confirm(`${staff.name}さんのアサイン（${assignmentsToRemove.length}件）をすべてクリアしますか？`)) {
+      try {
+        await db.assignments.bulkDelete(assignmentsToRemove.map(a => a.id!));
+        const remainingAssignments = await db.assignments.toArray();
+        dispatch(setAssignments(remainingAssignments));
+        setClearingStaff(null); // モーダルを閉じる
+      } catch (e) {
+        console.error("アサインのクリアに失敗:", e);
+        alert("アサインのクリアに失敗しました。");
+      }
+    }
+  }, [assignments, dispatch, clearingStaff]); // 依存配列
+
 
   // ★★★ v5.9 修正: 公休調整ハンドラ (+/-) を追加 ★★★
   const handleHolidayIncrement = (staffId: string) => {
@@ -539,11 +566,16 @@ function ShiftCalendarPage() {
   };
   // ★★★ v5.9 修正ここまで ★★★
 
-  // ★★★ v5.8 追加: AI調整の実行ハンドラ ★★★
-  const handleRunAiAdjustment = () => {
-    console.log("★ AI草案作成: ボタンクリック (handleRunAiAdjustment 実行)");
+  // ★★★ v5.73 修正: AI調整の実行ハンドラを引数(instruction)で分離 ★★★
+  const handleRunAiAdjustment = (instruction: string) => {
+    console.log(`★ AI調整実行: ${instruction}`);
     
-    if (!window.confirm("AIによる全体調整を実行しますか？\n（現在の勤務表下書きがAIによって上書きされます）")) {
+    // (確認ダイアログを変更)
+    const confirmMessage = instruction.includes("公休数") 
+      ? "AIによる「公休数」の強制補正を実行しますか？\n（現在の勤務表下書きがAIによって上書きされます）"
+      : "AIによる全体調整を実行しますか？\n（現在の勤務表下書きがAIによって上書きされます）";
+
+    if (!window.confirm(confirmMessage)) {
       return;
     }
     
@@ -551,8 +583,8 @@ function ShiftCalendarPage() {
     const staffForAi = staffList.filter(s => s.employmentType !== 'Rental');
     
     dispatch(fetchAiAdjustment({
-      instruction: aiInstruction,
-      allStaff: staffForAi, // ★ 修正
+      instruction: instruction, // ★ 引数をそのまま渡す
+      allStaff: staffForAi,
       allPatterns: shiftPatterns,
       allUnits: unitList,
       allAssignments: assignments, 
@@ -586,6 +618,30 @@ function ShiftCalendarPage() {
     }));
   };
 
+  // ★★★ v5.76 修正: 「公休数強制補正」ボタンのハンドラを新設 ★★★
+  const handleRunAiHolidayPatch = () => {
+    console.log("★ AI公休補正: ボタンクリック (handleRunAiHolidayPatch 実行)");
+    
+    if (!window.confirm("AIによる「公休数」の強制補正（差分適用）を実行しますか？\n（現在の勤務表の公休数を、デマンドを考慮しつつ最小限の変更で調整します）")) {
+      return;
+    }
+    
+    const staffForAi = staffList.filter(s => s.employmentType !== 'Rental');
+    
+    dispatch(fetchAiHolidayPatch({
+      allStaff: staffForAi,
+      allPatterns: shiftPatterns,
+      allUnits: unitList,
+      allAssignments: assignments, 
+      monthInfo: {
+        year: 2025, 
+        month: 11, 
+        days: MONTH_DAYS
+      },
+      staffHolidayRequirements: staffHolidayRequirements 
+    }));
+  };
+  
 
   return (
     <Box sx={{ 
@@ -628,6 +684,7 @@ function ShiftCalendarPage() {
               staffHolidayRequirements={staffHolidayRequirements}
               onHolidayIncrement={handleHolidayIncrement}
               onHolidayDecrement={handleHolidayDecrement}
+              onStaffNameClick={handleStaffNameClick} // ★★★ v5.85 修正 ★★★
             />
           </TabPanel>
           
@@ -658,10 +715,13 @@ function ShiftCalendarPage() {
       <AiSupportPane
         instruction={aiInstruction}
         onInstructionChange={setAiInstruction}
-        isLoading={adjustmentLoading}
-        error={adjustmentError}
-        onClearError={() => dispatch(clearAdjustmentError())}
-        onExecute={handleRunAiAdjustment}
+        // ★★★ v5.76 修正: isLoading を patchLoading も考慮するように変更 ★★★
+        isLoading={adjustmentLoading || patchLoading}
+        error={adjustmentError || patchError} // (エラーも両方表示)
+        onClearError={() => dispatch(clearAdjustmentError())} // (両方クリアされる)
+        
+        // ★★★ v5.73 修正: カスタム指示(aiInstruction)を渡す ★★★
+        onExecute={() => handleRunAiAdjustment(aiInstruction)}
         
         isAnalysisLoading={analysisLoading}
         analysisResult={analysisResult}
@@ -669,9 +729,9 @@ function ShiftCalendarPage() {
         onClearAnalysis={() => dispatch(clearAnalysis())}
         onExecuteAnalysis={handleRunAiAnalysis}
         
-        onFillRental={handleFillRental} // ★★★ この行を修正 ★★★
-        // ★★★ v5.44 修正: 必須プロパティ onForceAdjustHolidays を追加 ★★★
-        onForceAdjustHolidays={() => { alert('公休数強制補正は未実装です'); }}
+        onFillRental={handleFillRental} 
+        // ★★★ v5.76 修正: 新しい差分補正(Patch)ハンドラを接続 ★★★
+        onForceAdjustHolidays={handleRunAiHolidayPatch}
       />
       {/* ★★★ v5.21 修正ここまで ★★★ */}
 
@@ -694,6 +754,13 @@ function ShiftCalendarPage() {
         // ★★★ v5.44 修正: 未使用のprops (allStaff等) を削除 ★★★
         demandMap={demandMap} // ★★★ v5.35 追加 ★★★
         unitGroups={unitGroups} // ★★★ v5.36 追加 ★★★
+      />
+
+      {/* ★★★ v5.85 修正: 新しいモーダルをレンダリング ★★★ */}
+      <ClearStaffAssignmentsModal
+        staff={clearingStaff}
+        onClose={() => setClearingStaff(null)}
+        onClear={handleClearStaffAssignments}
       />
 
     </Box>

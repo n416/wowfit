@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { 
   Box, Paper, Tabs, Tab, 
+  Button // ★★★ Button をインポート ★★★
   // ★★★ v5.44 修正: 未使用のMUIコンポーネントを大量に削除 ★★★
 } from '@mui/material';
 // import WarningAmberIcon from '@mui/icons-material/WarningAmber'; // 未使用
@@ -694,13 +695,36 @@ function ShiftCalendarPage() {
           minWidth: 0, 
           minHeight: 0, // 追加
         }}>
-          <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-            {/* ★★★ v5.45 修正: TS2769を修正 ★★★ */}
-            <Tabs value={tabValue} onChange={handleTabChange}>
-              <Tab label="スタッフビュー" />
-              <Tab label="勤務枠ビュー" />
-            </Tabs>
+          {/* ★★★ タブヘッダーとリセットボタンを横並びにする ★★★ */}
+          <Box sx={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center', 
+            borderBottom: 1, 
+            borderColor: 'divider',
+            pl: 2 // Tabs のデフォルトpaddingに合わせる
+          }}>
+            <Box sx={{ flexGrow: 1 }}>
+              {/* ★★★ v5.45 修正: TS2769を修正 ★★★ */}
+              <Tabs value={tabValue} onChange={handleTabChange}>
+                <Tab label="スタッフビュー" />
+                <Tab label="勤務枠ビュー" />
+              </Tabs>
+            </Box>
+            
+            {/* ★★★ 勤務枠ビュー (tabValue === 1) の時だけボタンを表示 ★★★ */}
+            <Box sx={{ flexShrink: 0, pr: 2 }}>
+              <Button 
+                variant="outlined" 
+                color="error" 
+                onClick={handleResetClick}
+                size="small" // ★ サイズを小さくしてタブと高さを合わせる
+              >
+                アサインをリセット
+              </Button>
+            </Box>
           </Box>
+          {/* ★★★ 修正ここまで ★★★ */}
           
           {/* ★★★ v5.70 修正: TabPanelがflex: 1で高さを継承するように ★★★ */}
           <TabPanel value={tabValue} index={0}>
@@ -717,10 +741,8 @@ function ShiftCalendarPage() {
           <TabPanel value={tabValue} index={1}>
             <WorkSlotCalendarView 
               onCellClick={handleCellClick}
-              // ★★★ v5.57 修正: 未使用の props を削除 ★★★
-              // onHolidayPlacementClick={handleHolidayPlacementClick} 
-              // onFillRentalClick={handleFillRental} 
-              onResetClick={handleResetClick} 
+              // ★★★ onResetClick を削除 ★★★
+              // onResetClick={handleResetClick} 
               demandMap={demandMap} 
             />
           </TabPanel>

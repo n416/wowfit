@@ -1,7 +1,7 @@
 import React, { useMemo, CSSProperties } from 'react';
 import { 
   // ★★★ v5.71 修正: 未使用の Typography を削除 ★★★
-  Button, 
+  // ★★★ Button を削除 ★★★
   Table, TableBody, TableCell, TableHead, TableRow,
   Box
 } from '@mui/material';
@@ -14,7 +14,7 @@ import { TableVirtuoso } from 'react-virtuoso';
 
 interface WorkSlotCalendarViewProps {
   onCellClick: (date: string, unitId: string | null) => void;
-  onResetClick: () => void;
+  // onResetClick: () => void; // ★★★ 削除 ★★★
   demandMap: Map<string, { required: number; actual: number }>;
 }
 
@@ -79,7 +79,7 @@ const styles: { [key: string]: CSSProperties } = {
 
 export default function WorkSlotCalendarView({
   onCellClick,
-  onResetClick,
+  // onResetClick, // ★★★ 削除 ★★★
   demandMap
 }: WorkSlotCalendarViewProps) {
   const { staff: staffList } = useSelector((state: RootState) => state.staff);
@@ -174,14 +174,11 @@ export default function WorkSlotCalendarView({
   return (
     // ★★★ v5.70 修正: ルートを Box (flex-column) に変更 ★★★
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
-        <Button variant="outlined" color="error" onClick={onResetClick}>
-          アサインをリセット
-        </Button>
-      </div>
+      {/* ★★★ リセットボタンの div を削除 ★★★ */}
 
       {/* ★★★ v5.70 修正: 仮想化テーブルをBoxでラップし、flex: 1 で伸縮させる ★★★ */}
-      <Box sx={{ flex: 1, minHeight: 0 }}>
+      {/* ★★★ ボタン削除に伴いマージン調整 (mt: 2 を追加) ★★★ */}
+      <Box sx={{ flex: 1, minHeight: 0, mt: 2 }}>
         <TableVirtuoso
           style={{ height: '100%', border: '1px solid #e0e0e0', borderRadius: '4px' }}
           data={MONTH_DAYS}

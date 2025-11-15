@@ -14,7 +14,7 @@ import { TableVirtuoso } from 'react-virtuoso';
 
 interface StaffCalendarViewProps {
   staffList: IStaff[]; // ★★★ staffList を Prop で受け取る ★★★
-  onCellClick: (date: string, staffId: string) => void; 
+  onCellClick: (date: string, staffId: string) => void; // ★★★ モード振り分け機能付きのハンドラ
   onHolidayIncrement: (staffId: string) => void;
   onHolidayDecrement: (staffId: string) => void;
   staffHolidayRequirements: Map<string, number>; 
@@ -206,6 +206,7 @@ export default function StaffCalendarView({
                 ...(isWeekend ? styles.weekendBg : {}),
                 ...rowBorderStyle
               }}
+              // ★★★ 修正: props で渡された onCellClick をそのまま呼ぶ ★★★
               onClick={() => onCellClick(dayInfo.dateStr, staff.staffId)}
             >
               {assignmentsForCell.length === 0 ? (
@@ -234,14 +235,12 @@ export default function StaffCalendarView({
         })}
       </>
     );
-  }, [sortedStaffList, staffHolidayRequirements, assignmentsMap, patternMap, onCellClick, onHolidayDecrement, onHolidayIncrement, onStaffNameClick]); // ★ 依存配列に追加
+  }, [sortedStaffList, staffHolidayRequirements, assignmentsMap, patternMap, onCellClick, onHolidayDecrement, onHolidayIncrement, onStaffNameClick]); // ★ 依存配列に onCellClick を追加
 
   return (
     // ★★★ v5.70 修正: ルートを Box (flex-column) に変更 ★★★
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <h6 style={{ margin: '0 0 16px 0', fontSize: '1.25rem', fontWeight: 500 }}>
-        スタッフビュー（カレンダー）
-      </h6>
+      {/* ★★★ ヘッダー(h6)を削除 (ShiftCalendarPage に移動したため) ★★★ */}
       
       {/* ★★★ v5.70 修正: 仮想化テーブルをBoxでラップし、flex: 1 で伸縮させる ★★★ */}
       <Box sx={{ flex: 1, minHeight: 0 }}>

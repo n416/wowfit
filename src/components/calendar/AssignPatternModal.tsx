@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { 
   Box, Paper, Typography, Button, 
   CircularProgress, Alert, List, ListItemText, Avatar, Chip,
   Dialog, DialogTitle, DialogContent, DialogActions, ListItemButton,
+  // ★ Divider を削除
 } from '@mui/material';
 import { useSelector, useDispatch } from 'react-redux';
 import type { AppDispatch, RootState } from '../../store';
@@ -41,7 +42,8 @@ export default function AssignPatternModal({
   // ★ v5.9 モーダルが開く/対象が変わるたびに state をリセット
   useEffect(() => {
     if (target) {
-      const existing = allAssignments.find(a => a.date === target.date && a.staffId === target.staff.Id);
+      // ★★★ タイポ修正: target.staff.Id -> target.staff.staffId ★★★
+      const existing = allAssignments.find(a => a.date === target.date && a.staffId === target.staff.staffId);
       setSelectedPatternId(existing?.patternId || null);
       dispatch(clearAdvice());
     }
@@ -96,28 +98,40 @@ export default function AssignPatternModal({
     }));
   };
 
-  // ★ v5.9 ダイアログの選択肢ロジック (ShiftCalendarPageから移動)
-  const availablePatternsForStaff = useMemo(() => {
+  // ★★★ v5.100 修正: リストを2つに分離 ★★★
+
+  // ★ リスト1: 「公休」「有給」のみのリスト
+  const holidayLeavePatterns = useMemo(() => {
+    return allPatterns
+      .filter(p => p.workType === 'StatutoryHoliday' || p.workType === 'PaidLeave')
+      .sort((a, b) => a.workType.localeCompare(b.workType)); // 公休を先に
+  }, [allPatterns]);
+
+  // ★ リスト2: 「勤務可能パターン」 + 「会議」「その他」のリスト
+  const availableWorkAndOtherPatterns = useMemo(() => {
     if (!target?.staff) return [];
 
     const staffSpecificPatternIds = target.staff.availablePatternIds || [];
-    const nonWorkPatternIds = allPatterns
-      .filter(p => p.workType !== 'Work') 
+    // ★ 会議(Meeting)とその他(Other)のみを抽出
+    const otherPatternIds = allPatterns
+      .filter(p => p.workType === 'Meeting' || p.workType === 'Other') 
       .map(p => p.patternId);
-    const combinedIds = [...new Set([...staffSpecificPatternIds, ...nonWorkPatternIds])];
+      
+    // ★ 勤務可能パターン + 会議/その他 を結合
+    const combinedIds = [...new Set([...staffSpecificPatternIds, ...otherPatternIds])];
 
     return combinedIds
       .map(pid => patternMap.get(pid))
       .filter((p): p is IShiftPattern => !!p) 
       .sort((a, b) => { 
+        // (勤務を一番上、会議/その他をその下)
         if (a.workType === 'Work' && b.workType !== 'Work') return -1;
         if (a.workType !== 'Work' && b.workType === 'Work') return 1;
-        if (a.mainCategory === '休み' && b.mainCategory !== '休み') return 1; 
-        if (a.mainCategory !== '休み' && b.mainCategory === '休み') return -1;
         return a.patternId.localeCompare(b.patternId);
       });
       
   }, [target?.staff, allPatterns, patternMap]);
+  // ★★★ v5.100 修正ここまで ★★★
 
 
   return (
@@ -128,23 +142,53 @@ export default function AssignPatternModal({
       <DialogContent sx={{ display: 'flex', gap: 2 }}>
         
         {/* 左側: パターン選択リスト */}
-        <Box sx={{ flex: 1 }}>
-          <Typography variant="caption">1. 勤務パターンを選択</Typography>
-          <List dense component={Paper} variant="outlined" sx={{maxHeight: 400, overflow: 'auto'}}>
+        <Box sx={{ flex: 1, maxHeight: 500, overflowY: 'auto' }}>
+          
+          {/* ★★★ リスト1: 休み・解除 ★★★ */}
+          <Typography variant="caption">1. 休み・解除</Typography>
+          <List dense component={Paper} variant="outlined" sx={{ mb: 2 }}>
             <ListItemButton onClick={() => setSelectedPatternId(null)} selected={selectedPatternId === null}>
-              <Avatar sx={{ width: 32, height: 32, mr: 2, fontSize: '0.8rem' }}>?</Avatar>
+              <Avatar sx={{ width: 32, height: 32, mr: 2, fontSize: '0.8rem', bgcolor: 'grey.300', color: 'text.primary' }}>?</Avatar>
               <ListItemText primary="--- アサインなし ---" />
             </ListItemButton>
-            {/* (※スタッフの「勤務可能パターン」 + 「非労働パターン」を表示) */}
-            {availablePatternsForStaff.map(pattern => (
+            
+            {holidayLeavePatterns.map(pattern => (
               <ListItemButton 
                 key={pattern.patternId}
                 onClick={() => setSelectedPatternId(pattern.patternId)} 
                 selected={selectedPatternId === pattern.patternId}
               >
+                <Avatar sx={{ width: 32, height: 32, mr: 2, fontSize: '0.8rem', bgcolor: 'error.light', color: 'common.white' }}>
+                  {pattern.mainCategory.charAt(0)}
+                </Avatar>
                 <ListItemText 
-                  primary={pattern.patternId} 
-                  secondary={pattern.name}
+                  primary={pattern.name} 
+                  secondary={pattern.patternId}
+                />
+              </ListItemButton>
+            ))}
+          </List>
+
+          {/* ★★★ リスト2: 勤務・その他 ★★★ */}
+          <Typography variant="caption">2. 勤務・その他</Typography>
+          <List dense component={Paper} variant="outlined" sx={{maxHeight: 300, overflow: 'auto'}}>
+            {/* (※スタッフの「勤務可能パターン」 + 「会議/その他」を表示) */}
+            {availableWorkAndOtherPatterns.map(pattern => (
+              <ListItemButton 
+                key={pattern.patternId}
+                onClick={() => setSelectedPatternId(pattern.patternId)} 
+                selected={selectedPatternId === pattern.patternId}
+              >
+                <Avatar sx={{ 
+                  width: 32, height: 32, mr: 2, fontSize: '0.8rem', 
+                  bgcolor: pattern.workType === 'Work' ? 'primary.light' : 'warning.light',
+                  color: 'common.white'
+                }}>
+                  {pattern.mainCategory.charAt(0)}
+                </Avatar>
+                <ListItemText 
+                  primary={pattern.name} 
+                  secondary={pattern.patternId}
                 />
                 <Chip 
                   label={pattern.workType} 

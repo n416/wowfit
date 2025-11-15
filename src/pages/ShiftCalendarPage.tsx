@@ -1,15 +1,15 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { 
   Box, Paper, Tabs, Tab, 
-  Button // ★★★ Button をインポート ★★★
-  // ★★★ v5.44 修正: 未使用のMUIコンポーネントを大量に削除 ★★★
+  Button, // ★ Button をインポート
+  ToggleButton, ToggleButtonGroup // ★★★ ToggleButtonGroup をインポート（タブUI用）
 } from '@mui/material';
 // import WarningAmberIcon from '@mui/icons-material/WarningAmber'; // 未使用
 import { useSelector, useDispatch } from 'react-redux';
 // ★★★ v5スキーマの型とDBをインポート ★★★
 import { 
   db, 
-  IStaff, IShiftPattern, IUnit, // ★★★ v5.44 修正: ITimeSlotRule, IStaffConstraints 等を削除
+  IStaff, IShiftPattern, IUnit, IAssignment, // ★★★ IAssignment をインポート ★★★
 } from '../db/dexie'; 
 // ★★★ v5スライスのActionをインポート ★★★
 import { setStaffList, /* parseAndSaveConstraints */ } from '../store/staffSlice'; // parseAndSaveConstraints は未使用
@@ -48,6 +48,11 @@ import { MOCK_PATTERNS_V5, MOCK_UNITS_V5, MOCK_STAFF_V4 } from '../db/mockData';
 // ★★★ v5.21 修正: allocateWork (応援スタッフ穴埋め) をインポート ★★★
 import { allocateWork } from '../lib/placement/workAllocator';
 
+// ★★★ アイコンをインポート ★★★
+import EditIcon from '@mui/icons-material/Edit';
+import HolidayIcon from '@mui/icons-material/BeachAccess';
+import PaidLeaveIcon from '@mui/icons-material/FlightTakeoff';
+
 
 // (折りたたみ用アイコンのインポートは削除済み)
 
@@ -74,7 +79,7 @@ function TabPanel(props: TabPanelProps) {
       {value === index && (
         // ★★★ v5.70 修正: p: 3 を height: 100% と flex-column に変更 ★★★
         <Box sx={{ 
-          p: 3, 
+          // p: 3, // ★★★ TabPanel 自身は padding を持たないように変更 ★★★
           height: '100%', 
           boxSizing: 'border-box', 
           display: 'flex', 
@@ -105,6 +110,9 @@ type UnitGroupData = {
   }[];
 };
 
+// ★★★ クリックモードの型定義 ★★★
+type ClickMode = 'normal' | 'holiday' | 'paid_leave';
+
 
 // ★★★ メインコンポーネント (v5) ★★★
 function ShiftCalendarPage() {
@@ -113,6 +121,9 @@ function ShiftCalendarPage() {
 
   // ★ v5.7 追加: サイドバー開閉状態
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  
+  // ★★★ クリックモードの State ★★★
+  const [clickMode, setClickMode] = useState<ClickMode>('normal');
 
   // v5 ストアから全データを取得
   // ★★★ 全スタッフリストを取得 (休職者も含む) ★★★
@@ -156,6 +167,15 @@ function ShiftCalendarPage() {
   const staffMap = React.useMemo(() => new Map(allStaffFromStore.map((s: IStaff) => [s.staffId, s])), [allStaffFromStore]);
   const patternMap = React.useMemo(() => new Map(shiftPatterns.map((p: IShiftPattern) => [p.patternId, p])), [shiftPatterns]);
   
+  // ★★★ 公休・有給のパターンIDをあらかじめ取得 ★★★
+  const holidayPatternId = useMemo(() => 
+    shiftPatterns.find(p => p.workType === 'StatutoryHoliday')?.patternId || '公休',
+  [shiftPatterns]);
+  const paidLeavePatternId = useMemo(() =>
+    shiftPatterns.find(p => p.workType === 'PaidLeave')?.patternId || '有給',
+  [shiftPatterns]);
+
+
   // v5 負担データ (公休数もここに追加)
   // ★★★ staffList (アクティブなスタッフ) を元に計算する ★★★
   const staffBurdenData = React.useMemo(() => {
@@ -486,6 +506,8 @@ function ShiftCalendarPage() {
   // ★★★ v5.45 修正: TS2769を修正 (event引数を `_` に変更) ★★★
   const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
+    // ★ タブを切り替えたら「通常モード」に戻す
+    setClickMode('normal');
   };
 
   // ★★★ v5.72 修正: handleHolidayPlacementClick を（再度）削除 ★★★
@@ -530,20 +552,115 @@ function ShiftCalendarPage() {
 
 
   // 5. ステップ3 (手動調整) のハンドラ
+  // ★★★ モードに応じて動作を振り分けるハンドラ ★★★
   const handleCellClick = (date: string, staffIdOrUnitId: string | null) => {
-    if (tabValue === 0) { // スタッフビュー
-      const staff = staffMap.get(staffIdOrUnitId || '');
-      if (staff) {
-        setEditingTarget({ date, staff });
-        dispatch(clearAdvice());
-      }
-    } else { // 勤務枠ビュー
+    // 勤務枠ビュー (tabValue === 1) の場合は、モードに関わらずモーダルを開く
+    if (tabValue === 1) {
       if (staffIdOrUnitId) {
         setShowingGanttTarget({ date, unitId: staffIdOrUnitId });
       }
+      return;
+    }
+
+    // --- スタッフビュー (tabValue === 0) の場合のロジック ---
+    const staff = staffMap.get(staffIdOrUnitId || '');
+    if (!staff) return;
+
+    // ★ モードに応じて動作を振り分け
+    switch (clickMode) {
+      case 'normal':
+        setEditingTarget({ date, staff });
+        dispatch(clearAdvice());
+        break;
+      
+      case 'holiday':
+        // ★「公休」をトグルする即時実行ロジック
+        toggleHoliday(date, staff, holidayPatternId);
+        break;
+        
+      case 'paid_leave':
+        // ★「有給」をトグルする即時実行ロジック
+        toggleHoliday(date, staff, paidLeavePatternId);
+        break;
     }
   };
   
+  // ★★★ 楽観的UI更新（Optimistic UI Update）ロジック ★★★
+  // ★★★ TS2345, TS7006 エラーを修正 ★★★
+  const toggleHoliday = useCallback(async (date: string, staff: IStaff, targetPatternId: string) => {
+    
+    // 1. メモリ上の Redux State (assignments) から既存のアサインを検索
+    const existing = assignments.filter((a: IAssignment) => a.date === date && a.staffId === staff.staffId);
+    const existingIsTarget = existing.length === 1 && existing[0].patternId === targetPatternId;
+
+    let newOptimisticAssignments: IAssignment[];
+    let dbOperation: () => Promise<any>;
+    let tempId = Date.now(); // 仮ID (削除時にも使うため外で定義)
+
+    if (existingIsTarget) {
+      // --- トグルオフ (削除) ---
+      
+      // 2. 楽観的UI用の配列を作成（メモリ上でフィルタリング）
+      newOptimisticAssignments = assignments.filter((a: IAssignment) => !(a.date === date && a.staffId === staff.staffId));
+      
+      // 3. バックグラウンドで行うDB操作を定義
+      dbOperation = async () => {
+        if (existing[0]?.id) {
+          await db.assignments.delete(existing[0].id);
+        }
+      };
+
+    } else {
+      // --- トグルオン (追加または変更) ---
+      
+      const newAssignmentBase: Omit<IAssignment, 'id'> = {
+        date: date,
+        staffId: staff.staffId,
+        patternId: targetPatternId,
+        unitId: null,
+        locked: true 
+      };
+
+      // 2. 楽観的UI用の配列を作成（メモリ上でフィルタリング + 追加）
+      const otherAssignments = assignments.filter((a: IAssignment) => !(a.date === date && a.staffId === staff.staffId));
+      newOptimisticAssignments = [...otherAssignments, { ...newAssignmentBase, id: tempId }];
+
+      // 3. バックグラウンドで行うDB操作を定義
+      dbOperation = async () => {
+        // (もし既存のアサインがあれば先に削除)
+        if (existing.length > 0) {
+          await db.assignments.bulkDelete(existing.map((a: IAssignment) => a.id!));
+        }
+        // DBに追加し、新しいIDを取得
+        const newId = await db.assignments.add(newAssignmentBase);
+        
+        // ★ DB操作完了後、ストアの仮IDを本物のIDに差し替える
+        // (※注: このdispatchは「バックグラウンド」で実行される)
+        dispatch(setAssignments(
+          newOptimisticAssignments.map((a: IAssignment) => 
+            a.id === tempId ? { ...a, id: newId } : a
+          )
+        ));
+      };
+    }
+
+    // 4. ★★★ UIを即時更新 (エラーTS2345を修正) ★★★
+    // (関数型アップデートではなく、計算済みの配列を渡す)
+    dispatch(setAssignments(newOptimisticAssignments));
+
+    // 5. バックグラウンドでDB操作を実行
+    try {
+      await dbOperation(); 
+      
+    } catch (e) {
+      console.error("アサインの即時更新（DB反映）に失敗:", e);
+      // (エラーハンドリング: 失敗したらReduxの状態をDBと同期し直す)
+      db.assignments.toArray().then(dbAssignments => dispatch(setAssignments(dbAssignments)));
+      alert("エラー: アサインの保存に失敗しました。ページをリロードしてください。");
+    }
+  }, [assignments, dispatch, holidayPatternId, paidLeavePatternId]); // ★ 依存配列に assignments を戻す
+
+
   // ★★★ v5.85 修正: スタッフ名クリックのハンドラを追加 ★★★
   const handleStaffNameClick = (staff: IStaff) => {
     setClearingStaff(staff);
@@ -558,11 +675,11 @@ function ShiftCalendarPage() {
     const staff = clearingStaff; // (確認メッセージ用)
     if (!staff) return;
 
-    const assignmentsToRemove = assignments.filter(a => a.staffId === staffId);
+    const assignmentsToRemove = assignments.filter((a: IAssignment) => a.staffId === staffId);
     
     if (window.confirm(`${staff.name}さんのアサイン（${assignmentsToRemove.length}件）をすべてクリアしますか？`)) {
       try {
-        await db.assignments.bulkDelete(assignmentsToRemove.map(a => a.id!));
+        await db.assignments.bulkDelete(assignmentsToRemove.map((a: IAssignment) => a.id!));
         const remainingAssignments = await db.assignments.toArray();
         dispatch(setAssignments(remainingAssignments));
         setClearingStaff(null); // モーダルを閉じる
@@ -735,9 +852,34 @@ function ShiftCalendarPage() {
           
           {/* ★★★ v5.70 修正: TabPanelがflex: 1で高さを継承するように ★★★ */}
           <TabPanel value={tabValue} index={0}>
+            {/* ★★★ スタッフビューの TabPanel 内部 ★★★ */}
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: '0 24px 16px 24px' }}>
+              <h6 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 500 }}>
+                スタッフビュー（カレンダー）
+              </h6>
+              
+              {/* ★★★ クリックモード切替タブ ★★★ */}
+              <ToggleButtonGroup
+                value={clickMode}
+                exclusive
+                onChange={(_, newMode) => { if(newMode) setClickMode(newMode); }}
+                size="small"
+              >
+                <ToggleButton value="normal" title="通常モード（詳細編集）">
+                  <EditIcon />
+                </ToggleButton>
+                <ToggleButton value="holiday" title="公休ポチポチモード">
+                  <HolidayIcon />
+                </ToggleButton>
+                <ToggleButton value="paid_leave" title="有給ポチポチモード">
+                  <PaidLeaveIcon />
+                </ToggleButton>
+              </ToggleButtonGroup>
+            </Box>
+            
             <StaffCalendarView 
               staffList={staffList} // ★★★ フィルタリングした staffList を渡す ★★★
-              onCellClick={handleCellClick} 
+              onCellClick={handleCellClick} // ★★★ モード振り分け機能付きハンドラを渡す ★★★
               staffHolidayRequirements={staffHolidayRequirements}
               onHolidayIncrement={handleHolidayIncrement}
               onHolidayDecrement={handleHolidayDecrement}
@@ -746,12 +888,15 @@ function ShiftCalendarPage() {
           </TabPanel>
           
           <TabPanel value={tabValue} index={1}>
-            <WorkSlotCalendarView 
-              onCellClick={handleCellClick}
-              // ★★★ onResetClick を削除 ★★★
-              // onResetClick={handleResetClick} 
-              demandMap={demandMap} 
-            />
+            {/* ★★★ 勤務枠ビューは padding (p: 3) が必要 ★★★ */}
+            <Box sx={{ p: 3, height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
+              <WorkSlotCalendarView 
+                onCellClick={handleCellClick}
+                // ★★★ onResetClick を削除 ★★★
+                // onResetClick={handleResetClick} 
+                demandMap={demandMap} 
+              />
+            </Box>
           </TabPanel>
         </Paper>
 

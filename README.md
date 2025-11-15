@@ -1,73 +1,103 @@
-# React + TypeScript + Vite
+# 勤務表作成アプリ (Shift Work App)
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+これは、介護施設や病院など、24時間365日の複雑な人員配置（デマンド）が要求される環境向けの、AI支援型シフト勤務表作成Webアプリケーションです。
 
-Currently, two official plugins are available:
+ローカルのブラウザ（IndexedDB）のみで動作するスタンドアロンアプリでありながら、`react-virtuoso` による大規模テーブルの仮想化、`table-layout: fixed` によるCLS 0 の達成、およびGemini API との連携による高度な自動化機能の実現に焦点を当てています。
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## 📸 スクリーンショット
 
-## React Compiler
+### スタッフビュー
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+スタッフ個人の勤務と公休数を一覧で管理します。
 
-## Expanding the ESLint configuration
+### 勤務枠ビュー
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+ユニットごとの24時間デマンド（必要人数）に対し、配置されたスタッフ（実績）をガントチャートで視覚化します。
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+### 詳細タイムライン
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+セルをクリックすると、その日の詳細なタイムライン（0.5人シェアや夜勤の状況）を確認できます。
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+---
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## ✨ 主な機能
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+- **データ管理:**
+    
+    - **スタッフ:** 常勤・パート・応援（Rental）の種別、勤務可能なパターンを管理します。
+        
+    - **ユニット:** 24時間（1時間単位）のデマンド（例: `0.5`人、`2.0`人）を設定できます。
+        
+    - **勤務パターン:** 日勤、夜勤（日またぎ）、シェア可能（`crossUnitWorkType`） などの詳細なパターンを定義できます。
+        
+- **AIサポート:**
+    
+    - **AIで草案を作成:** 全ての制約とデマンドを考慮し、勤務表の草案をゼロから生成します。
+        
+    - **公休数強制補正:** 現在の配置を可能な限り維持しつつ、公休数の過不足のみをAIが\*\*差分（パッチ）\*\*で修正します。
+        
+    - **AI現況分析:** 現在の設定で物理的に配置が不可能（例: 人員不足）でないか診断します。
+        
+- **ロジックによる穴埋め:**
+    
+    - 「応援スタッフで埋める」機能により、AIを使わずに不足ギャップ（夜勤や0.5人シェア含む）を自動配置します。
+        
+    - 配置時は、月間の総アサイン時間に基づき、特定のスタッフに負荷が偏らないよう**負荷分散**を行います。
+        
+- **パフォーマンスの最適化:**
+    
+    - **CLS 0（良好）:** `table-layout: fixed` の採用により、`react-virtuoso` が引き起こしていた大規模なレイアウトシフト（CLS 10.78） を解消。
+        
+    - **INP 200ms台:** `TabPanel` の条件付きレンダリング（マウント/アンマウント）を採用し、タブ切り替え時のINPを最適化。
+        
+    - **INP 136ms（良好）:** モーダル表示時の重い計算（`demandMap`, `unitGroups`）を親コンポーネント（`ShiftCalendarPage`） に引き上げ、クリック時の応答速度を高速化。
+        
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+---
+
+## 🛠️ 技術スタック
+
+- **フロントエンド:** React 19, TypeScript
+    
+- **ビルドツール:** Vite
+    
+- **状態管理:** Redux Toolkit
+    
+- **UI:** Material-UI (MUI)
+    
+- **仮想化:** `react-virtuoso`
+    
+- **クライアントDB:** Dexie.js (IndexedDB)
+    
+- **AI:** Google Gemini API
+    
+
+---
+
+## 🚀 実行方法
+
+1. **依存関係のインストール:**
+    
+    Bash
+    
+    ```
+    npm install
+    ```
+    
+2. **開発サーバーの起動:**
+    
+    Bash
+    
+    ```
+    npm run dev
+    ```
+    
+3. **APIキーの設定:**
+    
+    - アプリケーション（`http://localhost:5173`）を開き、右上の設定（⚙️）アイコンから「設定」ページ（`/settings`）に移動します。
+        
+    - お持ちの Google Gemini API キーを入力し、「接続テスト & モデル読込」を実行してください。
+        
+    - モデル（例: `gemini-1.5-pro`）を選択し、「設定を保存」してください。
+        
+    - これで「AIサポート」機能 が利用可能になります。

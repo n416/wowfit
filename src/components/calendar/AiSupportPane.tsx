@@ -1,4 +1,4 @@
-import { useState } from 'react'; // ★ v5.44 修正: React を削除
+import { useState } from 'react';
 import { 
   Box, Paper, Typography, TextField, Button, 
   CircularProgress, Alert, AlertTitle,
@@ -14,7 +14,7 @@ import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import FindInPageIcon from '@mui/icons-material/FindInPage'; 
 import CloseIcon from '@mui/icons-material/Close';
 import SupportAgentIcon from '@mui/icons-material/SupportAgent'; 
-import BalanceIcon from '@mui/icons-material/Balance'; // ★ 追加: 天秤アイコン
+import BalanceIcon from '@mui/icons-material/Balance';
 
 interface AiSupportPaneProps {
   instruction: string;
@@ -22,7 +22,10 @@ interface AiSupportPaneProps {
   isLoading: boolean;
   error: string | null;
   onClearError: () => void;
-  onExecute: () => void;
+  
+  // ★★★ 修正: onExecute を2つに分離 ★★★
+  onExecuteDefault: () => void; // 「AIで草案を作成」用
+  onExecuteCustom: () => void;  // 「AI調整」(カスタム指示)用
   
   isAnalysisLoading: boolean;
   analysisResult: string | null;
@@ -31,23 +34,23 @@ interface AiSupportPaneProps {
   onExecuteAnalysis: () => void;
 
   onFillRental: () => void;
-  // ★★★ v5.17 追加: 強制補正用ハンドラ ★★★
   onForceAdjustHolidays: () => void;
 }
 
 export default function AiSupportPane({
-  instruction, onInstructionChange, isLoading, error, onClearError, onExecute,
+  instruction, onInstructionChange, isLoading, error, onClearError,
+  onExecuteDefault, // ★ 修正
+  onExecuteCustom,  // ★ 修正
   isAnalysisLoading, analysisResult, analysisError, onClearAnalysis, onExecuteAnalysis,
   onFillRental, onForceAdjustHolidays
 }: AiSupportPaneProps) {
 
   const [isAiSupportOpen, setIsAiSupportOpen] = useState(true);
 
-  const handleExecute = (fixedInstruction?: string) => {
-    if (fixedInstruction) {
-      onInstructionChange(fixedInstruction);
-    }
-    onExecute(); 
+  // ★★★ 修正: handleExecute は onExecuteCustom のみ呼ぶようにする ★★★
+  const handleExecute = () => {
+    // (fixedInstruction は使われていなかったので削除)
+    onExecuteCustom(); 
   };
   
   const isAnyLoading = isLoading || isAnalysisLoading;
@@ -78,6 +81,7 @@ export default function AiSupportPane({
         <Box sx={{ p: 2, pt: 0 }}>
           
           {(error || analysisError) && (
+            // (エラー表示部分は変更なし)
             <Box sx={{ mb: 2 }}>
               {error && (
                 <Alert severity="error" onClose={onClearError} sx={{ mb: 1 }}>
@@ -95,6 +99,7 @@ export default function AiSupportPane({
           )}
           
           {displayResult && (
+            // (分析結果表示部分は変更なし)
             <Box sx={{ mb: 2 }}>
               <Alert 
                 severity="info" 
@@ -132,7 +137,8 @@ export default function AiSupportPane({
                   variant="contained" 
                   color="primary"
                   startIcon={isLoading ? <CircularProgress size={20} color="inherit" /> : <AutoFixHighIcon />}
-                  onClick={onExecute} 
+                  // ★★★ 修正: onExecuteDefault を呼ぶ ★★★
+                  onClick={onExecuteDefault} 
                   disabled={isAnyLoading} 
                   fullWidth
                   sx={{ py: 1.5 }}
@@ -155,13 +161,12 @@ export default function AiSupportPane({
 
             <Divider />
 
-            {/* グループ2: 調整・分析 */}
+            {/* グループ2: 調整・分析 (変更なし) */}
             <Box>
               <Typography variant="caption" color="textSecondary" sx={{ mb: 1, display: 'block', fontWeight: 'bold' }}>
                 [調整・分析]
               </Typography>
               <Stack direction="row" spacing={2}>
-                {/* ★★★ v5.17 追加: 公休数強制補正ボタン ★★★ */}
                 <Button 
                   variant="outlined" 
                   color="warning"
@@ -172,8 +177,6 @@ export default function AiSupportPane({
                 >
                   公休数強制補正 (ロジック)
                 </Button>
-                {/* ★★★ 追加ここまで ★★★ */}
-
                 <Button 
                   variant="outlined" 
                   color="secondary"
@@ -206,6 +209,7 @@ export default function AiSupportPane({
                 <Button 
                   variant="contained" 
                   color="info"
+                  // ★★★ 修正: 内部の handleExecute を呼ぶ (これが onExecuteCustom を呼ぶ) ★★★
                   onClick={() => handleExecute()} 
                   disabled={isAnyLoading} 
                   sx={{ minWidth: '120px' }}

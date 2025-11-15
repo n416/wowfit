@@ -159,6 +159,7 @@ const styles: { [key: string]: CSSProperties } = {
   },
   statusBarContainer: {
     display: 'flex',
+    width: '100%', 
     height: '16px',
     border: '1px solid #e0e0e0',
     backgroundColor: '#f5f5f5',
@@ -761,7 +762,8 @@ export default function DailyUnitGanttModal({
         <div style={styles.actions}>
           {/* ★★★ 変更履歴 (pendingChanges) のサイズに応じてボタンを出し分ける ★★★ */}
           {pendingChanges.size === 0 ? (
-            <button onClick={onClose} style={{...styles.button, justifyContent: 'center', width: '100%'}}>
+            // ★★★ style から width: '100%' と justifyContent を削除 ★★★
+            <button onClick={onClose} style={styles.button}>
               閉じる
             </button>
           ) : (

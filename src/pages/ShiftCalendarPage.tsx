@@ -100,6 +100,8 @@ type UnitGroupData = {
     isSupport: boolean; 
     startHour: number;
     duration: number; 
+    assignmentId: number; // ★★★ assignmentId を追加
+    unitId: string | null; // ★★★ unitId を追加
   }[];
 };
 
@@ -364,6 +366,9 @@ function ShiftCalendarPage() {
       const rows: any[] = [];
 
       assignments.forEach(assignment => {
+        // ★★★ assignment.id が必須なため、null/undefined チェック ★★★
+        if (!assignment.id) return; 
+        
         if (assignment.date !== date && assignment.date !== prevDateStr) return;
 
         const pattern = patternMap.get(assignment.patternId);
@@ -373,7 +378,7 @@ function ShiftCalendarPage() {
 
         const staff = staffMap.get(assignment.staffId);
         if (!staff) return;
-        if (staff.status === 'OnLeave') return; // ★★★ 休職中のスタッフはガントチャートに表示しない ★★★
+        if (staff.status === 'OnLeave') return; // ★★★ 休職中スタッフは除外 ★★★
 
         const startH = parseInt(pattern.startTime.split(':')[0]);
         const [endH_raw, endM] = pattern.endTime.split(':').map(Number);
@@ -418,7 +423,9 @@ function ShiftCalendarPage() {
           rows.push({ 
             staff, pattern, isSupport, 
             startHour: displayStart, 
-            duration: displayDuration
+            duration: displayDuration,
+            assignmentId: assignment.id, // ★★★ assignmentId を渡す
+            unitId: assignment.unitId,   // ★★★ 元の unitId を渡す
           });
         }
       });
@@ -712,7 +719,7 @@ function ShiftCalendarPage() {
               </Tabs>
             </Box>
             
-            {/* ★★★ 勤務枠ビュー (tabValue === 1) の時だけボタンを表示 ★★★ */}
+            {/* ★★★ tabValue === 1 の条件を削除 ★★★ */}
             <Box sx={{ flexShrink: 0, pr: 2 }}>
               <Button 
                 variant="outlined" 
@@ -787,7 +794,7 @@ function ShiftCalendarPage() {
       {/* 手動アサインモーダルの呼び出し */}
       <AssignPatternModal
         target={editingTarget}
-        allStaff={staffList}
+        allStaff={staffList} // ★ staffList (アクティブ) を渡す
         allPatterns={shiftPatterns}
         allUnits={unitList}
         allAssignments={assignments}
@@ -799,9 +806,10 @@ function ShiftCalendarPage() {
       <DailyUnitGanttModal
         target={showingGanttTarget}
         onClose={() => setShowingGanttTarget(null)}
-        // ★★★ v5.44 修正: 未使用のprops (allStaff等) を削除 ★★★
-        demandMap={demandMap} // ★★★ v5.35 追加 ★★★
-        unitGroups={unitGroups} // ★★★ v5.36 追加 ★★★
+        // allPatterns={shiftPatterns} // ★★★ 削除 ★★★
+        allAssignments={assignments} // ★★★ allAssignments を渡す ★★★
+        demandMap={demandMap} 
+        unitGroups={unitGroups} 
       />
 
       {/* ★★★ v5.85 修正: 新しいモーダルをレンダリング ★★★ */}

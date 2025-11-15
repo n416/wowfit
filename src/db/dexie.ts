@@ -41,6 +41,7 @@ export interface IStaff {
   name: string;
   // ★★★ v5.11 修正: 'Rental' を追加 ★★★
   employmentType: 'FullTime' | 'PartTime' | 'Rental';
+  status?: 'Active' | 'OnLeave'; // ★★★ 状態を追加 (Active: 勤務中, OnLeave: 休職中) ★★★
   skills: string[];
   unitId: string | null; // 所属ユニット (レンタルなら「応援元」の意味合いでも可)
   availablePatternIds: string[]; // 勤務可能パターン (レンタルなら可能なシフト)
@@ -78,6 +79,14 @@ export class ShiftWorkDB extends Dexie {
 
   constructor() {
     super('ShiftWorkAppDB');
+
+    // ★★★ スキーマを v6 にバージョンアップ (statusインデックス追加) ★★★
+    this.version(6).stores({
+      units: '&unitId, name', 
+      shiftPatterns: '&patternId, name, mainCategory, workType, crossUnitWorkType',
+      staffList: '&staffId, name, employmentType, unitId, status, *availablePatternIds, *skills', // ★ status をインデックスに追加
+      assignments: '++id, [date+staffId], [date+patternId], [date+unitId], staffId, patternId, unitId, locked',
+    });
 
     // ★★★ スキーマを v5 にバージョンアップ ★★★
     this.version(5).stores({

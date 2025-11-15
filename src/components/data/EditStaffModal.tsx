@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  Box, Paper, Typography, TextField, Button, Select, 
+  Box, TextField, Button, Select, 
   MenuItem, InputLabel, FormControl, Checkbox, ListItemText, Chip, Divider,
   Dialog, DialogActions, DialogContent, DialogTitle,
+  CircularProgress // ★ CircularProgress をインポート
 } from '@mui/material';
 import { useSelector, useDispatch } from 'react-redux';
 import type { AppDispatch, RootState } from '../../store';
@@ -32,6 +33,7 @@ export default function EditStaffModal({ staff, onClose, onSave }: EditStaffModa
   const [name, setName] = useState('');
   // ★★★ v5.11 修正: Rental を追加 ★★★
   const [employmentType, setEmploymentType] = useState<'FullTime' | 'PartTime' | 'Rental'>('FullTime');
+  const [status, setStatus] = useState<'Active' | 'OnLeave'>('Active'); // ★ ステータス state を追加
   const [skills, setSkills] = useState('');
   const [unitId, setUnitId] = useState<string | null>(null);
   const [availablePatternIds, setAvailablePatternIds] = useState<string[]>([]);
@@ -43,6 +45,7 @@ export default function EditStaffModal({ staff, onClose, onSave }: EditStaffModa
     if (staff) {
       setName(staff.name);
       setEmploymentType(staff.employmentType);
+      setStatus(staff.status || 'Active'); // ★ status をロード (デフォルトは 'Active')
       setSkills(staff.skills.join(', '));
       setUnitId(staff.unitId);
       setAvailablePatternIds(staff.availablePatternIds);
@@ -58,6 +61,7 @@ export default function EditStaffModal({ staff, onClose, onSave }: EditStaffModa
       ...staff,
       name: name.trim(),
       employmentType: employmentType,
+      status: status, // ★ status を保存
       skills: skills.split(',').map(s => s.trim()).filter(Boolean),
       unitId: unitId || null,
       availablePatternIds: availablePatternIds,
@@ -95,6 +99,16 @@ export default function EditStaffModal({ staff, onClose, onSave }: EditStaffModa
       <DialogContent>
         <Box component="form" onSubmit={handleSubmit} sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
           <TextField label="氏名" value={name} onChange={(e) => setName(e.target.value)} required size="small" fullWidth />
+          
+          <FormControl size="small" fullWidth>
+            <InputLabel>ステータス</InputLabel>
+            {/* ★★★ ステータス選択を追加 ★★★ */}
+            <Select value={status} label="ステータス" onChange={(e) => setStatus(e.target.value as any)}>
+              <MenuItem value="Active">勤務中</MenuItem>
+              <MenuItem value="OnLeave">休職中</MenuItem>
+            </Select>
+          </FormControl>
+
           <FormControl size="small" fullWidth>
             <InputLabel>雇用形態</InputLabel>
             {/* ★★★ v5.11 修正: Rental を選択肢に追加 ★★★ */}

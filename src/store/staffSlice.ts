@@ -93,6 +93,7 @@ export const addNewStaff = createAsyncThunk(
       const staffToAdd: IStaff = {
         ...newStaffData,
         staffId: staffId,
+        status: 'Active', // ★★★ デフォルトステータスを追加 ★★★
         
         // ★★★ v5.4 修正: 「公休」「有給」の自動追加ロジックを削除 ★★★
         // (フォームで選択されたパターン（通常は労働パターン）のみを保存)
@@ -127,6 +128,7 @@ export const copyStaff = createAsyncThunk(
         ...originalStaff,
         staffId: `s${Date.now()}`, // IDを新しく採番
         name: `${originalStaff.name} (コピー)`, // 名前を変更
+        status: 'Active', // ★ コピーしたスタッフは「勤務中」として作成
       };
       
       await db.staffList.add(newStaff); // 新しいスタッフとしてDBに追加

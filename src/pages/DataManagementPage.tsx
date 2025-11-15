@@ -5,6 +5,7 @@ import {
   Table, TableBody, TableCell, 
   TableContainer, TableHead, TableRow, IconButton, 
   Alert,
+  Chip, // ★★★ Chip をインポート (未使用警告の修正)
   // ★ 削除
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -248,11 +249,20 @@ function DataManagementPage() {
           <NewStaffForm />
           <TableContainer component={Paper} variant="outlined" sx={{ mt: 2, maxHeight: 600 }}>
             <Table size="small" stickyHeader>
-              <TableHead><TableRow><TableCell>氏名</TableCell><TableCell>雇用形態</TableCell><TableCell>所属ユニット</TableCell><TableCell>勤務可能パターン</TableCell><TableCell>操作</TableCell></TableRow></TableHead>
+              {/* ★★★ 「ステータス」列を追加 ★★★ */}
+              <TableHead><TableRow><TableCell>氏名</TableCell><TableCell>ステータス</TableCell><TableCell>雇用形態</TableCell><TableCell>所属ユニット</TableCell><TableCell>勤務可能パターン</TableCell><TableCell>操作</TableCell></TableRow></TableHead>
               <TableBody>
                 {staffList.map((staff: IStaff) => (
                   <TableRow key={staff.staffId}>
                     <TableCell>{staff.name}</TableCell>
+                    {/* ★★★ ステータス列のセルを追加 ★★★ */}
+                    <TableCell>
+                      {staff.status === 'OnLeave' ? (
+                        <Chip label="休職中" color="error" size="small" />
+                      ) : (
+                        <Chip label="勤務中" color="success" size="small" variant="outlined" />
+                      )}
+                    </TableCell>
                     <TableCell>{staff.employmentType}</TableCell>
                     <TableCell>{staff.unitId}</TableCell>
                     <TableCell sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

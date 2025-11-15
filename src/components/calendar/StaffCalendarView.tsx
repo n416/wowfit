@@ -13,6 +13,7 @@ import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
 import { TableVirtuoso } from 'react-virtuoso';
 
 interface StaffCalendarViewProps {
+  staffList: IStaff[]; // ★★★ staffList を Prop で受け取る ★★★
   onCellClick: (date: string, staffId: string) => void; 
   onHolidayIncrement: (staffId: string) => void;
   onHolidayDecrement: (staffId: string) => void;
@@ -84,6 +85,7 @@ const styles: { [key: string]: CSSProperties } = {
 
 
 export default function StaffCalendarView({ 
+  staffList, // ★★★ Prop で受け取る
   onCellClick, 
   onHolidayIncrement, 
   onHolidayDecrement,
@@ -92,14 +94,14 @@ export default function StaffCalendarView({
   onStaffNameClick
 }: StaffCalendarViewProps) {
   
-  const { staff: staffList } = useSelector((state: RootState) => state.staff);
+  // const { staff: staffList } = useSelector((state: RootState) => state.staff); // ★★★ 削除 ★★★
   const { patterns: shiftPatterns } = useSelector((state: RootState) => state.pattern);
   const { assignments } = useSelector((state: RootState) => state.assignment);
   
   const patternMap = useMemo(() => new Map(shiftPatterns.map((p: IShiftPattern) => [p.patternId, p])), [shiftPatterns]);
   
   const sortedStaffList = useMemo(() => {
-    return [...staffList].sort((a, b) => {
+    return [...staffList].sort((a, b) => { // ★ Prop の staffList を使用
       const unitA = a.unitId || 'ZZZ';
       const unitB = b.unitId || 'ZZZ';
       if (unitA === unitB) {
@@ -107,7 +109,7 @@ export default function StaffCalendarView({
       }
       return unitA.localeCompare(unitB);
     });
-  }, [staffList]);
+  }, [staffList]); // ★ 依存配列を Prop の staffList に変更
 
   const assignmentsMap = useMemo(() => {
     const map = new Map<string, IAssignment[]>(); 

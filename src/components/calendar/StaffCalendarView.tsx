@@ -11,18 +11,30 @@ import { MONTH_DAYS } from '../../utils/dateUtils';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
 import { TableVirtuoso } from 'react-virtuoso';
+// ★ useCalendarInteractions から型をインポート
+import { CellCoords, ClickMode } from '../../hooks/useCalendarInteractions';
 
 interface StaffCalendarViewProps {
-  staffList: IStaff[]; // ★★★ staffList を Prop で受け取る ★★★
-  onCellClick: (date: string, staffId: string) => void; // ★★★ モード振り分け機能付きのハンドラ
+  // ★ sortedStaffList を Prop で受け取るように変更
+  sortedStaffList: IStaff[]; 
+  // ★ onCellClick のシグネチャ変更 (index を追加)
+  onCellClick: (date: string, staffId: string, staffIndex: number, dateIndex: number) => void;
   onHolidayIncrement: (staffId: string) => void;
   onHolidayDecrement: (staffId: string) => void;
   staffHolidayRequirements: Map<string, number>; 
-  // ★★★ v5.85 修正: スタッフ名クリックハンドラを追加 ★★★
   onStaffNameClick: (staff: IStaff) => void;
+  
+  // --- ★ 選択モード用の Props を追加 ---
+  clickMode: ClickMode;
+  activeCell: CellCoords | null;
+  selectionRange: { start: CellCoords, end: CellCoords } | null;
+  onCellMouseDown: (e: React.MouseEvent, date: string, staffId: string, staffIndex: number, dateIndex: number) => void;
+  onCellMouseMove: (date: string, staffId: string, staffIndex: number, dateIndex: number) => void;
+  onCellMouseUp: () => void;
+  // --- ★ 追加ここまで ---
 }
 
-// ★★★ v5.66/v5.67 修正: CLS対策のため width を明示 ★★★
+// (styles 定義は変更なし)
 const styles: { [key: string]: CSSProperties } = {
   th: {
     padding: '8px',
@@ -33,13 +45,15 @@ const styles: { [key: string]: CSSProperties } = {
     zIndex: 11,
     textAlign: 'left',
     fontWeight: 'bold',
-    overflow: 'hidden', // ★ CLS対策
-    textOverflow: 'ellipsis', // ★ CLS対策
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
   },
   td: {
     padding: '8px',
     border: '1px solid #e0e0e0',
     verticalAlign: 'top',
+    // ★ セルの選択を無効化 (ドラッグ用)
+    userSelect: 'none',
   },
   stickyCell: {
     position: 'sticky',
@@ -49,17 +63,17 @@ const styles: { [key: string]: CSSProperties } = {
   },
   dateHeaderCell: {
     minWidth: 80,
-    width: 80, // ★ CLS対策
+    width: 80,
     textAlign: 'center',
   },
   staffNameCell: {
     minWidth: 150,
-    width: 150, // ★ CLS対策
-    cursor: 'pointer', // ★★★ v5.85 修正: クリック可能カーソル ★★★
+    width: 150,
+    cursor: 'pointer',
   },
   holidayAdjustCell: {
     minWidth: 120,
-    width: 120, // ★ CLS対策
+    width: 120,
     textAlign: 'center',
     left: 150,
   },
@@ -71,6 +85,12 @@ const styles: { [key: string]: CSSProperties } = {
     borderLeft: '1px solid #e0e0e0',
     cursor: 'pointer',
   },
+  // ★ selectモード用のカーソル
+  cellSelectable: {
+    padding: '4px',
+    borderLeft: '1px solid #e0e0e0',
+    cursor: 'cell',
+  },
   assignmentChip: {
     borderRadius: '16px',
     padding: '4px 8px',
@@ -80,36 +100,34 @@ const styles: { [key: string]: CSSProperties } = {
     width: '100%',
     boxSizing: 'border-box',
     border: '1px solid #9e9e9e',
+    // ★ チップ上でドラッグが開始されるのを防ぐ
+    pointerEvents: 'none',
   }
 };
 
 
 export default function StaffCalendarView({ 
-  staffList, // ★★★ Prop で受け取る
+  sortedStaffList, // ★ Prop で受け取る
   onCellClick, 
   onHolidayIncrement, 
   onHolidayDecrement,
   staffHolidayRequirements,
-  // ★★★ v5.85 修正: props を受け取る ★★★
-  onStaffNameClick
+  onStaffNameClick,
+  // ★ 選択モード用の Props を受け取る
+  clickMode,
+  activeCell,
+  selectionRange,
+  onCellMouseDown,
+  onCellMouseMove,
+  onCellMouseUp
 }: StaffCalendarViewProps) {
   
-  // const { staff: staffList } = useSelector((state: RootState) => state.staff); // ★★★ 削除 ★★★
   const { patterns: shiftPatterns } = useSelector((state: RootState) => state.pattern);
   const { assignments } = useSelector((state: RootState) => state.assignment);
   
   const patternMap = useMemo(() => new Map(shiftPatterns.map((p: IShiftPattern) => [p.patternId, p])), [shiftPatterns]);
   
-  const sortedStaffList = useMemo(() => {
-    return [...staffList].sort((a, b) => { // ★ Prop の staffList を使用
-      const unitA = a.unitId || 'ZZZ';
-      const unitB = b.unitId || 'ZZZ';
-      if (unitA === unitB) {
-        return a.name.localeCompare(b.name);
-      }
-      return unitA.localeCompare(unitB);
-    });
-  }, [staffList]); // ★ 依存配列を Prop の staffList に変更
+  // ★ 内部でのソートロジックを削除 (props で sortedStaffList を受け取るため)
 
   const assignmentsMap = useMemo(() => {
     const map = new Map<string, IAssignment[]>(); 
@@ -121,7 +139,18 @@ export default function StaffCalendarView({
     return map;
   }, [assignments]);
   
-  // (ヘッダー行をレンダリングする関数)
+  // ★ 選択範囲のインデックスを計算
+  const selectedRangeIndices = useMemo(() => {
+    if (!selectionRange) return null;
+    return {
+      minStaff: Math.min(selectionRange.start.staffIndex, selectionRange.end.staffIndex),
+      maxStaff: Math.max(selectionRange.start.staffIndex, selectionRange.end.staffIndex),
+      minDate: Math.min(selectionRange.start.dateIndex, selectionRange.end.dateIndex),
+      maxDate: Math.max(selectionRange.start.dateIndex, selectionRange.end.dateIndex),
+    };
+  }, [selectionRange]);
+  
+  // (ヘッダー行は変更なし)
   const fixedHeaderContent = () => (
     <TableRow>
       <TableCell style={{...styles.th, ...styles.stickyCell, ...styles.staffNameCell, zIndex: 12}}>スタッフ</TableCell>
@@ -145,6 +174,8 @@ export default function StaffCalendarView({
 
   // (データ行をレンダリングする関数)
   const itemContent = useCallback((index: number, staff: IStaff) => {
+    // 'index' が staffIndex に相当
+    const staffIndex = index;
     
     let rowBorderStyle: CSSProperties = {};
     if (index > 0) {
@@ -158,7 +189,6 @@ export default function StaffCalendarView({
 
     return (
       <>
-        {/* ★★★ v5.85 修正: onClick を追加 ★★★ */}
         <TableCell 
           style={{ ...styles.td, ...styles.stickyCell, ...styles.staffNameCell, ...rowBorderStyle }}
           onClick={() => onStaffNameClick(staff)}
@@ -192,22 +222,43 @@ export default function StaffCalendarView({
           </div>
         </TableCell>
 
-        {MONTH_DAYS.map(dayInfo => {
+        {MONTH_DAYS.map((dayInfo, dayIndex) => {
           const key = `${staff.staffId}_${dayInfo.dateStr}`;
           const assignmentsForCell = assignmentsMap.get(key) || [];
           const isWeekend = dayInfo.dayOfWeek === 0 || dayInfo.dayOfWeek === 6;
           
+          // --- ★ スタイル計算 ---
+          const isSelected = selectedRangeIndices && 
+                             staffIndex >= selectedRangeIndices.minStaff && 
+                             staffIndex <= selectedRangeIndices.maxStaff &&
+                             dayIndex >= selectedRangeIndices.minDate && 
+                             dayIndex <= selectedRangeIndices.maxDate;
+          
+          const isActive = activeCell && 
+                           activeCell.staffId === staff.staffId && 
+                           activeCell.date === dayInfo.dateStr;
+          
+          const cellStyle = clickMode === 'select' ? styles.cellSelectable : styles.cellClickable;
+          // --- ★ スタイル計算ここまで ---
+
           return (
             <TableCell 
               key={key} 
               style={{
                 ...styles.td,
-                ...styles.cellClickable,
+                ...cellStyle, // ★ カーソルをモードによって変更
                 ...(isWeekend ? styles.weekendBg : {}),
-                ...rowBorderStyle
+                ...rowBorderStyle,
+                // ★ 選択範囲のハイライト
+                ...(isSelected ? { backgroundColor: 'rgba(25, 118, 210, 0.1)' } : {}),
+                // ★ アクティブセルの枠線
+                ...(isActive ? { outline: '2px solid #1976d2', outlineOffset: '-2px' } : {}),
               }}
-              // ★★★ 修正: props で渡された onCellClick をそのまま呼ぶ ★★★
-              onClick={() => onCellClick(dayInfo.dateStr, staff.staffId)}
+              // ★ クリックとマウスイベントを接続 (index と dayIndex を渡す)
+              onClick={() => onCellClick(dayInfo.dateStr, staff.staffId, staffIndex, dayIndex)}
+              onMouseDown={(e) => onCellMouseDown(e, dayInfo.dateStr, staff.staffId, staffIndex, dayIndex)}
+              onMouseMove={() => onCellMouseMove(dayInfo.dateStr, staff.staffId, staffIndex, dayIndex)}
+              onMouseUp={onCellMouseUp}
             >
               {assignmentsForCell.length === 0 ? (
                 <span style={{ display: 'block', textAlign: 'center', color: '#888' }}>-</span>
@@ -235,18 +286,22 @@ export default function StaffCalendarView({
         })}
       </>
     );
-  }, [sortedStaffList, staffHolidayRequirements, assignmentsMap, patternMap, onCellClick, onHolidayDecrement, onHolidayIncrement, onStaffNameClick]); // ★ 依存配列に onCellClick を追加
+  }, [
+    sortedStaffList, staffHolidayRequirements, assignmentsMap, patternMap, 
+    onHolidayDecrement, onHolidayIncrement, onStaffNameClick,
+    // ★ 依存配列に追加
+    clickMode, activeCell, selectedRangeIndices,
+    onCellClick, onCellMouseDown, onCellMouseMove, onCellMouseUp
+  ]);
 
   return (
-    // ★★★ v5.70 修正: ルートを Box (flex-column) に変更 ★★★
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* ★★★ ヘッダー(h6)を削除 (ShiftCalendarPage に移動したため) ★★★ */}
+      {/* (h6 ヘッダーは ShiftCalendarPage に移動済み) */}
       
-      {/* ★★★ v5.70 修正: 仮想化テーブルをBoxでラップし、flex: 1 で伸縮させる ★★★ */}
       <Box sx={{ flex: 1, minHeight: 0 }}>
         <TableVirtuoso
           style={{ height: '100%', border: '1px solid #e0e0e0', borderRadius: '4px' }}
-          data={sortedStaffList}
+          data={sortedStaffList} // ★ props の sortedStaffList を使用
           fixedHeaderContent={fixedHeaderContent}
           itemContent={itemContent}
           components={{

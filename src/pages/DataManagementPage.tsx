@@ -1,29 +1,35 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Box, Paper, Typography, Tabs, Tab, TextField, Button, Select, 
-  MenuItem, InputLabel, FormControl, Table, TableBody, TableCell, 
-  TableContainer, TableHead, TableRow, IconButton, Checkbox, FormControlLabel,
+  Box, Paper, Typography, Tabs, Tab, 
+  // ★ 未使用のMUIコンポーネント (TextField, Button, Select, Dialog 等) を削除
+  Table, TableBody, TableCell, 
+  TableContainer, TableHead, TableRow, IconButton, 
   Alert,
-  Dialog, DialogActions, DialogContent, DialogTitle,
-  List, ListItem, ListItemButton, ListItemText, Chip, Divider,
-  Grid 
+  // ★ 削除
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit'; 
-import AddIcon from '@mui/icons-material/Add';
+// import AddIcon from '@mui/icons-material/Add'; // ★ 未使用のため削除
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'; // ★ アイコンをインポート
 import { useSelector, useDispatch } from 'react-redux';
 import type { AppDispatch, RootState } from '../store';
 // v5 スキーマの型をインポート
 import { 
   db, 
-  IStaff, IStaffConstraints, IShiftPattern, IUnit, CrossUnitWorkType, WorkType,
-  getDefaultDemand // ★ getDefaultDemand をインポート
+  IStaff, 
+  // ★ 未使用の型 (IStaffConstraints, CrossUnitWorkType, WorkType) を削除
+  IShiftPattern, IUnit, 
+  // ★ 未使用の関数 (getDefaultDemand) を削除
 } from '../db/dexie'; 
 // v5 スライスの Action をインポート
-import { addNewStaff, deleteStaff, updateStaff, setStaffList, parseAndSaveConstraints } from '../store/staffSlice'; 
-import { addNewPattern, deletePattern, updatePattern, setPatterns } from '../store/patternSlice'; 
+// ★★★ copyStaff をインポート ★★★
+// ★ 未使用のアクション (addNewStaff, parseAndSaveConstraints) を削除
+import { deleteStaff, updateStaff, setStaffList, copyStaff } from '../store/staffSlice'; 
+// ★ 未使用のアクション (addNewPattern) を削除
+import { deletePattern, updatePattern, setPatterns } from '../store/patternSlice'; 
 // (※ timeSlotRuleSlice はインポートしない)
-import { addNewUnit, deleteUnit, updateUnit, setUnits } from '../store/unitSlice';
+// ★ 未使用のアクション (addNewUnit) を削除
+import { deleteUnit, updateUnit, setUnits } from '../store/unitSlice';
 import Dexie from 'dexie'; // (Dexieエラー型判定用)
 
 // ★★★↓ インポートを修正 ↓★★★
@@ -139,6 +145,12 @@ function DataManagementPage() {
 
   // --- ハンドラ ---
   const handleStaffDelete = (staffId: string) => dispatch(deleteStaff(staffId));
+  // ★★★ スタッフコピーハンドラを追加 ★★★
+  const handleStaffCopy = (staffId: string) => {
+    if (window.confirm('このスタッフをコピーして新しいスタッフを作成しますか？')) {
+      dispatch(copyStaff(staffId));
+    }
+  };
   const handleStaffUpdate = (updatedStaff: IStaff) => {
     dispatch(updateStaff(updatedStaff));
     setEditingStaff(null);
@@ -160,7 +172,8 @@ function DataManagementPage() {
     <Box sx={{ flexGrow: 1, p: '0 24px 24px 24px' }}>
       <Paper sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 'calc(100vh - 120px)' }}>
         <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-          <Tabs value={tabValue} onChange={(e, v) => setTabValue(v)}>
+          {/* ★★★ 未使用の引数 'e' を '_' に変更 ★★★ */}
+          <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)}>
             <Tab label="ユニット・デマンド管理" />
             <Tab label="勤務パターン管理" />
             <Tab label="スタッフ管理" />
@@ -247,6 +260,10 @@ function DataManagementPage() {
                     </TableCell>
                     <TableCell>
                       <IconButton size="small" onClick={() => setEditingStaff(staff)} color="primary"><EditIcon /></IconButton>
+                      {/* ★★★ コピーボタンを追加 ★★★ */}
+                      <IconButton size="small" onClick={() => handleStaffCopy(staff.staffId)} color="default" title="このスタッフをコピー">
+                        <ContentCopyIcon />
+                      </IconButton>
                       <IconButton size="small" onClick={() => handleStaffDelete(staff.staffId)} color="error"><DeleteIcon /></IconButton>
                     </TableCell>
                   </TableRow>

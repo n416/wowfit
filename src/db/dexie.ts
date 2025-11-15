@@ -29,6 +29,12 @@ export interface IShiftPattern {
   crossesMidnight: boolean;
 }
 
+// ★★★ IStaffConstraints を個別に定義してエクスポート ★★★
+export interface IStaffConstraints {
+  maxConsecutiveDays: number;
+  minIntervalHours: number;
+}
+
 // --- 4. スタッフ定義 (v4から変更なし) ---
 export interface IStaff {
   staffId: string;
@@ -38,10 +44,7 @@ export interface IStaff {
   skills: string[];
   unitId: string | null; // 所属ユニット (レンタルなら「応援元」の意味合いでも可)
   availablePatternIds: string[]; // 勤務可能パターン (レンタルなら可能なシフト)
-  constraints: {
-    maxConsecutiveDays: number;
-    minIntervalHours: number;
-  };
+  constraints: IStaffConstraints; // ★ 型を参照するように変更
   memo?: string;
 }
 

@@ -1,5 +1,6 @@
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
-import { db, IStaff, IStaffConstraints, IShiftPattern } from '../db/dexie'; // (IShiftPattern もインポート)
+// ★★★ IStaffConstraints のインポートを削除 ★★★
+import { db, IStaff, IShiftPattern } from '../db/dexie'; // (IShiftPattern もインポート)
 import { GeminiApiClient } from '../api/geminiApiClient'; // APIクライアント
 import { extractJson } from '../utils/jsonExtractor'; // 作成した抽出関数
 
@@ -14,7 +15,7 @@ interface ParseConstraintsArgs {
 // v5: createAsyncThunk (制約解釈)
 export const parseAndSaveConstraints = createAsyncThunk(
   'staff/parseConstraints',
-  async (args: ParseConstraintsArgs, { rejectWithValue, getState }) => {
+  async (args: ParseConstraintsArgs, { rejectWithValue }) => { // ★ 未使用の getState を削除
     const { staffId, memo, shiftPatterns } = args;
     
     const gemini = new GeminiApiClient();
@@ -112,6 +113,32 @@ export const addNewStaff = createAsyncThunk(
   }
 );
 
+// ★★★ スタッフコピThunk (新規追加) ★★★
+export const copyStaff = createAsyncThunk(
+  'staff/copyStaff',
+  async (staffIdToCopy: string, { rejectWithValue }) => {
+    try {
+      const originalStaff = await db.staffList.get(staffIdToCopy);
+      if (!originalStaff) {
+        throw new Error('コピー元のスタッフが見つかりません。');
+      }
+      
+      const newStaff: IStaff = {
+        ...originalStaff,
+        staffId: `s${Date.now()}`, // IDを新しく採番
+        name: `${originalStaff.name} (コピー)`, // 名前を変更
+      };
+      
+      await db.staffList.add(newStaff); // 新しいスタッフとしてDBに追加
+      return newStaff; // 新しいスタッフ情報を返す
+
+    } catch (e: any) {
+      return rejectWithValue(e.message);
+    }
+  }
+);
+
+
 // スタッフ削除Thunk
 export const deleteStaff = createAsyncThunk(
   'staff/deleteStaff',
@@ -189,6 +216,17 @@ const staffSlice = createSlice({
         state.error = action.payload as string;
       })
       
+      // ★★★ copyStaff ハンドラ (新規追加) ★★★
+      .addCase(copyStaff.pending, (state) => { state.loading = true; })
+      .addCase(copyStaff.fulfilled, (state, action) => {
+        state.staff.push(action.payload); // コピーされたスタッフをストアに追加
+        state.loading = false;
+      })
+      .addCase(copyStaff.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      })
+
       // (deleteStaff)
       .addCase(deleteStaff.pending, (state) => { state.loading = true; })
       .addCase(deleteStaff.fulfilled, (state, action) => {

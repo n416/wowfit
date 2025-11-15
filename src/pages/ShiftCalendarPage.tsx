@@ -2,7 +2,8 @@ import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { 
   Box, Paper, Tabs, Tab, 
   Button, // ★ Button をインポート
-  ToggleButton, ToggleButtonGroup // ★★★ ToggleButtonGroup をインポート（タブUI用）
+  ToggleButton, ToggleButtonGroup,
+  IconButton // ★★★ IconButton をインポート ★★★
 } from '@mui/material';
 // import WarningAmberIcon from '@mui/icons-material/WarningAmber'; // 未使用
 import { useSelector, useDispatch } from 'react-redux';
@@ -22,7 +23,9 @@ import {
   fetchAiAdjustment, clearAdjustmentError, 
   fetchAiAnalysis, clearAnalysis,
   // ★★★ v5.76 修正: fetchAiHolidayPatch をインポート ★★★
-  fetchAiHolidayPatch 
+  fetchAiHolidayPatch,
+  undoAssignments, redoAssignments,
+  _syncOptimisticAssignment // ★★★ _syncOptimisticAssignment をインポート ★★★
 } from '../store/assignmentSlice'; 
 import type { AppDispatch, RootState } from '../store';
 
@@ -52,6 +55,8 @@ import { allocateWork } from '../lib/placement/workAllocator';
 import EditIcon from '@mui/icons-material/Edit';
 import HolidayIcon from '@mui/icons-material/BeachAccess';
 import PaidLeaveIcon from '@mui/icons-material/FlightTakeoff';
+import UndoIcon from '@mui/icons-material/Undo'; // ★★★ UNDO アイコン ★★★
+import RedoIcon from '@mui/icons-material/Redo'; // ★★★ REDO アイコン ★★★
 
 
 // (折りたたみ用アイコンのインポートは削除済み)
@@ -130,13 +135,14 @@ function ShiftCalendarPage() {
   const { staff: allStaffFromStore } = useSelector((state: RootState) => state.staff);
   const { patterns: shiftPatterns } = useSelector((state: RootState) => state.pattern);
   const { units: unitList } = useSelector((state: RootState) => state.unit);
-  // ★ v5.9 修正: AI分析の state を取得
+  
+  // ★★★ assignments と 履歴スタック(past/future) の両方を取得 ★★★
   const { 
     assignments, 
-    // ★★★ v5.44 修正: adviceXXX を削除 (AssignPatternModalが直接useSelectorする)
+    past, 
+    future,
     adjustmentLoading, adjustmentError,
     analysisLoading, analysisResult, analysisError,
-    // ★★★ v5.76 修正: patchLoading, patchError を取得 ★★★
     patchLoading, patchError
   } = useSelector((state: RootState) => state.assignment);
   
@@ -494,7 +500,9 @@ function ShiftCalendarPage() {
            dispatch(setStaffList(staff));
         }
         
-        dispatch(setAssignments(assignmentsDB)); 
+        // ★★★ DB読み込み時は履歴をクリア（UNDO/REDOの対象外） ★★★
+        dispatch(setAssignments(assignmentsDB));
+        // (注: setAssignmentsが履歴を積むので、ここで過去の履歴が1件積まれるが、初回ロード時は許容する)
 
       } catch (e) {
         console.error("DB init failed:", e);
@@ -502,6 +510,37 @@ function ShiftCalendarPage() {
     };
     loadData();
   }, [dispatch]);
+  
+  // ★★★ UNDO/REDO キーボードショートカット ★★★
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // (テキスト入力中は何もしない)
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+      
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const ctrlKey = isMac ? event.metaKey : event.ctrlKey;
+      
+      if (ctrlKey && event.key === 'z') {
+        event.preventDefault();
+        dispatch(undoAssignments());
+      } else if (ctrlKey && event.key === 'y') {
+        event.preventDefault();
+        dispatch(redoAssignments());
+      } else if (isMac && ctrlKey && event.shiftKey && event.key === 'z') {
+        // Mac の REDO (Cmd+Shift+Z)
+        event.preventDefault();
+        dispatch(redoAssignments());
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [dispatch]); // ★ dispatch のみ依存
+
 
   // ★★★ v5.45 修正: TS2769を修正 (event引数を `_` に変更) ★★★
   const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
@@ -590,12 +629,13 @@ function ShiftCalendarPage() {
   const toggleHoliday = useCallback(async (date: string, staff: IStaff, targetPatternId: string) => {
     
     // 1. メモリ上の Redux State (assignments) から既存のアサインを検索
+    // (useSelector の assignments を直接参照)
     const existing = assignments.filter((a: IAssignment) => a.date === date && a.staffId === staff.staffId);
     const existingIsTarget = existing.length === 1 && existing[0].patternId === targetPatternId;
 
     let newOptimisticAssignments: IAssignment[];
     let dbOperation: () => Promise<any>;
-    let tempId = Date.now(); // 仮ID (削除時にも使うため外で定義)
+    const tempId = Date.now(); // 仮ID
 
     if (existingIsTarget) {
       // --- トグルオフ (削除) ---
@@ -636,16 +676,15 @@ function ShiftCalendarPage() {
         
         // ★ DB操作完了後、ストアの仮IDを本物のIDに差し替える
         // (※注: このdispatchは「バックグラウンド」で実行される)
-        dispatch(setAssignments(
-          newOptimisticAssignments.map((a: IAssignment) => 
-            a.id === tempId ? { ...a, id: newId } : a
-          )
-        ));
+        // (★★ _syncOptimisticAssignment アクションを呼ぶ ★★)
+        dispatch(_syncOptimisticAssignment({
+          tempId: tempId,
+          newAssignment: { ...newAssignmentBase, id: newId }
+        }));
       };
     }
 
-    // 4. ★★★ UIを即時更新 (エラーTS2345を修正) ★★★
-    // (関数型アップデートではなく、計算済みの配列を渡す)
+    // 4. ★★★ UIを即時更新 (UNDO履歴に積む) ★★★
     dispatch(setAssignments(newOptimisticAssignments));
 
     // 5. バックグラウンドでDB操作を実行
@@ -836,13 +875,29 @@ function ShiftCalendarPage() {
               </Tabs>
             </Box>
             
-            {/* ★★★ tabValue === 1 の条件を削除 ★★★ */}
-            <Box sx={{ flexShrink: 0, pr: 2 }}>
+            {/* ★★★ UNDO/REDOボタンとリセットボタン ★★★ */}
+            <Box sx={{ flexShrink: 0, pr: 2, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <IconButton 
+                title="元に戻す (Ctrl+Z)"
+                onClick={() => dispatch(undoAssignments())} 
+                disabled={past.length === 0} // ★ UNDO履歴がなければ無効
+              >
+                <UndoIcon />
+              </IconButton>
+              <IconButton 
+                title="やり直す (Ctrl+Y)"
+                onClick={() => dispatch(redoAssignments())} 
+                disabled={future.length === 0} // ★ REDO履歴がなければ無効
+              >
+                <RedoIcon />
+              </IconButton>
+              
               <Button 
                 variant="outlined" 
                 color="error" 
                 onClick={handleResetClick}
                 size="small" // ★ サイズを小さくしてタブと高さを合わせる
+                sx={{ ml: 1 }} // ★ 左側にマージン
               >
                 アサインをリセット
               </Button>

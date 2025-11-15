@@ -8,14 +8,14 @@ import {
 import { useSelector } from 'react-redux';
 import type { RootState } from '../../store';
 import { IStaff, IShiftPattern, IAssignment, IUnit } from '../../db/dexie';
-import { MONTH_DAYS, /* getPrevDateStr */ } from '../../utils/dateUtils';
+import { MONTH_DAYS, /* getPrevDateStr */ } from '../../utils/dateUtils'; // ★ getPrevDateStr は未使用
 import { TableVirtuoso } from 'react-virtuoso';
 
 
 interface WorkSlotCalendarViewProps {
   onCellClick: (date: string, unitId: string | null) => void;
   // onResetClick: () => void; // ★★★ 削除 ★★★
-  demandMap: Map<string, { required: number; actual: number }>;
+  demandMap: Map<string, { required: number; actual: number }>; // ★★★ v5.101 の変更を元に戻す ★★★
 }
 
 // ★★★ v5.68 修正: CLS対策 ＋ 日付列の幅を '1em' に変更 ★★★
@@ -80,7 +80,7 @@ const styles: { [key: string]: CSSProperties } = {
 export default function WorkSlotCalendarView({
   onCellClick,
   // onResetClick, // ★★★ 削除 ★★★
-  demandMap
+  demandMap // ★★★ v5.101 の変更を元に戻す ★★★
 }: WorkSlotCalendarViewProps) {
   const { staff: staffList } = useSelector((state: RootState) => state.staff);
   const unitList = useSelector((state: RootState) => state.unit.units);
@@ -89,6 +89,8 @@ export default function WorkSlotCalendarView({
 
   const staffMap = useMemo(() => new Map(staffList.map((s: IStaff) => [s.staffId, s])), [staffList]);
   const patternMap = useMemo(() => new Map(shiftPatterns.map((p: IShiftPattern) => [p.patternId, p])), [shiftPatterns]);
+  
+  // ★★★ v5.101 で追加した demandMap の useMemo を削除 ★★★
   
   const assignmentsMap = useMemo(() => {
     const map = new Map<string, IAssignment[]>(); 
@@ -138,7 +140,7 @@ export default function WorkSlotCalendarView({
               <div style={styles.barContainer}>
                 {Array.from({ length: 24 }).map((_, hour) => {
                   const demandKey = `${dayInfo.dateStr}_${unit.unitId}_${hour}`;
-                  const demandData = demandMap.get(demandKey);
+                  const demandData = demandMap.get(demandKey); // ★ props の demandMap を参照
                   let bgColor = 'transparent', title = `${hour}:00 Need:0`;
                   if (demandData && demandData.required > 0) {
                     if (demandData.actual < demandData.required) {
@@ -157,6 +159,14 @@ export default function WorkSlotCalendarView({
                 const staff = staffMap.get(assignment.staffId);
                 const pattern = patternMap.get(assignment.patternId);
                 const isNight = pattern?.isNightShift;
+                // ★ 休職中のスタッフはグレーアウト（または非表示）
+                if (staff?.status === 'OnLeave') {
+                  return (
+                    <div key={assignment.id} style={{ ...styles.chip, backgroundColor: '#fafafa', color: '#bdbdbd', textDecoration: 'line-through' }}>
+                      {`${pattern?.patternId || '??'} (${staff?.name || '??'})`}
+                    </div>
+                  );
+                }
                 return (
                   <div key={assignment.id} style={{ ...styles.chip, backgroundColor: isNight ? '#e0e0e0' : '#e0e0e0', color: isNight ? '#d32f2f' : 'rgba(0, 0, 0, 0.87)' }}>
                     {`${pattern?.patternId || '??'} (${staff?.name || '??'})`}
@@ -177,8 +187,8 @@ export default function WorkSlotCalendarView({
       {/* ★★★ リセットボタンの div を削除 ★★★ */}
 
       {/* ★★★ v5.70 修正: 仮想化テーブルをBoxでラップし、flex: 1 で伸縮させる ★★★ */}
-      {/* ★★★ ボタン削除に伴いマージン調整 (mt: 2 を追加) ★★★ */}
-      <Box sx={{ flex: 1, minHeight: 0, mt: 2 }}>
+      {/* ★★★ ボタン削除に伴いマージン調整 (mt: 2 を削除) ★★★ */}
+      <Box sx={{ flex: 1, minHeight: 0 }}>
         <TableVirtuoso
           style={{ height: '100%', border: '1px solid #e0e0e0', borderRadius: '4px' }}
           data={MONTH_DAYS}

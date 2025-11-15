@@ -1,9 +1,9 @@
 import { CSSProperties, useState, useMemo, useRef, MouseEvent, useCallback, useEffect } from 'react'; 
 import { IStaff, IShiftPattern, IUnit, IAssignment, db } from '../../db/dexie'; 
 import { useDispatch, useSelector } from 'react-redux'; 
-import { setAssignments } from '../../store/assignmentSlice'; 
+import { setAssignments, _syncOptimisticAssignment } from '../../store/assignmentSlice'; 
 import type { AppDispatch, RootState } from '../../store'; 
-// import { getPrevDateStr } from '../../utils/dateUtils'; // ★★★ 未使用のため削除 ★★★
+// import { getPrevDateStr, MONTH_DAYS } from '../../utils/dateUtils'; // ★★★ 削除 ★★★
 
 // ★★★ v5.36 追加: ShiftCalendarPage から渡される unitGroups の型定義 ★★★
 type UnitGroupData = {
@@ -39,8 +39,8 @@ interface DailyUnitGanttModalProps {
   
   // allPatterns: IShiftPattern[]; // ★★★ 削除 (useSelectorで取得) ★★★
   allAssignments: IAssignment[]; // ★★★ allAssignments を受け取る ★★★
-  demandMap: Map<string, { required: number; actual: number }>; // ★ これはDBベースのMap
-  unitGroups: UnitGroupData[];
+  demandMap: Map<string, { required: number; actual: number }>; // ★★★ v5.101 の変更を元に戻す ★★★
+  unitGroups: UnitGroupData[]; // ★★★ v5.101 の変更を元に戻す ★★★
 }
 
 // (styles 定義は変更なし)
@@ -263,8 +263,8 @@ const getBarColor = (pattern: IShiftPattern, isSupport: boolean) => {
 export default function DailyUnitGanttModal({ 
   target, onClose, 
   allAssignments, 
-  demandMap, // ★ DBベースのMap
-  unitGroups
+  demandMap, // ★★★ v5.101 の変更を元に戻す ★★★
+  unitGroups // ★★★ v5.101 の変更を元に戻す ★★★
 }: DailyUnitGanttModalProps) {
 
   const dispatch: AppDispatch = useDispatch(); 
@@ -276,6 +276,7 @@ export default function DailyUnitGanttModal({
   const patternMap = useSelector((state: RootState) => 
     new Map(state.pattern.patterns.map(p => [p.patternId, p]))
   );
+  // ★★★ v5.101 で追加した unitList の useSelector を削除 ★★★
   
   const HOUR_WIDTH = 30; 
   const CHART_WIDTH = HOUR_WIDTH * 24; 
@@ -301,6 +302,9 @@ export default function DailyUnitGanttModal({
     return map;
   }, [allAssignments]);
 
+  // ★★★ v5.101 で追加した unitGroups の useMemo を削除 ★★★
+
+  // ★★★ localUnitGroups (pendingChanges をマージ) ★★★
   const localUnitGroups = useMemo(() => {
     if (!target) return [];
     
@@ -339,11 +343,13 @@ export default function DailyUnitGanttModal({
         return row;
       })
     }));
-  }, [unitGroups, pendingChanges, patternMap, target]);
+  }, [unitGroups, pendingChanges, patternMap, target]); // ★ 依存配列に props の unitGroups を指定
+
+  // ★★★ v5.101 で追加した demandMap の useMemo を削除 ★★★
 
   // ★★★ ローカルのデマンドマップ (pendingChanges を反映) ★★★
   const localDemandMap = useMemo(() => {
-    if (!target) return demandMap; // ターゲットがなければ元のmapを返す
+    if (!target) return demandMap; 
     
     // 1. props の demandMap (DBベース) をディープコピー
     const newDemandMap = new Map<string, { required: number; actual: number }>();
@@ -378,14 +384,11 @@ export default function DailyUnitGanttModal({
             if (entry) entry.actual = Math.max(0, entry.actual - 1); // 0未満にならないように
           }
         } else {
-          // (夜勤の減算ロジック - 当日)
           for (let hour = startTime; hour < 24; hour++) {
             const key = `${originalAssignment.date}_${originalAssignment.unitId}_${hour}`;
             const entry = newDemandMap.get(key);
             if (entry) entry.actual = Math.max(0, entry.actual - 1);
           }
-          // (夜勤の減算ロジック - 翌日)
-          // const nextDateStr = getPrevDateStr(originalAssignment.date); // ※これは間違い、翌日のはず
           const nextDateObj = new Date(originalAssignment.date.replace(/-/g, '/'));
           nextDateObj.setDate(nextDateObj.getDate() + 1);
           const correctNextDateStr = `${nextDateObj.getFullYear()}-${String(nextDateObj.getMonth() + 1).padStart(2, '0')}-${String(nextDateObj.getDate()).padStart(2, '0')}`;
@@ -409,13 +412,11 @@ export default function DailyUnitGanttModal({
           if (entry) entry.actual += 1;
         }
       } else {
-        // (夜勤の加算ロジック - 当日)
         for (let hour = startTime; hour < 24; hour++) {
           const key = `${newAssignment.date}_${newAssignment.unitId}_${hour}`;
           const entry = newDemandMap.get(key);
           if (entry) entry.actual += 1;
         }
-        // (夜勤の加算ロジック - 翌日)
         const nextDateObj = new Date(newAssignment.date.replace(/-/g, '/'));
         nextDateObj.setDate(nextDateObj.getDate() + 1);
         const correctNextDateStr = `${nextDateObj.getFullYear()}-${String(nextDateObj.getMonth() + 1).padStart(2, '0')}-${String(nextDateObj.getDate()).padStart(2, '0')}`;
@@ -426,14 +427,10 @@ export default function DailyUnitGanttModal({
         }
       }
     });
-
-    // 6. 0.5人デマンドの再計算 (Pass 3) は複雑すぎるため、
-    //    このローカルマップでは「減算」と「加算」のみを反映する
-    //    (※厳密なプレビューには Pass 3 のロジックもここに移植する必要があります)
-
+    
     return newDemandMap;
 
-  }, [demandMap, pendingChanges, allAssignmentsMap, patternMap, allStaffMap, target]);
+  }, [demandMap, pendingChanges, allAssignmentsMap, patternMap, allStaffMap, target]); // ★ 依存配列に props の demandMap を指定
 
 
   useEffect(() => {
@@ -762,8 +759,7 @@ export default function DailyUnitGanttModal({
         <div style={styles.actions}>
           {/* ★★★ 変更履歴 (pendingChanges) のサイズに応じてボタンを出し分ける ★★★ */}
           {pendingChanges.size === 0 ? (
-            // ★★★ style から width: '100%' と justifyContent を削除 ★★★
-            <button onClick={onClose} style={styles.button}>
+            <button onClick={onClose} style={{...styles.button, width: '100%'}}>
               閉じる
             </button>
           ) : (

@@ -32,7 +32,7 @@ export const allocateWork = async ({
   patternMap,
   shiftPatterns,
   dispatch,
-  demandMap
+  demandMap // ★★★ v5.101 の変更を元に戻し、引数で受け取る
 }: WorkAllocatorArgs) => {
 
   if (unitList.length === 0) {
@@ -75,6 +75,7 @@ export const allocateWork = async ({
   // (キー: "YYYY-MM-DD_unitId", 値: number[36])
   const shortageMap = new Map<string, number[]>();
   
+  // ★★★ v5.101 で行った変更をすべて元に戻し、引数の demandMap を使う ★★★
   for (const day of MONTH_DAYS) {
     // 翌日の日付を取得
     const nextDateObj = new Date(day.dateStr.replace(/-/g, '/'));
@@ -88,7 +89,7 @@ export const allocateWork = async ({
       // 当日 0時〜23時 (Index 0-23)
       for (let h = 0; h < 24; h++) {
         const key = `${day.dateStr}_${unit.unitId}_${h}`;
-        const demandData = demandMap.get(key);
+        const demandData = demandMap.get(key); // ★ 引数の demandMap を参照
         if (demandData && demandData.actual < demandData.required) {
           shortages[h] = demandData.required - demandData.actual;
         }
@@ -97,7 +98,7 @@ export const allocateWork = async ({
       // 翌日 0時〜11時 (Index 24-35)
       for (let h = 0; h < 12; h++) {
         const key = `${nextDateStr}_${unit.unitId}_${h}`;
-        const demandData = demandMap.get(key);
+        const demandData = demandMap.get(key); // ★ 引数の demandMap を参照
         if (demandData && demandData.actual < demandData.required) {
           shortages[h + 24] = demandData.required - demandData.actual;
         }
@@ -105,6 +106,7 @@ export const allocateWork = async ({
       shortageMap.set(`${day.dateStr}_${unit.unitId}`, shortages);
     }
   }
+  // ★★★ v5.101 修正ここまで ★★★
 
 
   // [Step B & C] 日ごとにギャップを検出し、アサインする

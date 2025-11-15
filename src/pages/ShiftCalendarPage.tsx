@@ -10,7 +10,7 @@ import { useSelector, useDispatch } from 'react-redux';
 // ★★★ v5スキーマの型とDBをインポート ★★★
 import { 
   db, 
-  IStaff, IShiftPattern, IUnit, IAssignment, // ★★★ IAssignment をインポート ★★★
+  IStaff, IShiftPattern, IAssignment, // ★★★ IUnit を削除 (TS6133) ★★★
 } from '../db/dexie'; 
 // ★★★ v5スライスのActionをインポート ★★★
 import { setStaffList, /* parseAndSaveConstraints */ } from '../store/staffSlice'; // parseAndSaveConstraints は未使用
@@ -43,13 +43,26 @@ import DailyUnitGanttModal from '../components/calendar/DailyUnitGanttModal';
 // ★★★ v5.85 修正: 新しいモーダルをインポート ★★★
 import ClearStaffAssignmentsModal from '../components/calendar/ClearStaffAssignmentsModal'; 
 // ★★★ v5.35 修正: getPrevDateStr をインポート ★★★
-import { MONTH_DAYS, getDefaultRequiredHolidays, getPrevDateStr } from '../utils/dateUtils';
+import { MONTH_DAYS /* getPrevDateStr */ } from '../utils/dateUtils'; // ★ getPrevDateStr を削除 (TS6133)
 // ★★★↓ v5.9 モックデータをインポート ↓★★★
 import { MOCK_PATTERNS_V5, MOCK_UNITS_V5, MOCK_STAFF_V4 } from '../db/mockData';
 // ★★★ v5.72 修正: allocateHolidays のインポートを（再度）削除 ★★★
 // import { allocateHolidays } from '../lib/placement/holidayAllocator';
 // ★★★ v5.21 修正: allocateWork (応援スタッフ穴埋め) をインポート ★★★
 import { allocateWork } from '../lib/placement/workAllocator';
+
+// ★★★ リファクタリング: 計算ロジックをインポート ★★★
+// ★★★ 「ごった煮」ファイルのインポートを削除 ★★★
+// import { 
+//   calculateStaffBurdenData, 
+//   calculateDemandMap, 
+//   calculateUnitGroups,
+//   UnitGroupData 
+// } from '../lib/dataCalculators';
+// ★★★ カスタムフックをインポート ★★★
+import { useStaffBurdenData } from '../hooks/useStaffBurdenData';
+import { useDemandMap } from '../hooks/useDemandMap';
+import { useUnitGroups } from '../hooks/useUnitGroups'; // ★ UnitGroupData をフックからインポート
 
 // ★★★ アイコンをインポート ★★★
 import EditIcon from '@mui/icons-material/Edit';
@@ -101,19 +114,7 @@ function TabPanel(props: TabPanelProps) {
 
 // (モックデータ、ローカル定義の Modal/Function はすべて削除済み)
 
-// ★★★ v5.36 追加: モーダルに渡す unitGroups の型定義 ★★★
-type UnitGroupData = {
-  unit: IUnit;
-  rows: { 
-    staff: IStaff; 
-    pattern: IShiftPattern; 
-    isSupport: boolean; 
-    startHour: number;
-    duration: number; 
-    assignmentId: number; // ★★★ assignmentId を追加
-    unitId: string | null; // ★★★ unitId を追加
-  }[];
-};
+// ★★★ UnitGroupData の型定義を削除 (TS6196) ★★★
 
 // ★★★ クリックモードの型定義 ★★★
 type ClickMode = 'normal' | 'holiday' | 'paid_leave';
@@ -147,6 +148,8 @@ function ShiftCalendarPage() {
   } = useSelector((state: RootState) => state.assignment);
   
   // ★★★ 勤務表で扱う「アクティブな」スタッフリストを作成 ★★★
+  // (注: useStaffBurdenData フックもこれと同じ計算をしているが、
+  //  AIへの引き渡し用に Page 側にも持っておく)
   const staffList = useMemo(() => 
     allStaffFromStore.filter(s => s.status !== 'OnLeave'), 
     [allStaffFromStore]
@@ -162,11 +165,17 @@ function ShiftCalendarPage() {
   // ★★★ v5.85 修正: スタッフアサインクリア用モーダルの State ★★★
   const [clearingStaff, setClearingStaff] = useState<IStaff | null>(null);
 
-  // ★ v5.7 追加: スタッフ毎の必要公休数 (Map<staffId,日数>)
-  const [staffHolidayRequirements, setStaffHolidayRequirements] = useState<Map<string, number>>(new Map());
+  // ★★★ staffHolidayRequirements の管理をカスタムフックに移動 ★★★
+  const {
+    staffList: activeStaffList, // (staffList と同じものだが、フックから取得)
+    staffBurdenData,
+    staffHolidayRequirements,
+    handleHolidayIncrement,
+    handleHolidayDecrement
+  } = useStaffBurdenData();
 
   // ★ v5.8 追加: AIサポートペイン用の State
-  const [aiInstruction, setAiInstruction] = useState("夜勤さんXの夜勤を月4回程度に減らしてください。"); 
+  const [aiInstruction, setAiInstruction] = useState("夜勤さんXの夜勤を月4回程度に減らせてください。"); 
 
   
   // ★★★ staffMap は休職者も含めた全スタッフで作る (アサイン履歴などで名前を引けるように) ★★★
@@ -182,290 +191,18 @@ function ShiftCalendarPage() {
   [shiftPatterns]);
 
 
-  // v5 負担データ (公休数もここに追加)
-  // ★★★ staffList (アクティブなスタッフ) を元に計算する ★★★
-  const staffBurdenData = React.useMemo(() => {
-    const burdenMap = new Map<string, {
-        staffId: string; name: string; employmentType: 'FullTime' | 'PartTime' | 'Rental'; 
-        assignmentCount: number; nightShiftCount: number; totalHours: number; weekendCount: number;
-        maxHours: number;
-        holidayCount: number; 
-        requiredHolidays: number; 
-    }>();
-
-    // ★★★ v5.44 修正: 引数なしで呼び出す ★★★
-    const defaultReq = getDefaultRequiredHolidays(); 
-
-    staffList.forEach((s: IStaff) => { // ★ staffList (アクティブ) を使用
-      burdenMap.set(s.staffId, { 
-        staffId: s.staffId, name: s.name, employmentType: s.employmentType,
-        assignmentCount: 0, nightShiftCount: 0, totalHours: 0, weekendCount: 0,
-        maxHours: (s.constraints?.maxConsecutiveDays || 5) * 8 * 4,
-        holidayCount: 0, 
-        requiredHolidays: staffHolidayRequirements.get(s.staffId) || defaultReq, 
-      });
-    });
-
-    for (const assignment of assignments) {
-      if (assignment.staffId && assignment.patternId) {
-        const staffData = burdenMap.get(assignment.staffId);
-        const pattern = patternMap.get(assignment.patternId);
-        if (staffData && pattern) { // ★ 休職中のスタッフは staffData が undefined になるので自動的に除外される
-          if (pattern.workType === 'Work') { 
-            staffData.assignmentCount++;
-            staffData.totalHours += pattern.durationHours;
-            if (pattern.isNightShift) staffData.nightShiftCount++;
-            const dayOfWeek = new Date(assignment.date.replace(/-/g, '/')).getDay();
-            if (dayOfWeek === 0 || dayOfWeek === 6) staffData.weekendCount++;
-          } else if (pattern.workType === 'StatutoryHoliday') { 
-            staffData.holidayCount++;
-          }
-        }
-      }
-    }
-    return burdenMap;
-  }, [assignments, staffList, patternMap, staffHolidayRequirements]); // ★ 依存配列を staffList に変更
+  // ★★★ staffBurdenData の useMemo を削除 (useStaffBurdenDataフックから取得) ★★★
 
 
-  // ★ v5.7 追加: localStorage から公休数を読み込む
-  useEffect(() => {
-    const storedReqs = localStorage.getItem('staffHolidayRequirements_2025_11'); 
-    if (storedReqs) {
-      setStaffHolidayRequirements(new Map(JSON.parse(storedReqs)));
-    } else {
-      // ★★★ v5.44 修正: 引数なしで呼び出す ★★★
-      const defaultReq = getDefaultRequiredHolidays();
-      const newMap = new Map<string, number>();
-      allStaffFromStore.forEach(staff => { // ★ 全スタッフ (allStaffFromStore) に対して設定
-        newMap.set(staff.staffId, defaultReq);
-      });
-      setStaffHolidayRequirements(newMap);
-    }
-  }, [allStaffFromStore]); // ★ 依存配列を allStaffFromStore に変更
-
-  // ★ v5.7 追加: 公休数が変更されたら localStorage に保存
-  useEffect(() => {
-    if (staffHolidayRequirements.size > 0) {
-      localStorage.setItem('staffHolidayRequirements_2025_11', JSON.stringify(Array.from(staffHolidayRequirements.entries())));
-    }
-  }, [staffHolidayRequirements]);
+  // ★★★ staffHolidayRequirements の State と useEffect を削除 (useStaffBurdenDataフックに移動) ★★★
 
 
-  // ★★★ v5.35 修正: INP対策のため、demandMap の計算をここに引き上げる ★★★
-  const demandMap = useMemo(() => {
-    const map = new Map<string, { required: number; actual: number }>(); 
-    
-    // --- 1. Pass 1: Demand (Mapの初期化) ---
-    for (const day of MONTH_DAYS) {
-      for (const unit of unitList) {
-        for (let hour = 0; hour < 24; hour++) {
-          const key = `${day.dateStr}_${unit.unitId}_${hour}`;
-          const requiredStaff = (unit.demand && unit.demand[hour]) || 0; 
-          map.set(key, { required: requiredStaff, actual: 0 });
-        }
-      }
-    }
-    
-    // --- 2. Pass 2: Actual (アサイン先への直接配置) ---
-    for (const assignment of assignments) {
-      const pattern = patternMap.get(assignment.patternId);
-      // ★★★ staffMap を使って休職中かチェック ★★★
-      const staff = staffMap.get(assignment.staffId);
-      if (staff && staff.status === 'OnLeave') continue; // 休職中のスタッフのアサインはカウントしない
-      
-      if (assignment.unitId && pattern && pattern.workType === 'Work') {
-        
-        const startTime = parseInt(pattern.startTime.split(':')[0]);
-        const [endH, endM] = pattern.endTime.split(':').map(Number);
-        const endTime = (endM > 0) ? endH + 1 : endH;
-
-        if (!pattern.crossesMidnight) {
-          // --- A. 当日のみのアサイン ---
-          for (let hour = startTime; hour < endTime; hour++) { 
-            const key = `${assignment.date}_${assignment.unitId}_${hour}`;
-            const entry = map.get(key);
-            if (entry) entry.actual += 1;
-          }
-        } else {
-          // --- B. 日付またぎのアサイン ---
-          // B-1. 1日目 (当日開始の夜)
-          for (let hour = startTime; hour < 24; hour++) {
-            const key = `${assignment.date}_${assignment.unitId}_${hour}`;
-            const entry = map.get(key);
-            if (entry) entry.actual += 1;
-          }
-          
-          // B-2. 2日目 (翌日の朝)
-          const nextDateObj = new Date(assignment.date.replace(/-/g, '/'));
-          nextDateObj.setDate(nextDateObj.getDate() + 1);
-          const nextDateStr = `${nextDateObj.getFullYear()}-${String(nextDateObj.getMonth() + 1).padStart(2, '0')}-${String(nextDateObj.getDate()).padStart(2, '0')}`;
-
-          for (let hour = 0; hour < endTime; hour++) {
-            const key = `${nextDateStr}_${assignment.unitId}_${hour}`;
-            const entry = map.get(key);
-            if (entry) entry.actual += 1;
-          }
-        }
-      }
-    }
-
-    // --- 3. Pass 3: Surplus (余剰の再配置) ---
-    for (const day of MONTH_DAYS) {
-      const prevDateStr = getPrevDateStr(day.dateStr);
-
-      for (let h = 0; h < 24; h++) {
-        let shareableSurplusPool = 0; // この時間の「シェア可能な余剰人員」
-        const deficitUnits: { key: string, entry: { required: number, actual: number } }[] = []; // 助けが必要なユニット
-
-        // (Pass 3-A: プールとターゲットをスキャン)
-        for (const unit of unitList) {
-          const key = `${day.dateStr}_${unit.unitId}_${h}`;
-          const entry = map.get(key);
-          if (!entry) continue;
-
-          // A. 不足（actual < required）しているユニットを「ターゲット」としてリストアップ
-          if (entry.actual < entry.required) {
-            deficitUnits.push({ key, entry });
-          }
-
-          // B. 余剰（actual > required）がいるユニットをスキャン
-          if (entry.actual > entry.required) {
-            // このユニットの「シェア可能」なスタッフを探す
-            const shareableStaffInThisUnit = assignments.filter(a => {
-              // ★★★ staffMap を使って休職中かチェック ★★★
-              const staff = staffMap.get(a.staffId);
-              if (!staff || staff.status === 'OnLeave') return false; 
-              
-              if (a.unitId !== unit.unitId) return false;
-              const p = patternMap.get(a.patternId);
-              if (!p || p.workType !== 'Work') return false;
-              const isShareable = p.crossUnitWorkType === '有' || p.crossUnitWorkType === 'サポート';
-              if (!isShareable) return false;
-
-              // このスタッフがこの時間(h)に働いているか
-              const startH = parseInt(p.startTime.split(':')[0]);
-              const [endH_raw, endM_raw] = p.endTime.split(':').map(Number);
-              const endH = (endM_raw > 0) ? endH_raw + 1 : endH_raw;
-              
-              if (a.date === day.dateStr && !p.crossesMidnight) return (h >= startH && h < endH); // 当日日勤
-              if (a.date === day.dateStr && p.crossesMidnight) return (h >= startH); // 当日夜勤(夜)
-              if (a.date === prevDateStr && p.crossesMidnight) return (h < endH); // 前日夜勤(朝)
-              return false;
-            });
-            
-            // このユニットの余剰分
-            const surplusInThisUnit = entry.actual - entry.required;
-            // シェア可能なスタッフ数と、余剰分のうち、少ない方をプールに加算
-            const contribution = Math.min(surplusInThisUnit, shareableStaffInThisUnit.length);
-            shareableSurplusPool += contribution;
-          }
-        }
-
-        // (Pass 3-B: プールからターゲットへ分配)
-        if (shareableSurplusPool > 0 && deficitUnits.length > 0) {
-          deficitUnits.sort((a, b) => (b.entry.required - b.entry.actual) - (a.entry.required - a.entry.actual));
-          
-          for (const target of deficitUnits) {
-            if (shareableSurplusPool <= 0) break; // プールが空
-            const needed = target.entry.required - target.entry.actual;
-            const fillAmount = Math.min(needed, 1.0); 
-            target.entry.actual += fillAmount;
-            shareableSurplusPool -= fillAmount;
-          }
-        }
-      }
-    }
-
-    return map;
-  }, [assignments, unitList, patternMap, staffMap]); // ★ 依存配列を staffMap に変更 (staffList -> staffMap)
+  // ★★★ demandMap の計算をカスタムフックに委譲 ★★★
+  const demandMap = useDemandMap();
 
 
-  // ★★★ v5.36 修正: INP対策のため、unitGroups の計算をここに引き上げる ★★★
-  const unitGroups: UnitGroupData[] = useMemo(() => {
-    if (!showingGanttTarget) return []; // モーダル非表示時は計算しない
-    
-    const { date } = showingGanttTarget;
-    const groups: UnitGroupData[] = [];
-    const prevDateStr = getPrevDateStr(date);
-
-    unitList.forEach(currentUnit => {
-      const rows: any[] = [];
-
-      assignments.forEach(assignment => {
-        // ★★★ assignment.id が必須なため、null/undefined チェック ★★★
-        if (!assignment.id) return; 
-        
-        if (assignment.date !== date && assignment.date !== prevDateStr) return;
-
-        const pattern = patternMap.get(assignment.patternId);
-        if (!pattern || pattern.workType !== 'Work') return;
-        
-        if (assignment.date === prevDateStr && !pattern.crossesMidnight) return;
-
-        const staff = staffMap.get(assignment.staffId);
-        if (!staff) return;
-        if (staff.status === 'OnLeave') return; // ★★★ 休職中スタッフは除外 ★★★
-
-        const startH = parseInt(pattern.startTime.split(':')[0]);
-        const [endH_raw, endM] = pattern.endTime.split(':').map(Number);
-        let endH = (endM > 0) ? endH_raw + 1 : endH_raw;
-        
-        let displayStart = startH;
-        let displayDuration = endH - startH;
-
-        if (pattern.crossesMidnight) {
-           if (assignment.date === date) {
-             displayDuration = 24 - startH; // v5.28 (v5.34) のバグ修正
-           } else {
-             displayStart = 0;
-             displayDuration = endH;
-           }
-        }
-
-        const checkHour = assignment.date === date ? startH : 0;
-        let isMatch = false;
-        let isSupport = false;
-
-        if (assignment.unitId === currentUnit.unitId) {
-          isMatch = true;
-          isSupport = false; 
-          const isCrossUnit = pattern.crossUnitWorkType === '有' || pattern.crossUnitWorkType === 'サポート';
-          const assignedUnitDemand = (currentUnit.demand || [])[checkHour];
-          if (isCrossUnit && assignedUnitDemand === 0.5) {
-             isSupport = true;
-          }
-        } else {
-          const isCrossUnit = pattern.crossUnitWorkType === '有' || pattern.crossUnitWorkType === 'サポート';
-          if (isCrossUnit) {
-            const demandHere = (currentUnit.demand || [])[checkHour];
-            if (demandHere === 0.5) {
-              isMatch = true;
-              isSupport = true;
-            }
-          }
-        }
-
-        if (isMatch) {
-          rows.push({ 
-            staff, pattern, isSupport, 
-            startHour: displayStart, 
-            duration: displayDuration,
-            assignmentId: assignment.id, // ★★★ assignmentId を渡す
-            unitId: assignment.unitId,   // ★★★ 元の unitId を渡す
-          });
-        }
-      });
-
-      rows.sort((a, b) => {
-        if (a.startHour !== b.startHour) return a.startHour - b.startHour;
-        return a.staff.name.localeCompare(b.staff.name);
-      });
-
-      groups.push({ unit: currentUnit, rows });
-    });
-
-    return groups;
-  }, [showingGanttTarget, assignments, patternMap, staffMap, unitList]); // ★ 依存配列に target を指定
+  // ★★★ unitGroups の計算をカスタムフックに委譲 ★★★
+  const unitGroups = useUnitGroups(showingGanttTarget);
 
 
   // ★★★ v5.3版: DB初期化ロジック (DataManagementPageと同一ロジック) ★★★
@@ -572,9 +309,9 @@ function ShiftCalendarPage() {
       patternMap,
       shiftPatterns, 
       dispatch,
-      demandMap // ★★★ この行を追加 ★★★
+      demandMap // ★★★ v5.101 の変更を元に戻す ★★★
     });
-  }, [assignments, staffList, unitList, patternMap, shiftPatterns, dispatch, demandMap]); // ★ 依存配列を staffList に変更
+  }, [assignments, staffList, unitList, patternMap, shiftPatterns, dispatch, demandMap]); // ★ 依存配列に demandMap を戻す
 
 
   // v4版: アサインリセット
@@ -730,27 +467,8 @@ function ShiftCalendarPage() {
   }, [assignments, dispatch, clearingStaff]); // 依存配列
 
 
-  // ★★★ v5.9 修正: 公休調整ハンドラ (+/-) を追加 ★★★
-  const handleHolidayIncrement = (staffId: string) => {
-    setStaffHolidayRequirements(prevMap => {
-      const newMap = new Map(prevMap);
-      // ★★★ v5.44 修正: 引数なしで呼び出す ★★★
-      const currentReq = newMap.get(staffId) || getDefaultRequiredHolidays();
-      newMap.set(staffId, currentReq + 1);
-      return newMap;
-    });
-  };
-
-  const handleHolidayDecrement = (staffId: string) => {
-    setStaffHolidayRequirements(prevMap => {
-      const newMap = new Map(prevMap);
-      // ★★★ v5.44 修正: 引数なしで呼び出す ★★★
-      const currentReq = newMap.get(staffId) || getDefaultRequiredHolidays();
-      newMap.set(staffId, Math.max(0, currentReq - 1)); 
-      return newMap;
-    });
-  };
-  // ★★★ v5.9 修正ここまで ★★★
+  // ★★★ v5.9 修正: 公休調整ハンドラ (+/-) を削除 (useStaffBurdenData フックに移動) ★★★
+  
 
   // ★★★ v5.73 修正: AI調整の実行ハンドラを引数(instruction)で分離 ★★★
   const handleRunAiAdjustment = (instruction: string) => {
@@ -767,7 +485,7 @@ function ShiftCalendarPage() {
     
     // ★★★ v5.22 修正: RentalスタッフをAIに渡すリストから除外 ★★★
     // ★★★ staffList (アクティブ) から Rental を除外 ★★★
-    const staffForAi = staffList.filter(s => s.employmentType !== 'Rental');
+    const staffForAi = activeStaffList.filter(s => s.employmentType !== 'Rental'); // ★ staffList -> activeStaffList
     
     dispatch(fetchAiAdjustment({
       instruction: instruction, // ★ 引数をそのまま渡す
@@ -790,7 +508,7 @@ function ShiftCalendarPage() {
     
     // ★★★ v5.22 修正: RentalスタッフをAIに渡すリストから除外 ★★★
     // ★★★ staffList (アクティブ) から Rental を除外 ★★★
-    const staffForAi = staffList.filter(s => s.employmentType !== 'Rental');
+    const staffForAi = activeStaffList.filter(s => s.employmentType !== 'Rental'); // ★ staffList -> activeStaffList
 
     dispatch(fetchAiAnalysis({
       allStaff: staffForAi, // ★ 修正
@@ -815,7 +533,7 @@ function ShiftCalendarPage() {
     }
     
     // ★★★ staffList (アクティブ) から Rental を除外 ★★★
-    const staffForAi = staffList.filter(s => s.employmentType !== 'Rental');
+    const staffForAi = activeStaffList.filter(s => s.employmentType !== 'Rental'); // ★ staffList -> activeStaffList
     
     dispatch(fetchAiHolidayPatch({
       allStaff: staffForAi,
@@ -933,12 +651,12 @@ function ShiftCalendarPage() {
             </Box>
             
             <StaffCalendarView 
-              staffList={staffList} // ★★★ フィルタリングした staffList を渡す ★★★
+              staffList={activeStaffList} // ★★★ staffList -> activeStaffList に変更 ★★★
               onCellClick={handleCellClick} // ★★★ モード振り分け機能付きハンドラを渡す ★★★
               staffHolidayRequirements={staffHolidayRequirements}
               onHolidayIncrement={handleHolidayIncrement}
               onHolidayDecrement={handleHolidayDecrement}
-              onStaffNameClick={handleStaffNameClick} // ★★★ v5.85 修正 ★★★
+              onStaffNameClick={handleStaffNameClick} 
             />
           </TabPanel>
           
@@ -949,7 +667,7 @@ function ShiftCalendarPage() {
                 onCellClick={handleCellClick}
                 // ★★★ onResetClick を削除 ★★★
                 // onResetClick={handleResetClick} 
-                demandMap={demandMap} 
+                demandMap={demandMap} // ★★★ v5.101 の変更を元に戻す ★★★
               />
             </Box>
           </TabPanel>
@@ -959,8 +677,7 @@ function ShiftCalendarPage() {
         <BurdenSidebar
           isOpen={isSidebarOpen}
           onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
-          staffBurdenData={staffBurdenData}
-          staffMap={staffMap}
+          staffBurdenData={staffBurdenData} // ★★★ v5.101 の変更を元に戻す ★★★
         />
 
       </Box> {/* ★ 上部エリアここまで */}
@@ -994,11 +711,11 @@ function ShiftCalendarPage() {
       {/* 手動アサインモーダルの呼び出し */}
       <AssignPatternModal
         target={editingTarget}
-        allStaff={staffList} // ★ staffList (アクティブ) を渡す
+        allStaff={activeStaffList} // ★ staffList -> activeStaffList
         allPatterns={shiftPatterns}
         allUnits={unitList}
         allAssignments={assignments}
-        burdenData={Array.from(staffBurdenData.values())}
+        burdenData={Array.from(staffBurdenData.values())} // ★★★ v5.101 の変更を元に戻す ★★★
         onClose={handleCloseDialog}
       />
       
@@ -1006,10 +723,9 @@ function ShiftCalendarPage() {
       <DailyUnitGanttModal
         target={showingGanttTarget}
         onClose={() => setShowingGanttTarget(null)}
-        // allPatterns={shiftPatterns} // ★★★ 削除 ★★★
         allAssignments={assignments} // ★★★ allAssignments を渡す ★★★
-        demandMap={demandMap} 
-        unitGroups={unitGroups} 
+        demandMap={demandMap} // ★★★ v5.101 の変更を元に戻す ★★★
+        unitGroups={unitGroups} // ★★★ v5.101 の変更を元に戻す ★★★
       />
 
       {/* ★★★ v5.85 修正: 新しいモーダルをレンダリング ★★★ */}

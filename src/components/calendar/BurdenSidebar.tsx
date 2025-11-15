@@ -1,4 +1,4 @@
-import React from 'react';
+// import React from 'react'; // ★★★ 削除 (TS6192)
 import { 
   Box, Paper, Typography, 
   List, ListItem, ListItemText, Avatar, Chip,
@@ -6,7 +6,7 @@ import {
   IconButton
   // ★ ListItemButton, Stack, Add/Remove アイコンを削除
 } from '@mui/material';
-import { IStaff } from '../../db/dexie'; 
+// import { IStaff } from '../../db/dexie'; // ★★★ 削除 (TS6133)
 
 // アイコンのインポート
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
@@ -15,31 +15,23 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 // (ShiftCalendarPage.tsx からサイドバーのコードを移動)
 
 // ★ v5.9 staffBurdenData の型定義
-type StaffBurdenData = {
-  staffId: string;
-  name: string;
-  assignmentCount: number;
-  nightShiftCount: number;
-  totalHours: number;
-  weekendCount: number;
-  maxHours: number;
-  holidayCount: number;
-  requiredHolidays: number;
-};
+// type StaffBurdenData = { ... }; // (TS6196 解消のため削除済み)
 
 interface BurdenSidebarProps {
   // ★ v5.9 サイドバーに必要な props を修正
   isOpen: boolean;
   onToggle: () => void;
-  staffBurdenData: Map<string, StaffBurdenData>; 
-  staffMap: Map<string, IStaff>; 
+  staffBurdenData: Map<string, any>; 
+  // staffMap: Map<string, IStaff>; // ★★★ 削除 (TS2322)
   // ★ v5.9 修正: onStaffClick と +/- ハンドラを削除
 }
 
 // export default を追加
 export default function BurdenSidebar({ 
-  isOpen, onToggle, staffBurdenData, staffMap
+  isOpen, onToggle, staffBurdenData // ★ staffMap を削除 (TS6133)
 }: BurdenSidebarProps) {
+
+  // ★★★ v5.101 で追加した useSelector, useState, useEffect, useMemo ロジックをすべて削除 ★★★
 
   return (
     <Box sx={{ 

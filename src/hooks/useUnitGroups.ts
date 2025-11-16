@@ -35,6 +35,7 @@ const calculateUnitGroups = (
   unitList.forEach(currentUnit => {
     const rows: any[] = [];
 
+    // ★ `assignments` は .present から渡されるため、正常な配列 (IAssignment[])
     assignments.forEach(assignment => {
       if (!assignment.id) return; 
       if (assignment.date !== date && assignment.date !== prevDateStr) return;
@@ -117,9 +118,12 @@ export const useUnitGroups = (
   const { staff: allStaff } = useSelector((state: RootState) => state.staff);
   const { patterns: shiftPatterns } = useSelector((state: RootState) => state.pattern);
   const { units: unitList } = useSelector((state: RootState) => state.unit);
-  const { assignments } = useSelector((state: RootState) => state.assignment);
+  
+  // ★★★ 修正: state.assignment.present から assignments を取得 ★★★
+  const { assignments } = useSelector((state: RootState) => state.assignment.present);
 
   // 2. 計算に必要なマップを作成
+  // ★★★ 変更点 1: `useSelector` で `new Map` を作らない ★★★
   const staffMap = useMemo(() => new Map(allStaff.map((s: IStaff) => [s.staffId, s])), [allStaff]);
   const patternMap = useMemo(() => new Map(shiftPatterns.map((p: IShiftPattern) => [p.patternId, p])), [shiftPatterns]);
 

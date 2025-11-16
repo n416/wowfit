@@ -26,10 +26,12 @@ export const useShiftCalendarLogic = () => {
   const [aiInstruction, setAiInstruction] = useState("夜勤さんXの夜勤を月4回程度に減らせてください。");
 
   // 2. 実行に必要な各種データをストアから取得
-  const { assignments } = useSelector((state: RootState) => state.assignment);
-  // ★★★ 修正: 'allStaffFromStore' は useStaffBurdenData が内部で
-  //          取得するため、このフックでは不要。削除します。
-  // const { staff: allStaffFromStore } = useSelector((state: RootState) => state.staff);
+  
+  // ★★★ 修正: state.assignment.present から assignments を取得 ★★★
+  // (useShiftCalendarLogic.ts:38)
+  const { assignments } = useSelector((state: RootState) => state.assignment.present);
+  
+  // (allStaffFromStore は useStaffBurdenData が取得するため不要)
   const { patterns: shiftPatterns } = useSelector((state: RootState) => state.pattern);
   const { units: unitList } = useSelector((state: RootState) => state.unit);
   

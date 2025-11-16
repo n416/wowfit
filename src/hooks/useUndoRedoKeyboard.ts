@@ -1,12 +1,14 @@
 import { useEffect } from 'react';
 import { useDispatch } from 'react-redux';
 import type { AppDispatch } from '../store';
-import { undoAssignments, redoAssignments } from '../store/assignmentSlice';
+// ★ 1. redux-undo の ActionCreators をインポート
+import { ActionCreators } from 'redux-undo';
 
 /**
  * UNDO (Ctrl+Z) / REDO (Ctrl+Y) のキーボードショートカットをグローバルに設定するフック
+ * ★★★ 変更点 1: invalidateSyncLock を引数で受け取る ★★★
  */
-export const useUndoRedoKeyboard = () => {
+export const useUndoRedoKeyboard = (invalidateSyncLock: () => void) => {
   const dispatch: AppDispatch = useDispatch();
 
   useEffect(() => {
@@ -24,14 +26,23 @@ export const useUndoRedoKeyboard = () => {
 
       if (ctrlKey && event.key === 'z') {
         event.preventDefault();
-        dispatch(undoAssignments());
+        // ★ 2. undoAssignments() の代わりに ActionCreators.undo() を dispatch
+        dispatch(ActionCreators.undo());
+        // ★★★ 変更点 2: ロックを無効化 ★★★
+        invalidateSyncLock();
       } else if (ctrlKey && event.key === 'y') {
         event.preventDefault();
-        dispatch(redoAssignments());
+        // ★ 3. redoAssignments() の代わりに ActionCreators.redo() を dispatch
+        dispatch(ActionCreators.redo());
+        // ★★★ 変更点 3: ロックを無効化 ★★★
+        invalidateSyncLock();
       } else if (isMac && ctrlKey && event.shiftKey && event.key === 'z') {
         // Mac の REDO (Cmd+Shift+Z)
         event.preventDefault();
-        dispatch(redoAssignments());
+        // ★ 4. ActionCreators.redo() を dispatch
+        dispatch(ActionCreators.redo());
+        // ★★★ 変更点 4: ロックを無効化 ★★★
+        invalidateSyncLock();
       }
     };
 
@@ -39,7 +50,8 @@ export const useUndoRedoKeyboard = () => {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [dispatch]); // dispatch は通常変わらないが、依存配列に入れておく
+    // ★★★ 変更点 5: 依存配列に invalidateSyncLock を追加 ★★★
+  }, [dispatch, invalidateSyncLock]); 
 
   // このフックはUIを持たないため、何も返さない
 };

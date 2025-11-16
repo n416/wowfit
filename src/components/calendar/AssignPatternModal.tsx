@@ -32,7 +32,8 @@ export default function AssignPatternModal({
   const dispatch: AppDispatch = useDispatch(); 
   
   // ★ v5.9 AI助言の state はこのコンポーネントが直接ストアから取得
-  const { adviceLoading, adviceError, adviceResult } = useSelector((state: RootState) => state.assignment);
+  // ★★★ 修正: state.assignment.present から AI 関連 state を取得 ★★★
+  const { adviceLoading, adviceError, adviceResult } = useSelector((state: RootState) => state.assignment.present);
   
   const [selectedPatternId, setSelectedPatternId] = useState<string | null>(null);
 

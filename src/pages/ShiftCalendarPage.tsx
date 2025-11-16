@@ -6,6 +6,8 @@ import {
   IconButton
 } from '@mui/material';
 import { useSelector, useDispatch } from 'react-redux';
+// ★ 1. redux-undo の ActionCreators をインポート
+import { ActionCreators as UndoActionCreators } from 'redux-undo';
 import { 
   db, 
 } from '../db/dexie'; 
@@ -14,7 +16,7 @@ import { setPatterns } from '../store/patternSlice';
 import { setUnits } from '../store/unitSlice';
 import { 
   setAssignments,
-  undoAssignments, redoAssignments,
+  // ★ undo/redo アクションは redux-undo が提供するため削除
 } from '../store/assignmentSlice'; 
 import type { AppDispatch, RootState } from '../store';
 
@@ -27,8 +29,7 @@ import BurdenSidebar from '../components/calendar/BurdenSidebar';
 import DailyUnitGanttModal from '../components/calendar/DailyUnitGanttModal';
 import ClearStaffAssignmentsModal from '../components/calendar/ClearStaffAssignmentsModal'; 
 
-// ★★★ 修正: 未使用の MONTH_DAYS のインポートを削除 ★★★
-// import { MONTH_DAYS } from '../utils/dateUtils'; 
+// (MONTH_DAYS のインポート削除は変更なし)
 import { MOCK_PATTERNS_V5, MOCK_UNITS_V5, MOCK_STAFF_V4 } from '../db/mockData';
 
 // カスタムフック
@@ -55,6 +56,7 @@ interface TabPanelProps {
   value: number;
 }
 function TabPanel(props: TabPanelProps) {
+  // ... (変更なし) ...
   const { children, value, index, ...other } = props;
   return (
     <div 
@@ -87,36 +89,39 @@ function ShiftCalendarPage() {
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   
-  // --- 1. グローバル状態の取得 ---
+  // --- 1. グローバル状態の取得 (★ redux-undo 対応) ---
   const { 
-    assignments, 
+    // ★ 2. `past` と `future` は state.assignment の直下から取得
     past, 
     future,
-    adjustmentLoading, adjustmentError,
-    analysisLoading, analysisResult, analysisError,
-    patchLoading, patchError
+    // ★ 3. `present` (現在の状態) から値を取得
+    present: {
+      assignments, 
+      adjustmentLoading, adjustmentError,
+      analysisLoading, analysisResult, analysisError,
+      patchLoading, patchError
+    }
   } = useSelector((state: RootState) => state.assignment);
   
-  // const { staff: allStaffFromStore } = useSelector((state: RootState) => state.staff); // (useStaffBurdenData が取得)
+  // (他のスライスは変更なし)
   const { patterns: shiftPatterns } = useSelector((state: RootState) => state.pattern);
   const { units: unitList } = useSelector((state: RootState) => state.unit);
   
-  // ★★★ 修正: 未使用の allStaffMap を削除 ★★★
-  // const allStaffMap = useMemo(() => 
-  //   new Map(allStaffFromStore.map((s: IStaff) => [s.staffId, s])), 
-  // [allStaffFromStore]);
-
+  // (未使用の allStaffMap の削除は変更なし)
 
   // --- 2. カスタムフックによるロジックの分離 ---
 
   // (計算フック)
+  // ★ 4. `useDemandMap` と `useShiftCalendarLogic` は `assignments` (present) を
+  //    正しく参照する必要があるため、`present` の `assignments` を渡す
+  
   const {
     staffList: activeStaffList,
     staffBurdenData,
     staffHolidayRequirements,
     handleHolidayIncrement,
     handleHolidayDecrement
-  } = useStaffBurdenData();
+  } = useStaffBurdenData(); // (内部で `state.assignment.present.assignments` を参照)
   
   const sortedStaffList = useMemo(() => {
     return [...activeStaffList].sort((a, b) => {
@@ -129,21 +134,25 @@ function ShiftCalendarPage() {
     });
   }, [activeStaffList]);
   
-  const demandMap = useDemandMap();
+  // ★ `useDemandMap` は内部で `state.assignment.present.assignments` を参照
+  const demandMap = useDemandMap(); 
 
   // (インタラクションフック)
   const {
     clickMode,
-    setClickMode, // ★ 状態リセット機能付きのセッター
+    setClickMode, 
     activeCell,
     selectionRange,
     handleCellClick: handleInteractionCellClick, 
     handleCellMouseDown,
     handleCellMouseMove,
     handleCellMouseUp,
-  } = useCalendarInteractions(sortedStaffList); 
+    // ★★★ 変更点 1: invalidateSyncLock を取得 ★★★
+    invalidateSyncLock,
+  } = useCalendarInteractions(sortedStaffList); // (内部で `store.getState()` を使うため Stale Closure 回避)
 
   // (モーダルフック)
+  // ★ `useShiftCalendarModals` は内部で `state.assignment.present.assignments` を参照
   const {
     editingTarget,
     showingGanttTarget,
@@ -155,9 +164,11 @@ function ShiftCalendarPage() {
     handleClearStaffAssignments,
   } = useShiftCalendarModals();
   
+  // ★ `useUnitGroups` は内部で `state.assignment.present.assignments` を参照
   const unitGroups = useUnitGroups(showingGanttTarget);
 
   // (AI・自動化ロジックフック)
+  // ★ `useShiftCalendarLogic` は内部で `state.assignment.present.assignments` を参照
   const {
     aiInstruction,
     setAiInstruction,
@@ -172,7 +183,8 @@ function ShiftCalendarPage() {
   } = useShiftCalendarLogic();
 
   // (キーボードショートカットフック)
-  useUndoRedoKeyboard();
+  // ★★★ 変更点 2: invalidateSyncLock を渡す ★★★
+  useUndoRedoKeyboard(invalidateSyncLock); 
 
 
   // --- 3. ページ固有のロジック (データロード、イベント振り分け) ---
@@ -220,10 +232,7 @@ function ShiftCalendarPage() {
   // タブ切り替え
   const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
-    setClickMode('normal'); // ★ フックのセッターを呼ぶ (これで選択範囲がリセットされる)
-    // ★★★ 修正: 以下の2行を削除 (フック側が担当) ★★★
-    // setActiveCell(null); 
-    // setSelectionRange(null);
+    setClickMode('normal'); 
   };
 
   /**
@@ -239,10 +248,8 @@ function ShiftCalendarPage() {
     // スタッフビュー (tabValue === 0)
     if (staffIdOrUnitId && staffIndex !== undefined && dateIndex !== undefined) {
       if (clickMode === 'normal') {
-        // ★ 通常モードだけはモーダルを開く
         openAssignModal(date, staffIdOrUnitId);
       } else {
-        // ★ 他のモード（select, holiday, paid_leave）はフックが処理
         handleInteractionCellClick(date, staffIdOrUnitId, staffIndex, dateIndex);
       }
     }
@@ -292,14 +299,24 @@ function ShiftCalendarPage() {
             <Box sx={{ flexShrink: 0, pr: 2, display: 'flex', alignItems: 'center', gap: 0.5 }}>
               <IconButton 
                 title="元に戻す (Ctrl+Z)"
-                onClick={() => dispatch(undoAssignments())} 
+                // ★★★ 変更点 3: invalidateSyncLock を呼び出す ★★★
+                onClick={() => {
+                  dispatch(UndoActionCreators.undo());
+                  invalidateSyncLock();
+                }} 
+                // ★ 6. `past.length` を参照
                 disabled={past.length === 0}
               >
                 <UndoIcon />
               </IconButton>
               <IconButton 
                 title="やり直す (Ctrl+Y)"
-                onClick={() => dispatch(redoAssignments())} 
+                // ★★★ 変更点 4: invalidateSyncLock を呼び出す ★★★
+                onClick={() => {
+                  dispatch(UndoActionCreators.redo());
+                  invalidateSyncLock();
+                }} 
+                // ★ 8. `future.length` を参照
                 disabled={future.length === 0}
               >
                 <RedoIcon />
@@ -319,21 +336,18 @@ function ShiftCalendarPage() {
           
           {/* タブパネル */}
           <TabPanel value={tabValue} index={0}>
+            {/* ... (ToggleButtonGroup は変更なし) ... */}
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: '0 24px 16px 24px' }}>
               <h6 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 500 }}>
                 スタッフビュー（カレンダー）
               </h6>
               
-              {/* ★★★ クリックモード切替タブ (select を追加) ★★★ */}
               <ToggleButtonGroup
                 value={clickMode}
                 exclusive
                 onChange={(_, newMode) => { 
                   if(newMode) {
-                    setClickMode(newMode as any); // ★ フックのセッターを呼ぶ
-                    // ★★★ 修正: 以下の2行を削除 (フック側が担当) ★★★
-                    // setActiveCell(null);
-                    // setSelectionRange(null);
+                    setClickMode(newMode as any); 
                   }
                 }}
                 size="small"
@@ -345,6 +359,7 @@ function ShiftCalendarPage() {
                   <HolidayIcon />
                 </ToggleButton>
                 <ToggleButton value="paid_leave" title="有給ポチポチモード">
+                  {/* ★★★ 変更点 5: FlightTakeoff -> PaidLeaveIcon ★★★ */}
                   <PaidLeaveIcon />
                 </ToggleButton>
                 <ToggleButton value="select" title="セル選択モード (Ctrl+C, V, X)">
@@ -360,7 +375,6 @@ function ShiftCalendarPage() {
               onHolidayIncrement={handleHolidayIncrement} 
               onHolidayDecrement={handleHolidayDecrement} 
               onStaffNameClick={openClearStaffModal} 
-              // ★ 選択モード用の Props を渡す
               clickMode={clickMode}
               activeCell={activeCell}
               selectionRange={selectionRange}
@@ -418,7 +432,7 @@ function ShiftCalendarPage() {
         allStaff={activeStaffList} 
         allPatterns={shiftPatterns}
         allUnits={unitList}
-        allAssignments={assignments}
+        allAssignments={assignments} // ★ `present.assignments` を渡す
         burdenData={Array.from(staffBurdenData.values())} 
         onClose={closeModals} 
       />
@@ -426,7 +440,7 @@ function ShiftCalendarPage() {
       <DailyUnitGanttModal
         target={showingGanttTarget} 
         onClose={closeModals} 
-        allAssignments={assignments}
+        allAssignments={assignments} // ★ `present.assignments` を渡す
         demandMap={demandMap} 
         unitGroups={unitGroups} 
       />

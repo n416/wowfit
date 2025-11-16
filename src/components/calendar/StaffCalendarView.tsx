@@ -123,14 +123,18 @@ export default function StaffCalendarView({
 }: StaffCalendarViewProps) {
   
   const { patterns: shiftPatterns } = useSelector((state: RootState) => state.pattern);
-  const { assignments } = useSelector((state: RootState) => state.assignment);
+  
+  // ★★★ 修正: state.assignment.present から assignments を取得 ★★★
+  // (StaffCalendarView.tsx:134)
+  const { assignments } = useSelector((state: RootState) => state.assignment.present);
   
   const patternMap = useMemo(() => new Map(shiftPatterns.map((p: IShiftPattern) => [p.patternId, p])), [shiftPatterns]);
   
-  // ★ 内部でのソートロジックを削除 (props で sortedStaffList を受け取るため)
+  // (ソートロジックは削除済み)
 
   const assignmentsMap = useMemo(() => {
     const map = new Map<string, IAssignment[]>(); 
+    // ★ `assignments` は .present から来た配列 (IAssignment[])
     for (const assignment of assignments) { 
       const key = `${assignment.staffId}_${assignment.date}`;
       if (!map.has(key)) map.set(key, []);

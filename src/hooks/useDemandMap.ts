@@ -25,6 +25,7 @@ const calculateDemandMap = (
   }
   
   // --- 2. Pass 2: Actual (アサイン先への直接配置) ---
+  // ★ `assignments` は .present から渡されるため、正常な配列 (IAssignment[])
   for (const assignment of assignments) {
     const pattern = patternMap.get(assignment.patternId);
     const staff = staffMap.get(assignment.staffId);
@@ -124,9 +125,12 @@ export const useDemandMap = () => {
   const { staff: allStaff } = useSelector((state: RootState) => state.staff);
   const { patterns: shiftPatterns } = useSelector((state: RootState) => state.pattern);
   const { units: unitList } = useSelector((state: RootState) => state.unit);
-  const { assignments } = useSelector((state: RootState) => state.assignment);
+  
+  // ★★★ 修正: state.assignment.present から assignments を取得 ★★★
+  const { assignments } = useSelector((state: RootState) => state.assignment.present);
 
   // 2. 計算に必要なマップを作成
+  // ★★★ 変更点 1: `useSelector` で `new Map` を作らない ★★★
   const staffMap = useMemo(() => new Map(allStaff.map((s: IStaff) => [s.staffId, s])), [allStaff]);
   const patternMap = useMemo(() => new Map(shiftPatterns.map((p: IShiftPattern) => [p.patternId, p])), [shiftPatterns]);
 

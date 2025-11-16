@@ -1,10 +1,13 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { useSelector, useDispatch } from 'react-redux';
+// ★ 1. useStore をインポート
+import { useSelector, useDispatch, useStore } from 'react-redux';
 import type { RootState, AppDispatch } from '../store';
 import { IStaff, IAssignment } from '../db/dexie';
 import { db } from '../db/dexie';
-import { setAssignments, _syncOptimisticAssignment } from '../store/assignmentSlice';
+// ★ 2. _syncAssignments をインポート
+import { setAssignments, _syncOptimisticAssignment, _syncAssignments } from '../store/assignmentSlice'; 
 import { MONTH_DAYS } from '../utils/dateUtils'; 
+// ★ v1.3 の UndoActionTypes インポートを削除
 
 // --- 型定義 ---
 
@@ -34,23 +37,29 @@ export const useCalendarInteractions = (
   sortedStaffList: IStaff[], 
 ) => {
   const dispatch: AppDispatch = useDispatch();
+  // ★ 3. Redux ストアへの参照を取得
+  const store = useStore<RootState>(); 
   
   const [_clickMode, _setClickMode] = useState<ClickMode>('normal');
   const [activeCell, setActiveCell] = useState<CellCoords | null>(null);
+  
+  // ★★★ v1.3 の Typo `null(null)` を `null` に修正 ★★★
   const [selectionRange, setSelectionRange] = useState<{ start: CellCoords, end: CellCoords } | null>(null);
   
   const [isDragging, setIsDragging] = useState(false);
-  const [clipboard, setClipboard] = useState<ClipboardData | null>(null);
-
-  // ★ 1. 「現在操作中のセルのキー」を Ref で管理
-  // (例: "s001_2025-11-10")
+  
+  const clipboardRef = useRef<ClipboardData | null>(null);
   const processingCellKeyRef = useRef<string | null>(null);
 
+  // ★★★ v1.2 の syncLockRef を定義 ★★★
+  const syncLockRef = useRef<number>(0);
+
   // --- データ取得 ---
-  const { assignments } = useSelector((state: RootState) => state.assignment);
+  // ★ 4. `assignments` は `useMemo` でのみ使用
+  const { assignments } = useSelector((state: RootState) => state.assignment.present);
   const shiftPatterns = useSelector((state: RootState) => state.pattern.patterns);
   
-  // (useMemo: assignmentsMap)
+  // ★ 5. `assignmentsMap` は `assignments` に依存（これは Stale Closure の原因ではない）
   const assignmentsMap = useMemo(() => {
     const map = new Map<string, IAssignment[]>();
     for (const assignment of assignments) {
@@ -61,7 +70,7 @@ export const useCalendarInteractions = (
     return map;
   }, [assignments]);
   
-  // (useMemo: holidayPatternId, paidLeavePatternId)
+  // --- パターンID計算 ---
   const holidayPatternId = useMemo(() =>
     shiftPatterns.find(p => p.workType === 'StatutoryHoliday')?.patternId || '公休',
   [shiftPatterns]);
@@ -70,7 +79,7 @@ export const useCalendarInteractions = (
   [shiftPatterns]);
 
   
-  // (useCallback: getRangeIndices)
+  // --- 内部ヘルパー関数 (矩形範囲の計算) ---
   const getRangeIndices = useCallback((range: { start: CellCoords, end: CellCoords } | null) => {
     if (!range) return null;
     return {
@@ -81,7 +90,7 @@ export const useCalendarInteractions = (
     };
   }, []);
   
-  // (useCallback: setClickMode)
+  // ★ 外部公開用の setClickMode (選択状態をリセットする)
   const setClickMode = useCallback((newMode: ClickMode) => {
     _setClickMode(newMode);
     setActiveCell(null);
@@ -89,22 +98,46 @@ export const useCalendarInteractions = (
     setIsDragging(false);
   }, []); 
 
+  // ★★★ v1.4 のロック無効化関数 ★★★
+  const invalidateSyncLock = useCallback(() => {
+    console.log("[DEBUG] invalidateSyncLock() called. Pending async syncs will be cancelled.");
+    syncLockRef.current = 0;
+  }, []);
+
 
   // --- ポチポチモード (バグ修正) ---
+  // ★ 6. `useStore` を使い、`assignments` への依存を削除
   const toggleHoliday = useCallback((date: string, staff: IStaff, targetPatternId: string) => {
     
     const cellKey = `${staff.staffId}_${date}`;
 
-    // ★ 2. 現在操作中のセルキーをチェック
     if (processingCellKeyRef.current === cellKey) {
-      // (同じセルがまだ処理中（DB書き込み中）の場合は、連打とみなして無視)
       console.warn("Rapid click detected on the same cell, operation skipped.");
       return; 
     }
-    // ★ 3. ロックを実行
     processingCellKeyRef.current = cellKey; 
 
-    const existing = assignments.filter((a: IAssignment) => a.date === date && a.staffId === staff.staffId);
+    // ★ 7. `store.getState()` から最新の `assignments` を取得
+    const currentAssignments = store.getState().assignment.present.assignments;
+
+    // ★★★ ログヘルパー関数 (Pochi用) ★★★
+    const formatAssignmentsForLog = (assignmentsToLog: IAssignment[]): string => {
+      const filtered = assignmentsToLog.filter(a => 
+        a.date === '2025-11-01' || 
+        a.date === '2025-11-02' || 
+        a.date === '2025-11-03'
+      );
+      if (filtered.length === 0) return "[11/1-3に該当なし]";
+      return filtered.map(a => `${a.patternId}@${a.date}@${a.staffId}`).join(', ');
+    };
+    // ★★★ ログヘルパーここまで ★★★
+
+    console.group(`[DEBUG] toggleHoliday (Pochi) [${new Date().toISOString()}]`);
+    console.log(`CellKey: ${cellKey}, Pattern: ${targetPatternId}`);
+    // ★ ログ修正 (新フォーマット)
+    console.log("ベースとなった assignments (11/1-3):", formatAssignmentsForLog(currentAssignments));
+
+    const existing = currentAssignments.filter((a: IAssignment) => a.date === date && a.staffId === staff.staffId);
     const existingIsTarget = existing.length === 1 && existing[0].patternId === targetPatternId;
 
     let newOptimisticAssignments: IAssignment[];
@@ -112,53 +145,60 @@ export const useCalendarInteractions = (
     const tempId = Date.now(); 
 
     if (existingIsTarget) {
-      // (トグルオフ - 該当セルのアサインをすべて削除)
-      newOptimisticAssignments = assignments.filter((a: IAssignment) => !(a.date === date && a.staffId === staff.staffId));
+      // (トグルオフ)
+      newOptimisticAssignments = currentAssignments.filter((a: IAssignment) => !(a.date === date && a.staffId === staff.staffId));
       dbOperation = async () => {
         if (existing.length > 0) {
-          await db.assignments.bulkDelete(existing.map(a => a.id!)); 
+          await db.assignments.bulkDelete(existing.map(a => a.id!));
         }
       };
+      console.log("楽観的更新: 削除 (OFF)");
     } else {
-      // (トグルオン - 該当セルのアサインをすべて削除してから 1件追加)
+      // (トグルオン)
       const newAssignmentBase: Omit<IAssignment, 'id'> = {
         date: date, staffId: staff.staffId, patternId: targetPatternId,
         unitId: null, locked: true 
       };
-      const otherAssignments = assignments.filter((a: IAssignment) => !(a.date === date && a.staffId === staff.staffId));
+      const otherAssignments = currentAssignments.filter((a: IAssignment) => !(a.date === date && a.staffId === staff.staffId));
       newOptimisticAssignments = [...otherAssignments, { ...newAssignmentBase, id: tempId }];
 
       dbOperation = async () => {
-        // DB操作: 既存のアサインを（あれば）全件削除
         if (existing.length > 0) {
           await db.assignments.bulkDelete(existing.map((a: IAssignment) => a.id!));
         }
-        // 新しいアサインを1件追加
         const newId = await db.assignments.add(newAssignmentBase);
         dispatch(_syncOptimisticAssignment({
           tempId: tempId, newAssignment: { ...newAssignmentBase, id: newId }
         }));
       };
+      console.log("楽観的更新: 追加 (ON)");
     }
-    dispatch(setAssignments(newOptimisticAssignments)); // ★ UI即時更新
+    console.groupEnd(); // ★ ロググループ終了
+    
+    // ★★★ v1.2 の syncLock ロジック ★★★
+    const currentSyncId = Date.now();
+    syncLockRef.current = currentSyncId;
+    
+    dispatch(setAssignments(newOptimisticAssignments)); // ★ UI即時更新 (履歴に積む)
 
-    // ★ 4. DB操作の完了時 (または失敗時) にロックを解除
     dbOperation()
       .catch(e => {
         console.error("アサインの即時更新（DB反映）に失敗:", e);
-        // エラー時はDBの状態で強制同期
-        db.assignments.toArray().then(dbAssignments => dispatch(setAssignments(dbAssignments)));
+        // ★★★ v1.2 の Stale Check ★★★
+        if (syncLockRef.current === currentSyncId) {
+            console.warn("[DEBUG] DB Pochi failed. Reverting optimistic update.");
+            db.assignments.toArray().then(dbAssignments => dispatch(_syncAssignments(dbAssignments)));
+        } else {
+            console.warn(`[DEBUG] DB Pochi failed, but state is already stale. SKIPPING SYNC. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
+        }
       })
       .finally(() => {
-        // ★ 5. 完了したら、このセルのロックを解除
-        // (もし現時点でのロックキーが自分でなければ、
-        // 別のセルの操作が始まっているので、解除しない)
         if (processingCellKeyRef.current === cellKey) {
           processingCellKeyRef.current = null;
         }
       });
 
-  }, [assignments, dispatch]); // ★ 依存配列は [assignments, dispatch]
+  }, [dispatch, store]); // ★ 9. 依存配列から `assignments` を削除
 
 
   // --- セルクリック / マウスドラッグイベント ---
@@ -168,8 +208,6 @@ export const useCalendarInteractions = (
     if (!staff) return;
     const cell: CellCoords = { date, staffId, staffIndex, dateIndex };
 
-    // ★ 6. (重要) 選択モードや通常モードのクリックは、
-    // ポチポチモードのDB操作を待たずにロックを解除する
     if (_clickMode !== 'holiday' && _clickMode !== 'paid_leave') {
       processingCellKeyRef.current = null; 
     }
@@ -178,15 +216,15 @@ export const useCalendarInteractions = (
       case 'select':
         setActiveCell(cell); setSelectionRange({ start: cell, end: cell }); setIsDragging(false); break;
       case 'holiday':
-        toggleHoliday(date, staff, holidayPatternId); break;
+        toggleHoliday(date, staff, holidayPatternId); break; // ★ 最新の `toggleHoliday` を呼ぶ
       case 'paid_leave':
-        toggleHoliday(date, staff, paidLeavePatternId); break;
+        toggleHoliday(date, staff, paidLeavePatternId); break; // ★ 最新の `toggleHoliday` を呼ぶ
       case 'normal':
         break;
     }
   }, [
       _clickMode, sortedStaffList, 
-      toggleHoliday, // ★ 依存配列に toggleHoliday を追加
+      toggleHoliday, 
       holidayPatternId, paidLeavePatternId
   ]); 
 
@@ -211,28 +249,84 @@ export const useCalendarInteractions = (
 
   // --- C/X/V キーボードイベント ---
   useEffect(() => {
+    // ★★★ ログヘルパー関数 (C/X/V用) ★★★
+    const formatAssignmentsForLog = (assignmentsToLog: IAssignment[] | Omit<IAssignment, 'id'>[]): string => {
+      const filtered = assignmentsToLog.filter(a => 
+        a.date === '2025-11-01' || 
+        a.date === '2025-11-02' || 
+        a.date === '2025-11-03'
+      );
+      if (filtered.length === 0) return "[11/1-3に該当なし]";
+      return filtered.map(a => `${a.patternId}@${a.date}@${a.staffId}`).join(', ');
+    };
+    const formatClipboardForLog = (clipboardToLog: ClipboardData | null): string => {
+      if (!clipboardToLog) return "CLIPBOARD IS NULL";
+      // クリップボードの中身（パターンID or null）をカンマ区切りで返す
+      return clipboardToLog.assignments.map(a => a ? a.patternId : 'null').join(', ');
+    };
+    // ★★★ ログヘルパーここまで ★★★
+
+    // ★★★ 修正: `assignments` の最新状態を Ref に保持 ★★★
+    const latestAssignmentsRef = { 
+      current: store.getState().assignment.present.assignments 
+    };
+    
+    // ★★★ v1.3 の `lastActionType` 追跡を削除 ★★★
+
+    // ★★★ 修正: Reduxストアを直接購読 ★★★
+    const unsubscribe = store.subscribe(() => {
+      const newAssignments = store.getState().assignment.present.assignments;
+      
+      // ★★★ ログ追加 (仮説Cの検証) ★★★
+      if (latestAssignmentsRef.current !== newAssignments) {
+        console.log(`[DEBUG] store.subscribe: assignments が変更されました。`);
+        console.log(`  -> 旧 (11/1-3): ${formatAssignmentsForLog(latestAssignmentsRef.current)}`);
+        console.log(`  -> 新 (11/1-3): ${formatAssignmentsForLog(newAssignments)}`);
+        
+        // ★★★ v1.3 の `lastActionType` チェックを削除 ★★★
+      }
+      // ★★★ ログ追加ここまで ★★★
+
+      // アンドゥ/リドゥで状態が変わったら、Refの中身を即座に更新
+      latestAssignmentsRef.current = newAssignments;
+    });
+
+    // ★★★ v1.3 の `dispatch` ラップを削除 ★★★
+
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
         return;
       }
       
-      // ★ 7. (重要) キーボードイベントが発生した場合もロックを解除
-      // (キー操作はポチポチモードのDB操作より優先される)
       processingCellKeyRef.current = null;
       
       const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
       const ctrlKey = isMac ? event.metaKey : event.ctrlKey;
-
+      
+      // ★ 10. `store.getState()` の代わりに `latestAssignmentsRef.current` を使用
+      
       // ★★★ Ctrl+C (コピー) / Ctrl+X (カット) ★★★
       if (ctrlKey && (event.key === 'c' || event.key === 'x')) {
         event.preventDefault();
+        
+        // ★ 11. `latestAssignmentsRef` から最新の `assignments` を取得
+        const currentAssignments = latestAssignmentsRef.current;
+        
+        // ★★★ v1.5 の修正: `assignmentsMap` (フックスコープ) を使用 ★★★
+        // (二重宣言を削除)
+
         const rangeIndices = getRangeIndices(selectionRange);
         if (!rangeIndices) return;
+
+        // ★★★ ログ修正 (新フォーマット) ★★★
+        console.group(`[DEBUG] Ctrl+${event.key} (Copy/Cut) [${new Date().toISOString()}]`);
+        console.log("ベースとなった assignments (11/1-3):", formatAssignmentsForLog(currentAssignments));
+        // ★★★ ログ修正ここまで ★★★
 
         const { minStaff, maxStaff, minDate, maxDate } = rangeIndices;
         
         const assignmentsInSelection: (Omit<IAssignment, 'id' | 'staffId' | 'date'> | null)[] = [];
-        const keysToCut = new Set<string>(); // 削除対象キー (staffId_date)
+        const keysToCut = new Set<string>();
 
         for (let sIdx = minStaff; sIdx <= maxStaff; sIdx++) {
           for (let dIdx = minDate; dIdx <= maxDate; dIdx++) {
@@ -245,7 +339,8 @@ export const useCalendarInteractions = (
               keysToCut.add(key);
             }
 
-            const cellAssignments = assignmentsMap.get(key) || [];
+            // ★★★ v1.5 の修正: `assignmentsMap` (フックスコープ) を使用 ★★★
+            const cellAssignments = assignmentsMap.get(key) || []; 
             const firstAssignment = cellAssignments[0]; 
             
             if (firstAssignment) {
@@ -260,42 +355,73 @@ export const useCalendarInteractions = (
           }
         }
         
-        setClipboard({
+        clipboardRef.current = {
           assignments: assignmentsInSelection,
           rowCount: maxStaff - minStaff + 1,
           colCount: maxDate - minDate + 1,
-        });
+        };
+        // ★ ログ修正 (新フォーマット)
+        console.log("クリップボードに保存:", formatClipboardForLog(clipboardRef.current));
 
         if (event.key === 'x') {
-          // --- CUT (X) の場合、楽観的削除を実行 ---
-          const assignmentsToRemove = assignments.filter(a => 
+          // --- CUT (X) ---
+          const assignmentsToRemove = currentAssignments.filter(a => 
             keysToCut.has(`${a.staffId}_${a.date}`)
           );
-          const newOptimisticAssignments = assignments.filter(a => 
+          const newOptimisticAssignments = currentAssignments.filter(a => 
             !keysToCut.has(`${a.staffId}_${a.date}`)
           );
           
-          dispatch(setAssignments(newOptimisticAssignments)); // UI即時更新
+          console.log("楽観的更新: カット (setAssignments)");
+          console.groupEnd(); // ★ ロググループ終了
           
-          // DB操作 (非同期)
+          // ★★★ v1.2 の syncLock ロジック ★★★
+          const currentSyncId = Date.now();
+          syncLockRef.current = currentSyncId;
+          
+          dispatch(setAssignments(newOptimisticAssignments)); // ★ 履歴に積む
+          
           if (assignmentsToRemove.length > 0) {
             db.assignments.bulkDelete(assignmentsToRemove.map(a => a.id!))
               .catch(e => {
                 console.error("カット(DB削除)に失敗:", e);
-                db.assignments.toArray().then(dbAssignments => dispatch(setAssignments(dbAssignments)));
+                // ★★★ v1.2 の Stale Check ★★★
+                if (syncLockRef.current === currentSyncId) {
+                    console.warn("[DEBUG] DB Cut failed. Reverting optimistic update.");
+                    db.assignments.toArray().then(dbAssignments => dispatch(_syncAssignments(dbAssignments)));
+                } else {
+                    console.warn(`[DEBUG] DB Cut failed, but state is already stale. SKIPPING SYNC. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
+                }
               });
           }
+        } else {
+          console.groupEnd(); // ★ ロググループ終了 (コピーの場合)
         }
       
       // ★★★ Ctrl+V (貼り付け) ★★★
       } else if (ctrlKey && event.key === 'v') {
         event.preventDefault();
+
+        // ★★★ バージョン確認ログ (v1.8) ★★★
+        console.log("[DEBUG] Paste Action Triggered (v1.8_FINAL_with_TX)");
+        // ★★★ ここまで ★★★
+        
+        const clipboard = clipboardRef.current; 
         if (!clipboard || !activeCell) return;
+        
+        // ★ 14. `latestAssignmentsRef` から最新の `assignments` を取得
+        const currentAssignments = latestAssignmentsRef.current;
+
+        // ★★★ ログ修正 (新フォーマット) ★★★
+        console.group(`[DEBUG] Ctrl+V (Paste) [${new Date().toISOString()}]`);
+        console.log("ベースとなった assignments (11/1-3):", formatAssignmentsForLog(currentAssignments));
+        console.log("クリップボードから読み出し:", formatClipboardForLog(clipboard));
+        // ★★★ ログ修正ここまで ★★★
 
         const { assignments: clipboardAssignments, rowCount, colCount } = clipboard;
         
         const newAssignmentsToPaste: Omit<IAssignment, 'id'>[] = [];
-        const keysToOverwrite = new Set<string>(); // 上書き対象キー (staffId_date)
+        const keysToOverwrite = new Set<string>(); 
 
         for (let r = 0; r < rowCount; r++) {
           for (let c = 0; c < colCount; c++) {
@@ -328,7 +454,7 @@ export const useCalendarInteractions = (
         }
         
         // --- 楽観的更新 (上書き) ---
-        const assignmentsBeforePaste = assignments.filter(a => {
+        const assignmentsBeforePaste = currentAssignments.filter(a => { 
           const key = `${a.staffId}_${a.date}`;
           return !keysToOverwrite.has(key); 
         });
@@ -338,39 +464,82 @@ export const useCalendarInteractions = (
           id: Date.now() + i 
         }));
 
-        dispatch(setAssignments([...assignmentsBeforePaste, ...tempAssignments]));
+        const finalOptimisticState = [...assignmentsBeforePaste, ...tempAssignments];
+        
+        // ★★★ ログ修正 (新フォーマット + keysToOverwrite の中身) ★★★
+        console.log("上書き対象 (削除) キー:", JSON.stringify(Array.from(keysToOverwrite)));
+        console.log("除外後の assignments (BeforePaste) (11/1-3):", formatAssignmentsForLog(assignmentsBeforePaste));
+        console.log("追加する assignments (tempAssignments) (11/1-3):", formatAssignmentsForLog(tempAssignments));
+        console.log("setAssignments に渡す最終的な楽観的状態 (11/1-3):", formatAssignmentsForLog(finalOptimisticState));
+        console.groupEnd(); // ★ ロググループ終了
+        // ★★★ ログ修正ここまで ★★★
+        
+        // ★★★ v1.2 の syncLock ロジック ★★★
+        const currentSyncId = Date.now();
+        syncLockRef.current = currentSyncId;
+        
+        dispatch(setAssignments(finalOptimisticState)); // ★ 履歴に積む
 
         // --- DB操作 (非同期) ---
         (async () => {
+          let updatedAssignments: IAssignment[] = [];
+          
           try {
-            // 1. 貼り付け先の既存アサインをDBから削除
-            const keysToRemove = Array.from(keysToOverwrite).map(k => {
-              const parts = k.split('_'); // parts[0] = staffId, parts[1] = date
-              return [parts[1], parts[0]]; // [date, staffId] の順序
+            // ★★★ v1.8 修正: DB操作をトランザクションで囲む ★★★
+            updatedAssignments = await db.transaction('rw', db.assignments, async () => {
+                // このトランザクションが開始された時点でのDB状態
+                const allAssignmentsInDB = await db.assignments.toArray();
+
+                const assignmentsToRemove = allAssignmentsInDB.filter(dbAssignment => {
+                  const existsInOptimistic = finalOptimisticState.some(optimistic => 
+                    (dbAssignment.id && optimistic.id === dbAssignment.id) ||
+                    (optimistic.staffId === dbAssignment.staffId && optimistic.date === dbAssignment.date)
+                  );
+                  return !existsInOptimistic;
+                });
+                
+                const assignmentsToAdd = finalOptimisticState.filter(optimistic => {
+                    const existsInDB = allAssignmentsInDB.some(dbAssignment => 
+                        (dbAssignment.id && optimistic.id === dbAssignment.id) ||
+                        (optimistic.staffId === dbAssignment.staffId && optimistic.date === dbAssignment.date)
+                    );
+                    return !existsInDB;
+                }).map(({ id, ...rest }) => rest); // tempIdを除外
+
+                if (assignmentsToRemove.length > 0) {
+                    console.log(`[DEBUG] Async DB TX: Removing ${assignmentsToRemove.length} stale assignments`);
+                    await db.assignments.bulkDelete(assignmentsToRemove.map(a => a.id!));
+                }
+                if (assignmentsToAdd.length > 0) {
+                    console.log(`[DEBUG] Async DB TX: Adding ${assignmentsToAdd.length} new assignments`);
+                    await db.assignments.bulkAdd(assignmentsToAdd);
+                }
+                
+                return db.assignments.toArray();
             });
+            // ★★★ v1.8 トランザクションここまで ★★★
             
-            if (keysToRemove.length > 0) {
-              const assignmentsToRemove = await db.assignments.where('[date+staffId]')
-                .anyOf(keysToRemove) 
-                .toArray();
-              
-              if (assignmentsToRemove.length > 0) {
-                await db.assignments.bulkDelete(assignmentsToRemove.map(a => a.id!));
-              }
-            }
-
-            // 2. クリップボードの内容をDBに追加
-            if (newAssignmentsToPaste.length > 0) {
-              await db.assignments.bulkAdd(newAssignmentsToPaste);
+            // トランザクション (Async) が完了
+            console.log(`[DEBUG] Async Callback Fired. MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current}`);
+            
+            if (syncLockRef.current === currentSyncId) {
+              console.log(`[DEBUG] Sync Check PASSED. MyID: ${currentSyncId}. Dispatching _syncAssignments.`);
+              dispatch(_syncAssignments(updatedAssignments)); // ★ トランザクションの結果で同期
+            } else {
+              console.warn(`[DEBUG] Stale _syncAssignments call detected. SKIPPING SYNC. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
             }
             
-            // 3. DBとReduxを同期
-            const allAssignmentsFromDB = await db.assignments.toArray();
-            dispatch(setAssignments(allAssignmentsFromDB));
-
           } catch (e) {
             console.error("ペースト(DB操作)に失敗:", e);
-            db.assignments.toArray().then(dbAssignments => dispatch(setAssignments(dbAssignments)));
+            
+            console.log(`[DEBUG] Async Callback Failed. MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current}`);
+            if (syncLockRef.current === currentSyncId) {
+                console.warn("[DEBUG] DB Paste failed. Reverting optimistic update.");
+                // エラーが起きたので、DBの*現在の*（汚染されているかもしれない）状態を読み直す
+                db.assignments.toArray().then(dbAssignments => dispatch(_syncAssignments(dbAssignments)));
+            } else {
+                console.warn(`[DEBUG] DB Paste failed, but state is already stale. SKIPPING SYNC. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
+            }
           }
         })();
       }
@@ -379,14 +548,19 @@ export const useCalendarInteractions = (
     window.addEventListener('keydown', handleKeyDown);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
+      unsubscribe(); // ★★★ 修正: コンポーネント破棄時に購読を解除 ★★★
+      // ★★★ v1.3 の `dispatch` ラップ解除を削除 ★★★
     };
-  }, [
-    _clickMode, isDragging, selectionRange, activeCell, clipboard, 
-    assignments, assignmentsMap, sortedStaffList, 
-    dispatch, getRangeIndices, setClickMode, 
+  }, [ // ★★★ 依存配列 ★★★
+    _clickMode, isDragging, selectionRange, activeCell, 
+    sortedStaffList, 
+    dispatch, store,
+    getRangeIndices, setClickMode, 
     toggleHoliday, 
     holidayPatternId, 
     paidLeavePatternId,
+    invalidateSyncLock,
+    assignmentsMap, 
   ]);
 
 
@@ -404,5 +578,7 @@ export const useCalendarInteractions = (
     handleCellMouseDown,
     handleCellMouseMove,
     handleCellMouseUp,
+    // ★★★ v1.4 のロック無効化関数 ★★★
+    invalidateSyncLock,
   };
 };

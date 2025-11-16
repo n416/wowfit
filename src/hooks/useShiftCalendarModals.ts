@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react'; // ★ useMemo をインポート
 import { useSelector, useDispatch } from 'react-redux';
 import type { RootState, AppDispatch } from '../store';
 import { IStaff, IAssignment } from '../db/dexie';
@@ -12,9 +12,16 @@ import { setAssignments, clearAdvice } from '../store/assignmentSlice';
  */
 export const useShiftCalendarModals = () => {
   const dispatch: AppDispatch = useDispatch();
-  const { assignments } = useSelector((state: RootState) => state.assignment);
-  const allStaffMap = useSelector((state: RootState) => 
-    new Map(state.staff.staff.map((s: IStaff) => [s.staffId, s]))
+  
+  // ★★★ 修正: state.assignment.present から assignments を取得 ★★★
+  // (useShiftCalendarModals.ts:19)
+  const { assignments } = useSelector((state: RootState) => state.assignment.present);
+  
+  // ★★★ 変更点 1: `useSelector` で `new Map` を作らない ★★★
+  const allStaff = useSelector((state: RootState) => state.staff.staff);
+  const allStaffMap = useMemo(() => 
+    new Map(allStaff.map((s: IStaff) => [s.staffId, s])),
+    [allStaff]
   );
 
   // 1. 手動アサインモーダル (AssignPatternModal)
@@ -69,6 +76,7 @@ export const useShiftCalendarModals = () => {
     const staff = clearingStaff; // 確認メッセージ用
     if (!staff) return;
 
+    // ★ `assignments` は .present から来た配列 (IAssignment[])
     const assignmentsToRemove = assignments.filter((a: IAssignment) => a.staffId === staffId);
     
     if (window.confirm(`${staff.name}さんのアサイン（${assignmentsToRemove.length}件）をすべてクリアしますか？`)) {

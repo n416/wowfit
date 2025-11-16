@@ -1,4 +1,6 @@
 import { createSlice, PayloadAction, createAsyncThunk } from '@reduxjs/toolkit';
+// ★ 1. redux-undo と ActionTypes をインポート
+import undoable, { excludeAction, ActionTypes } from 'redux-undo';
 import { IStaff, IShiftPattern, db, IAssignment, IUnit } from '../db/dexie'; 
 import { GeminiApiClient } from '../api/geminiApiClient'; 
 import { extractJson } from '../utils/jsonExtractor'; 
@@ -18,13 +20,14 @@ interface FetchAdviceArgs {
 export const fetchAssignmentAdvice = createAsyncThunk(
   'assignment/fetchAdvice',
   async (args: FetchAdviceArgs, { rejectWithValue }) => {
+    // ... (プロンプト生成・API呼び出し) ...
     const { targetDate, targetStaff, allPatterns, allUnits, burdenData, allAssignments } = args;
     const gemini = new GeminiApiClient();
     if (!gemini.isAvailable) {
       return rejectWithValue('Gemini APIが設定されていません。');
     }
     const prompt = `あなたは勤務スケジュールアシスタントです。管理者が「${targetStaff.name}」の「${targetDate}」のアサインを手動で調整しようとしています。
-以下の状況を分析し、管理者が**次に行うべきアクション（ネゴシエーション）**を具体的に助言してください。
+以下の状況を分析し、管理者が**次に行うべきアクション（ネゴシ_エーション）**を具体的に助言してください。
 # 1. 調整対象のスタッフ
 - 氏名: ${targetStaff.name} (ID: ${targetStaff.staffId})
 - 所属: ${targetStaff.unitId || 'フリー'}
@@ -67,6 +70,7 @@ interface FetchAiAdjustmentArgs {
 export const fetchAiAdjustment = createAsyncThunk(
   'assignment/fetchAiAdjustment',
   async (args: FetchAiAdjustmentArgs, { rejectWithValue }) => {
+    // ... (プロンプト生成・API呼び出し) ...
     console.log("★ AI草案作成: Thunk (fetchAiAdjustment) 開始");
     const { instruction, allStaff, allPatterns, allUnits, allAssignments, monthInfo, staffHolidayRequirements } = args;
     const gemini = new GeminiApiClient();
@@ -78,7 +82,7 @@ export const fetchAiAdjustment = createAsyncThunk(
       ...staff,
       requiredHolidays: staffHolidayRequirements.get(staff.staffId) || defaultHolidayCount 
     }));
-    let finalInstruction = instruction || '特記事項なし。デマンド（必要人数）を満たし、スタッフの負担（特に連勤・インターバル・公休数）が公平になるよう全体を最適化してください。';
+    let finalInstruction = instruction || '特記事項なし。デマンド（必要人数）を満し、スタッフの負担（特に連勤・インターバル・公休数）が公平になるよう全体を最適化してください。';
     if (instruction.includes("公休数強制補正")) {
       finalInstruction = "最優先事項: スタッフ一覧で定義された `requiredHolidays`（必要公休数）を厳密に守ってください。デマンド（必要人数）やその他の制約（連勤など）を満たすのが難しい場合でも、公休数の確保を最優先としてください。";
     }
@@ -164,6 +168,7 @@ interface FetchAiHolidayPatchArgs {
 export const fetchAiHolidayPatch = createAsyncThunk(
   'assignment/fetchAiHolidayPatch',
   async (args: FetchAiHolidayPatchArgs, { rejectWithValue }) => {
+    // ... (プロンプト生成・API呼び出し) ...
     console.log("★ AI公休補正: Thunk (fetchAiHolidayPatch) 開始");
     const { allStaff, allPatterns, allUnits, allAssignments, monthInfo, staffHolidayRequirements } = args;
     const gemini = new GeminiApiClient();
@@ -189,7 +194,7 @@ ${JSON.stringify(allAssignments, null, 2)}
 # 5. 対象月
 ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
 # 指示 (最重要)
-1. **最小限の変更 (最重要)**: 「現在の勤務表」(#4)は、**\`locked: true\`でなくても、可能な限り（99%）維持**してください。
+1. **最小限の変更 (最重要)**: 「現在の勤務表」(#4)は、**\`locked": true\`でなくても、可能な限り（99%）維持**してください。
 2. **公休数の過不足を計算**: スタッフごとに「必要公休数」(#1)と、「現在の勤務表」(#4)内の "workType": "StatutoryHoliday" の数を比較してください。
 3. **公休が不足している場合**:
    - そのスタッフの「勤務（"workType": "Work"）」アサインのうち、デマンド（#3）への影響が最も少ない日（例：デマンドが0、または既に人員が充足している日）を探してください。
@@ -224,6 +229,7 @@ ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
       }
       // ★ 差分（パッチ）を適用 ★
       const patchKeys = new Set(patchAssignments.map(p => `${p.date}_${p.staffId}`));
+      // ★★★ 修正: `p.staffId` を `a.staffId` に変更 ★★★
       const assignmentsToDelete = allAssignments.filter(a => patchKeys.has(`${a.date}_${a.staffId}`));
       await db.assignments.bulkDelete(assignmentsToDelete.map(a => a.id!));
       const assignmentsToAdd = patchAssignments.map(({ id, ...rest }) => rest);
@@ -251,6 +257,7 @@ interface FetchAiAnalysisArgs {
 export const fetchAiAnalysis = createAsyncThunk(
   'assignment/fetchAiAnalysis',
   async (args: FetchAiAnalysisArgs, { rejectWithValue }) => {
+    // ... (プロンプト生成・API呼び出し) ...
     const { allStaff, allPatterns, allUnits, allAssignments, monthInfo, staffHolidayRequirements } = args;
     const gemini = new GeminiApiClient();
     if (!gemini.isAvailable) {
@@ -278,7 +285,7 @@ ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
 # 診断の観点 (優先度順)
 1. **設定の矛盾 (最重要)**
    - スタッフの \`memo\` (例: "夜勤不可") と \`availablePatternIds\` (勤務可能パターン) に矛盾はありませんか？
-   - \`locked: true\` (固定) されているアサインが、そのスタッフの制約（勤務可能パターンなど）に違反していませんか？
+   - \`locked": true\` (固定) されているアサインが、そのスタッフの制約（勤務可能パターンなど）に違反していませんか？
 2. **供給能力の不足**
    - **「現在のアサインが埋まっていないこと」は無視してください**（それはこれからAIが作成するため）。
    - 代わりに、**「全員がフル稼働したとしても、物理的に満たすことが不可能なデマンド」**がないかを確認してください。
@@ -303,10 +310,9 @@ ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
 );
 
 
+// ★ 2. State の定義を `redux-undo` に合わせて簡素化
 interface AssignmentState {
-  past: IAssignment[][];
   assignments: IAssignment[]; // (現在)
-  future: IAssignment[][];
   
   adviceLoading: boolean;
   adviceError: string | null;
@@ -321,9 +327,7 @@ interface AssignmentState {
 }
 
 const initialState: AssignmentState = {
-  past: [],
   assignments: [],
-  future: [],
   adviceLoading: false,
   adviceError: null,
   adviceResult: null,
@@ -336,50 +340,38 @@ const initialState: AssignmentState = {
   patchError: null,
 };
 
-// ★★★ _syncOptimisticAssignment の Payload 型 ★★★
 interface SyncOptimisticPayload {
   tempId: number;
   newAssignment: IAssignment;
 }
 
+// ★ 3. スライス本体を作成 (まだ undoable でラップしない)
 const assignmentSlice = createSlice({
   name: 'assignment',
   initialState,
   reducers: {
     setAssignments: (state, action: PayloadAction<IAssignment[]>) => {
-      // (新しい状態が来たら、古い状態を past に積む)
-      // (※ただし、まったく同じ状態が積まれるのを防ぐ)
-      if (JSON.stringify(state.assignments) !== JSON.stringify(action.payload)) {
-        state.past.push(state.assignments);
-      }
+      // ★ 履歴管理は redux-undo に任せる (これが履歴に積まれる)
       state.assignments = action.payload;
-      // (新しい操作が行われたら、REDO履歴はクリアする)
-      state.future = []; 
     },
     
-    // ★★★ 楽観的UIのID差し替え専用（履歴を積まない） ★★★
+    // ★★★ 修正: `_syncAssignments` を追加 ★★★
+    // (履歴に影響を与えない、DB同期専用のアクション)
+    _syncAssignments: (state, action: PayloadAction<IAssignment[]>) => {
+      // ★ state.past も state.future も触らない
+      state.assignments = action.payload;
+    },
+    
     _syncOptimisticAssignment: (state, action: PayloadAction<SyncOptimisticPayload>) => {
       const { tempId, newAssignment } = action.payload;
       const index = state.assignments.findIndex(a => a.id === tempId);
       if (index !== -1) {
         state.assignments[index] = newAssignment;
       }
-      // ★ 履歴(past/future)は一切触らない
+      // ★ このアクションは履歴に積まない (下記 undoable 設定で除外)
     },
     
-    undoAssignments: (state) => {
-      if (state.past.length > 0) {
-        state.future.push(state.assignments);
-        state.assignments = state.past.pop()!;
-      }
-    },
-    
-    redoAssignments: (state) => {
-      if (state.future.length > 0) {
-        state.past.push(state.assignments);
-        state.assignments = state.future.pop()!;
-      }
-    },
+    // (undo/redo は削除済み)
 
     clearAdvice: (state) => {
       state.adviceLoading = false;
@@ -400,6 +392,7 @@ const assignmentSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
+      // (fetchAssignmentAdvice)
       .addCase(fetchAssignmentAdvice.pending, (state) => {
         state.adviceLoading = true;
         state.adviceError = null;
@@ -414,15 +407,14 @@ const assignmentSlice = createSlice({
         state.adviceError = action.payload as string;
       })
 
+      // (fetchAiAdjustment)
       .addCase(fetchAiAdjustment.pending, (state) => {
         state.adjustmentLoading = true;
         state.adjustmentError = null;
       })
       .addCase(fetchAiAdjustment.fulfilled, (state, action: PayloadAction<IAssignment[]>) => {
-        // (setAssignments と同じロジック)
-        state.past.push(state.assignments);
+        // ★ `setAssignments` と同じロジック (履歴に積まれる)
         state.assignments = action.payload;
-        state.future = []; 
         state.adjustmentLoading = false;
       })
       .addCase(fetchAiAdjustment.rejected, (state, action) => {
@@ -430,15 +422,14 @@ const assignmentSlice = createSlice({
         state.adjustmentError = action.payload as string;
       })
       
+      // (fetchAiHolidayPatch)
       .addCase(fetchAiHolidayPatch.pending, (state) => {
         state.patchLoading = true;
         state.patchError = null;
       })
       .addCase(fetchAiHolidayPatch.fulfilled, (state, action: PayloadAction<IAssignment[]>) => {
-        // (setAssignments と同じロジック)
-        state.past.push(state.assignments);
+        // ★ `setAssignments` と同じロジック (履歴に積まれる)
         state.assignments = action.payload; // (DBから読み直した最新のアサイン)
-        state.future = [];
         state.patchLoading = false;
       })
       .addCase(fetchAiHolidayPatch.rejected, (state, action) => {
@@ -446,6 +437,7 @@ const assignmentSlice = createSlice({
         state.patchError = action.payload as string;
       })
       
+      // (fetchAiAnalysis)
       .addCase(fetchAiAnalysis.pending, (state) => {
         state.analysisLoading = true;
         state.analysisError = null;
@@ -464,11 +456,20 @@ const assignmentSlice = createSlice({
 
 export const { 
   setAssignments, 
-  _syncOptimisticAssignment, // ★ 新しいアクションをエクスポート
-  undoAssignments, 
-  redoAssignments, 
+  _syncAssignments, // ★★★ 修正: `_syncAssignments` をエクスポート
+  _syncOptimisticAssignment, 
   clearAdvice, 
   clearAdjustmentError, 
   clearAnalysis 
 } = assignmentSlice.actions;
-export default assignmentSlice.reducer;
+
+// ★ 4. `redux-undo` で Reducer をラップ
+const undoableAssignmentReducer = undoable(assignmentSlice.reducer, {
+  // ★ 履歴に含めないアクション（楽観的更新、DB同期）を指定
+  filter: excludeAction([
+    _syncOptimisticAssignment.type,
+    _syncAssignments.type // ★★★ 修正: `_syncAssignments` も除外
+  ]),
+});
+
+export default undoableAssignmentReducer; // ★ ラップした Reducer をエクスポート

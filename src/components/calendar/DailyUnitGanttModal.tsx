@@ -21,7 +21,7 @@ type GanttRowData = {
   // ★★★ アサインIDを追加 (DB更新に必須) ★★★
   assignmentId: number;
   // ★★★ 元の unitId を追加 (DB更新に必須) ★★★
-  unitId: string | null;
+  unitId: string | null; 
 };
 
 // ★★★ ドラッグプレビュー用の型 ★★★
@@ -38,14 +38,14 @@ interface DailyUnitGanttModalProps {
   onClose: () => void;
   
   // allPatterns: IShiftPattern[]; // ★★★ 削除 (useSelectorで取得) ★★★
-  allAssignments: IAssignment[]; // ★★★ allAssignments を受け取る ★★★
+  allAssignments: IAssignment[]; // ★★★ allAssignments を受け取る
   demandMap: Map<string, { required: number; actual: number }>; // ★★★ v5.101 の変更を元に戻す ★★★
   unitGroups: UnitGroupData[]; // ★★★ v5.101 の変更を元に戻す ★★★
 }
 
 // (styles 定義は変更なし)
 const styles: { [key: string]: CSSProperties } = {
-  // モーダル
+  // ... (スタイル定義は省略) ...
   backdrop: {
     position: 'fixed',
     inset: 0,
@@ -269,12 +269,18 @@ export default function DailyUnitGanttModal({
 
   const dispatch: AppDispatch = useDispatch(); 
   
-  const allStaffMap = useSelector((state: RootState) => 
-    new Map(state.staff.staff.map(s => [s.staffId, s]))
+  // ★★★ 変更点 1: `useSelector` で `new Map` を作らない ★★★
+  const allStaff = useSelector((state: RootState) => state.staff.staff);
+  const allStaffMap = useMemo(() => 
+    new Map(allStaff.map(s => [s.staffId, s])), 
+    [allStaff]
   );
-  // ★★★ useSelector を使って patternMap を取得 ★★★
-  const patternMap = useSelector((state: RootState) => 
-    new Map(state.pattern.patterns.map(p => [p.patternId, p]))
+  
+  // ★★★ 変更点 2: `useSelector` で `new Map` を作らない ★★★
+  const allPatterns = useSelector((state: RootState) => state.pattern.patterns);
+  const patternMap = useMemo(() => 
+    new Map(allPatterns.map(p => [p.patternId, p])), 
+    [allPatterns]
   );
   // ★★★ v5.101 で追加した unitList の useSelector を削除 ★★★
   
@@ -291,11 +297,13 @@ export default function DailyUnitGanttModal({
   const [pendingChanges, setPendingChanges] = useState<Map<number, IAssignment>>(new Map());
 
   const workPatterns = useMemo(() => {
-    return Array.from(patternMap.values()).filter(p => p.workType === 'Work');
-  }, [patternMap]);
+    // ★★★ 変更点 3: allPatterns (配列) を使う ★★★
+    return allPatterns.filter(p => p.workType === 'Work');
+  }, [allPatterns]);
 
   const allAssignmentsMap = useMemo(() => {
     const map = new Map<number, IAssignment>();
+    // ★ allAssignments (present) を使用
     allAssignments.forEach(a => {
       if (a.id) map.set(a.id, a);
     });
@@ -327,8 +335,9 @@ export default function DailyUnitGanttModal({
              if (change.date === target.date) {
                displayDuration = 24 - startH;
              } else {
-               displayStart = startH;
-               displayDuration = newPattern.durationHours; 
+               // ★★★ バグ修正: 前日からの夜勤は 0 時スタート ★★★
+               displayStart = 0; 
+               displayDuration = endH;
              }
           }
           
@@ -592,6 +601,7 @@ export default function DailyUnitGanttModal({
       await db.assignments.bulkPut(changesToSave);
       
       const allAssignmentsFromDB = await db.assignments.toArray();
+      // ★ `setAssignments` は履歴に積まれる
       dispatch(setAssignments(allAssignmentsFromDB));
       
       onClose(); 

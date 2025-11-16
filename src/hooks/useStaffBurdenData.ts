@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'; // ★ useCallback を追加
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../store';
 import { IStaff, IAssignment, IShiftPattern } from '../db/dexie';
@@ -31,6 +31,8 @@ const calculateStaffBurdenData = (
     });
   });
 
+  // (useStaffBurdenData.ts:34)
+  // ★ `assignments` は .present から渡されるため、正常な配列 (IAssignment[]) になる
   for (const assignment of assignments) {
     if (assignment.staffId && assignment.patternId) {
       const staffData = burdenMap.get(assignment.staffId);
@@ -57,9 +59,16 @@ const calculateStaffBurdenData = (
 export const useStaffBurdenData = () => {
   // 1. 必要なデータを Redux から取得
   const { staff: allStaff } = useSelector((state: RootState) => state.staff);
-  const { assignments } = useSelector((state: RootState) => state.assignment);
-  const patternMap = useSelector((state: RootState) => 
-    new Map(state.pattern.patterns.map(p => [p.patternId, p]))
+  
+  // ★★★ 修正: state.assignment.present から assignments を取得 ★★★
+  // (useStaffBurdenData.ts:66)
+  const { assignments } = useSelector((state: RootState) => state.assignment.present);
+
+  // ★★★ 変更点 1: `useSelector` で `new Map` を作らない ★★★
+  const shiftPatterns = useSelector((state: RootState) => state.pattern.patterns);
+  const patternMap = useMemo(() => 
+    new Map(shiftPatterns.map(p => [p.patternId, p])),
+    [shiftPatterns]
   );
   
   // 2. アクティブなスタッフリスト
@@ -93,9 +102,10 @@ export const useStaffBurdenData = () => {
 
   // 4. 負担データの計算 (ShiftCalendarPage から移動)
   const staffBurdenData = useMemo(() => {
+    // (useStaffBurdenData.ts:95)
     return calculateStaffBurdenData(
       staffList,
-      assignments,
+      assignments, // ★ `present.assignments` (配列) が渡される
       patternMap,
       staffHolidayRequirements
     );

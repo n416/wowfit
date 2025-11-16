@@ -175,7 +175,7 @@ export default function AiSupportPane({
                   disabled={isAnyLoading} 
                   fullWidth
                 >
-                  公休数強制補正 (ロジック)
+                  公休数強制補正
                 </Button>
                 <Button 
                   variant="outlined" 

@@ -7,7 +7,6 @@ import { db } from '../db/dexie';
 // ★ 2. _syncAssignments をインポート (★ _syncOptimisticAssignment のインポートを削除)
 import { setAssignments, _syncAssignments } from '../store/assignmentSlice'; 
 import { MONTH_DAYS } from '../utils/dateUtils'; 
-// ★ v1.3 の UndoActionTypes インポートを削除
 
 // --- 型定義 ---
 
@@ -100,7 +99,7 @@ export const useCalendarInteractions = (
 
   // ★★★ v1.4 のロック無効化関数 ★★★
   const invalidateSyncLock = useCallback(() => {
-    console.log("[DEBUG] invalidateSyncLock() called. Pending async syncs will be cancelled.");
+    // [DEBUG] ログを削除
     syncLockRef.current = 0;
   }, []);
 
@@ -120,22 +119,9 @@ export const useCalendarInteractions = (
     // ★ 7. `store.getState()` から最新の `assignments` を取得
     const currentAssignments = store.getState().assignment.present.assignments;
 
-    // ★★★ ログヘルパー関数 (Pochi用) ★★★
-    const formatAssignmentsForLog = (assignmentsToLog: IAssignment[]): string => {
-      const filtered = assignmentsToLog.filter(a => 
-        a.date === '2025-11-01' || 
-        a.date === '2025-11-02' || 
-        a.date === '2025-11-03'
-      );
-      if (filtered.length === 0) return "[11/1-3に該当なし]";
-      return filtered.map(a => `${a.patternId}@${a.date}@${a.staffId}`).join(', ');
-    };
-    // ★★★ ログヘルパーここまで ★★★
+    // ★★★ [DEBUG] ログヘルパー関数を削除 ★★★
 
-    console.group(`[DEBUG] toggleHoliday (Pochi) [${new Date().toISOString()}]`);
-    console.log(`CellKey: ${cellKey}, Pattern: ${targetPatternId}`);
-    // ★ ログ修正 (新フォーマット)
-    console.log("ベースとなった assignments (11/1-3):", formatAssignmentsForLog(currentAssignments));
+    // ★★★ [DEBUG] console.group を削除 ★★★
 
     const existing = currentAssignments.filter((a: IAssignment) => a.date === date && a.staffId === staff.staffId);
     const existingIsTarget = existing.length === 1 && existing[0].patternId === targetPatternId;
@@ -152,7 +138,7 @@ export const useCalendarInteractions = (
           await db.assignments.bulkDelete(existing.map(a => a.id!));
         }
       };
-      console.log("楽観的更新: 削除 (OFF)");
+      // ★★★ [DEBUG] ログを削除 ★★★
     } else {
       // (トグルオン)
       const newAssignmentBase: Omit<IAssignment, 'id'> = {
@@ -161,26 +147,18 @@ export const useCalendarInteractions = (
       };
       const otherAssignments = currentAssignments.filter((a: IAssignment) => !(a.date === date && a.staffId === staff.staffId));
       
-      // ★★★ 変更点 1: _syncOptimisticAssignment を使わないため、楽観的更新にtempIdが不要になった ★★★
-      //    (ただし、Redux-Undoが差分を検知できるよう、新しい配列参照を作る必要はある)
-      //    (※注: 厳密には tempId があっても動作するが、不要なロジックは削除する)
-      // newOptimisticAssignments = [...otherAssignments, { ...newAssignmentBase, id: tempId }];
-      newOptimisticAssignments = [...otherAssignments, { ...newAssignmentBase, id: tempId }]; // ※1
+      newOptimisticAssignments = [...otherAssignments, { ...newAssignmentBase, id: tempId }]; 
 
       dbOperation = async () => {
         if (existing.length > 0) {
           await db.assignments.bulkDelete(existing.map((a: IAssignment) => a.id!));
         }
-        // ★★★ 変更点 2: _syncOptimisticAssignment を削除 ★★★
-        // const newId = await db.assignments.add(newAssignmentBase);
-        // dispatch(_syncOptimisticAssignment({
-        //   tempId: tempId, newAssignment: { ...newAssignmentBase, id: newId }
-        // }));
+        // ★★★ v1.9 修正: _syncOptimisticAssignment 呼び出しを削除 ★★★
         await db.assignments.add(newAssignmentBase);
       };
-      console.log("楽観的更新: 追加 (ON)");
+      // ★★★ [DEBUG] ログを削除 ★★★
     }
-    console.groupEnd(); // ★ ロググループ終了
+    // ★★★ [DEBUG] console.groupEnd を削除 ★★★
     
     // ★★★ v1.2 の syncLock ロジック ★★★
     const currentSyncId = Date.now();
@@ -189,14 +167,14 @@ export const useCalendarInteractions = (
     dispatch(setAssignments(newOptimisticAssignments)); // ★ UI即時更新 (履歴に積む)
 
     dbOperation()
-      // ★★★ 変更点 3: 成功時（then）も _syncAssignments を呼ぶように変更 ★★★
+      // ★★★ v1.9 修正: 成功時（then）も _syncAssignments を呼ぶように変更 ★★★
       .then(async () => {
         // DB書き込み成功
         const allAssignmentsFromDB = await db.assignments.toArray();
-        console.log(`[DEBUG] Async Pochi Callback Fired. MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current}`);
+        // ★★★ [DEBUG] ログを削除 ★★★
         
         if (syncLockRef.current === currentSyncId) {
-            console.log(`[DEBUG] Sync Check PASSED (Pochi). MyID: ${currentSyncId}. Dispatching _syncAssignments.`);
+            // ★★★ [DEBUG] ログを削除 ★★★
             dispatch(_syncAssignments(allAssignmentsFromDB));
         } else {
             console.warn(`[DEBUG] Stale _syncAssignments call detected (Pochi). SKIPPING SYNC. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
@@ -218,14 +196,7 @@ export const useCalendarInteractions = (
         }
       });
 
-  }, [dispatch, store]); // ★ 9. 依存配列から `assignments` を削除
-  
-  // (※1) 変更点1について: 
-  // Redux-Undoは `setAssignments` に渡される配列の *内容* を比較するため、
-  // `tempId` の有無に関わらず `existingIsTarget` が `true` (削除) か `false` (追加) かで
-  // 履歴（past/future）が正しく分岐します。
-  // `_syncOptimisticAssignment` は、履歴に積まずに `present` の `tempId` を `newId` に
-  // 置き換えるためのものでしたが、`_syncAssignments` に統一することでこの複雑な処理が不要になりました。
+  }, [dispatch, store]); 
 
 
   // --- セルクリック / マウスドラッグイベント ---
@@ -276,22 +247,7 @@ export const useCalendarInteractions = (
 
   // --- C/X/V キーボードイベント ---
   useEffect(() => {
-    // ★★★ ログヘルパー関数 (C/X/V用) ★★★
-    const formatAssignmentsForLog = (assignmentsToLog: IAssignment[] | Omit<IAssignment, 'id'>[]): string => {
-      const filtered = assignmentsToLog.filter(a => 
-        a.date === '2025-11-01' || 
-        a.date === '2025-11-02' || 
-        a.date === '2025-11-03'
-      );
-      if (filtered.length === 0) return "[11/1-3に該当なし]";
-      return filtered.map(a => `${a.patternId}@${a.date}@${a.staffId}`).join(', ');
-    };
-    const formatClipboardForLog = (clipboardToLog: ClipboardData | null): string => {
-      if (!clipboardToLog) return "CLIPBOARD IS NULL";
-      // クリップボードの中身（パターンID or null）をカンマ区切りで返す
-      return clipboardToLog.assignments.map(a => a ? a.patternId : 'null').join(', ');
-    };
-    // ★★★ ログヘルパーここまで ★★★
+    // ★★★ [DEBUG] ログヘルパー関数を削除 ★★★
 
     // ★★★ 修正: `assignments` の最新状態を Ref に保持 ★★★
     const latestAssignmentsRef = { 
@@ -304,15 +260,10 @@ export const useCalendarInteractions = (
     const unsubscribe = store.subscribe(() => {
       const newAssignments = store.getState().assignment.present.assignments;
       
-      // ★★★ ログ追加 (仮説Cの検証) ★★★
+      // ★★★ [DEBUG] ログを削除 ★★★
       if (latestAssignmentsRef.current !== newAssignments) {
-        console.log(`[DEBUG] store.subscribe: assignments が変更されました。`);
-        console.log(`  -> 旧 (11/1-3): ${formatAssignmentsForLog(latestAssignmentsRef.current)}`);
-        console.log(`  -> 新 (11/1-3): ${formatAssignmentsForLog(newAssignments)}`);
-        
-        // ★★★ v1.3 の `lastActionType` チェックを削除 ★★★
+        // (デバッグログは削除)
       }
-      // ★★★ ログ追加ここまで ★★★
 
       // アンドゥ/リドゥで状態が変わったら、Refの中身を即座に更新
       latestAssignmentsRef.current = newAssignments;
@@ -345,10 +296,7 @@ export const useCalendarInteractions = (
         const rangeIndices = getRangeIndices(selectionRange);
         if (!rangeIndices) return;
 
-        // ★★★ ログ修正 (新フォーマット) ★★★
-        console.group(`[DEBUG] Ctrl+${event.key} (Copy/Cut) [${new Date().toISOString()}]`);
-        console.log("ベースとなった assignments (11/1-3):", formatAssignmentsForLog(currentAssignments));
-        // ★★★ ログ修正ここまで ★★★
+        // ★★★ [DEBUG] console.group を削除 ★★★
 
         const { minStaff, maxStaff, minDate, maxDate } = rangeIndices;
         
@@ -387,8 +335,7 @@ export const useCalendarInteractions = (
           rowCount: maxStaff - minStaff + 1,
           colCount: maxDate - minDate + 1,
         };
-        // ★ ログ修正 (新フォーマット)
-        console.log("クリップボードに保存:", formatClipboardForLog(clipboardRef.current));
+        // ★★★ [DEBUG] ログを削除 ★★★
 
         if (event.key === 'x') {
           // --- CUT (X) ---
@@ -399,8 +346,7 @@ export const useCalendarInteractions = (
             !keysToCut.has(`${a.staffId}_${a.date}`)
           );
           
-          console.log("楽観的更新: カット (setAssignments)");
-          console.groupEnd(); // ★ ロググループ終了
+          // ★★★ [DEBUG] ログを削除 ★★★
           
           // ★★★ v1.2 の syncLock ロジック ★★★
           const currentSyncId = Date.now();
@@ -410,12 +356,12 @@ export const useCalendarInteractions = (
           
           if (assignmentsToRemove.length > 0) {
             db.assignments.bulkDelete(assignmentsToRemove.map(a => a.id!))
-              // ★★★ 変更点 4: 成功時（then）も _syncAssignments を呼ぶように変更 ★★★
+              // ★★★ v1.9 修正: 成功時（then）も _syncAssignments を呼ぶように変更 ★★★
               .then(async () => {
                 const allAssignmentsFromDB = await db.assignments.toArray();
-                console.log(`[DEBUG] Async Cut Callback Fired. MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current}`);
+                // ★★★ [DEBUG] ログを削除 ★★★
                 if (syncLockRef.current === currentSyncId) {
-                    console.log(`[DEBUG] Sync Check PASSED (Cut). MyID: ${currentSyncId}. Dispatching _syncAssignments.`);
+                    // ★★★ [DEBUG] ログを削除 ★★★
                     dispatch(_syncAssignments(allAssignmentsFromDB));
                 } else {
                     console.warn(`[DEBUG] Stale _syncAssignments call detected (Cut). SKIPPING SYNC. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
@@ -433,16 +379,14 @@ export const useCalendarInteractions = (
               });
           }
         } else {
-          console.groupEnd(); // ★ ロググループ終了 (コピーの場合)
+          // ★★★ [DEBUG] console.groupEnd を削除 ★★★
         }
       
       // ★★★ Ctrl+V (貼り付け) ★★★
       } else if (ctrlKey && event.key === 'v') {
         event.preventDefault();
 
-        // ★★★ バージョン確認ログ (v1.8) ★★★
-        console.log("[DEBUG] Paste Action Triggered (v1.8_FINAL_with_TX)");
-        // ★★★ ここまで ★★★
+        // ★★★ [DEBUG] バージョン確認ログを削除 ★★★
         
         const clipboard = clipboardRef.current; 
         if (!clipboard || !activeCell) return;
@@ -450,11 +394,7 @@ export const useCalendarInteractions = (
         // ★ 14. `latestAssignmentsRef` から最新の `assignments` を取得
         const currentAssignments = latestAssignmentsRef.current;
 
-        // ★★★ ログ修正 (新フォーマット) ★★★
-        console.group(`[DEBUG] Ctrl+V (Paste) [${new Date().toISOString()}]`);
-        console.log("ベースとなった assignments (11/1-3):", formatAssignmentsForLog(currentAssignments));
-        console.log("クリップボードから読み出し:", formatClipboardForLog(clipboard));
-        // ★★★ ログ修正ここまで ★★★
+        // ★★★ [DEBUG] console.group を削除 ★★★
 
         const { assignments: clipboardAssignments, rowCount, colCount } = clipboard;
         
@@ -504,13 +444,7 @@ export const useCalendarInteractions = (
 
         const finalOptimisticState = [...assignmentsBeforePaste, ...tempAssignments];
         
-        // ★★★ ログ修正 (新フォーマット + keysToOverwrite の中身) ★★★
-        console.log("上書き対象 (削除) キー:", JSON.stringify(Array.from(keysToOverwrite)));
-        console.log("除外後の assignments (BeforePaste) (11/1-3):", formatAssignmentsForLog(assignmentsBeforePaste));
-        console.log("追加する assignments (tempAssignments) (11/1-3):", formatAssignmentsForLog(tempAssignments));
-        console.log("setAssignments に渡す最終的な楽観的状態 (11/1-3):", formatAssignmentsForLog(finalOptimisticState));
-        console.groupEnd(); // ★ ロググループ終了
-        // ★★★ ログ修正ここまで ★★★
+        // ★★★ [DEBUG] ログを削除 ★★★
         
         // ★★★ v1.2 の syncLock ロジック ★★★
         const currentSyncId = Date.now();
@@ -545,11 +479,11 @@ export const useCalendarInteractions = (
                 }).map(({ id, ...rest }) => rest); // tempIdを除外
 
                 if (assignmentsToRemove.length > 0) {
-                    console.log(`[DEBUG] Async DB TX: Removing ${assignmentsToRemove.length} stale assignments`);
+                    // ★★★ [DEBUG] ログを削除 ★★★
                     await db.assignments.bulkDelete(assignmentsToRemove.map(a => a.id!));
                 }
                 if (assignmentsToAdd.length > 0) {
-                    console.log(`[DEBUG] Async DB TX: Adding ${assignmentsToAdd.length} new assignments`);
+                    // ★★★ [DEBUG] ログを削除 ★★★
                     await db.assignments.bulkAdd(assignmentsToAdd);
                 }
                 
@@ -558,10 +492,10 @@ export const useCalendarInteractions = (
             // ★★★ v1.8 トランザクションここまで ★★★
             
             // トランザクション (Async) が完了
-            console.log(`[DEBUG] Async Callback Fired. MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current}`);
+            // ★★★ [DEBUG] ログを削除 ★★★
             
             if (syncLockRef.current === currentSyncId) {
-              console.log(`[DEBUG] Sync Check PASSED. MyID: ${currentSyncId}. Dispatching _syncAssignments.`);
+              // ★★★ [DEBUG] ログを削除 ★★★
               dispatch(_syncAssignments(updatedAssignments)); // ★ トランザクションの結果で同期
             } else {
               console.warn(`[DEBUG] Stale _syncAssignments call detected. SKIPPING SYNC. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
@@ -570,7 +504,7 @@ export const useCalendarInteractions = (
           } catch (e) {
             console.error("ペースト(DB操作)に失敗:", e);
             
-            console.log(`[DEBUG] Async Callback Failed. MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current}`);
+            // ★★★ [DEBUG] ログを削除 ★★★
             if (syncLockRef.current === currentSyncId) {
                 console.warn("[DEBUG] DB Paste failed. Reverting optimistic update.");
                 // エラーが起きたので、DBの*現在の*（汚染されているかもしれない）状態を読み直す

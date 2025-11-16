@@ -340,10 +340,11 @@ const initialState: AssignmentState = {
   patchError: null,
 };
 
-interface SyncOptimisticPayload {
-  tempId: number;
-  newAssignment: IAssignment;
-}
+// ★★★ 変更点 1: SyncOptimisticPayload の型定義を削除 ★★★
+// interface SyncOptimisticPayload {
+//   tempId: number;
+//   newAssignment: IAssignment;
+// }
 
 // ★ 3. スライス本体を作成 (まだ undoable でラップしない)
 const assignmentSlice = createSlice({
@@ -362,14 +363,14 @@ const assignmentSlice = createSlice({
       state.assignments = action.payload;
     },
     
-    _syncOptimisticAssignment: (state, action: PayloadAction<SyncOptimisticPayload>) => {
-      const { tempId, newAssignment } = action.payload;
-      const index = state.assignments.findIndex(a => a.id === tempId);
-      if (index !== -1) {
-        state.assignments[index] = newAssignment;
-      }
-      // ★ このアクションは履歴に積まない (下記 undoable 設定で除外)
-    },
+    // ★★★ 変更点 2: _syncOptimisticAssignment を削除 ★★★
+    // _syncOptimisticAssignment: (state, action: PayloadAction<SyncOptimisticPayload>) => {
+    //   const { tempId, newAssignment } = action.payload;
+    //   const index = state.assignments.findIndex(a => a.id === tempId);
+    //   if (index !== -1) {
+    //     state.assignments[index] = newAssignment;
+    //   }
+    // },
     
     // (undo/redo は削除済み)
 
@@ -457,7 +458,8 @@ const assignmentSlice = createSlice({
 export const { 
   setAssignments, 
   _syncAssignments, // ★★★ 修正: `_syncAssignments` をエクスポート
-  _syncOptimisticAssignment, 
+  // ★★★ 変更点 3: _syncOptimisticAssignment をエクスポートから削除 ★★★
+  // _syncOptimisticAssignment, 
   clearAdvice, 
   clearAdjustmentError, 
   clearAnalysis 
@@ -467,7 +469,8 @@ export const {
 const undoableAssignmentReducer = undoable(assignmentSlice.reducer, {
   // ★ 履歴に含めないアクション（楽観的更新、DB同期）を指定
   filter: excludeAction([
-    _syncOptimisticAssignment.type,
+    // ★★★ 変更点 4: _syncOptimisticAssignment を除外フィルタから削除 ★★★
+    // _syncOptimisticAssignment.type,
     _syncAssignments.type // ★★★ 修正: `_syncAssignments` も除外
   ]),
 });

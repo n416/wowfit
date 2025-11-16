@@ -4,8 +4,8 @@ import { useSelector, useDispatch, useStore } from 'react-redux';
 import type { RootState, AppDispatch } from '../store';
 import { IStaff, IAssignment } from '../db/dexie';
 import { db } from '../db/dexie';
-// ★ 2. _syncAssignments をインポート
-import { setAssignments, _syncOptimisticAssignment, _syncAssignments } from '../store/assignmentSlice'; 
+// ★ 2. _syncAssignments をインポート (★ _syncOptimisticAssignment のインポートを削除)
+import { setAssignments, _syncAssignments } from '../store/assignmentSlice'; 
 import { MONTH_DAYS } from '../utils/dateUtils'; 
 // ★ v1.3 の UndoActionTypes インポートを削除
 
@@ -160,16 +160,23 @@ export const useCalendarInteractions = (
         unitId: null, locked: true 
       };
       const otherAssignments = currentAssignments.filter((a: IAssignment) => !(a.date === date && a.staffId === staff.staffId));
-      newOptimisticAssignments = [...otherAssignments, { ...newAssignmentBase, id: tempId }];
+      
+      // ★★★ 変更点 1: _syncOptimisticAssignment を使わないため、楽観的更新にtempIdが不要になった ★★★
+      //    (ただし、Redux-Undoが差分を検知できるよう、新しい配列参照を作る必要はある)
+      //    (※注: 厳密には tempId があっても動作するが、不要なロジックは削除する)
+      // newOptimisticAssignments = [...otherAssignments, { ...newAssignmentBase, id: tempId }];
+      newOptimisticAssignments = [...otherAssignments, { ...newAssignmentBase, id: tempId }]; // ※1
 
       dbOperation = async () => {
         if (existing.length > 0) {
           await db.assignments.bulkDelete(existing.map((a: IAssignment) => a.id!));
         }
-        const newId = await db.assignments.add(newAssignmentBase);
-        dispatch(_syncOptimisticAssignment({
-          tempId: tempId, newAssignment: { ...newAssignmentBase, id: newId }
-        }));
+        // ★★★ 変更点 2: _syncOptimisticAssignment を削除 ★★★
+        // const newId = await db.assignments.add(newAssignmentBase);
+        // dispatch(_syncOptimisticAssignment({
+        //   tempId: tempId, newAssignment: { ...newAssignmentBase, id: newId }
+        // }));
+        await db.assignments.add(newAssignmentBase);
       };
       console.log("楽観的更新: 追加 (ON)");
     }
@@ -182,6 +189,19 @@ export const useCalendarInteractions = (
     dispatch(setAssignments(newOptimisticAssignments)); // ★ UI即時更新 (履歴に積む)
 
     dbOperation()
+      // ★★★ 変更点 3: 成功時（then）も _syncAssignments を呼ぶように変更 ★★★
+      .then(async () => {
+        // DB書き込み成功
+        const allAssignmentsFromDB = await db.assignments.toArray();
+        console.log(`[DEBUG] Async Pochi Callback Fired. MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current}`);
+        
+        if (syncLockRef.current === currentSyncId) {
+            console.log(`[DEBUG] Sync Check PASSED (Pochi). MyID: ${currentSyncId}. Dispatching _syncAssignments.`);
+            dispatch(_syncAssignments(allAssignmentsFromDB));
+        } else {
+            console.warn(`[DEBUG] Stale _syncAssignments call detected (Pochi). SKIPPING SYNC. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
+        }
+      })
       .catch(e => {
         console.error("アサインの即時更新（DB反映）に失敗:", e);
         // ★★★ v1.2 の Stale Check ★★★
@@ -199,6 +219,13 @@ export const useCalendarInteractions = (
       });
 
   }, [dispatch, store]); // ★ 9. 依存配列から `assignments` を削除
+  
+  // (※1) 変更点1について: 
+  // Redux-Undoは `setAssignments` に渡される配列の *内容* を比較するため、
+  // `tempId` の有無に関わらず `existingIsTarget` が `true` (削除) か `false` (追加) かで
+  // 履歴（past/future）が正しく分岐します。
+  // `_syncOptimisticAssignment` は、履歴に積まずに `present` の `tempId` を `newId` に
+  // 置き換えるためのものでしたが、`_syncAssignments` に統一することでこの複雑な処理が不要になりました。
 
 
   // --- セルクリック / マウスドラッグイベント ---
@@ -383,6 +410,17 @@ export const useCalendarInteractions = (
           
           if (assignmentsToRemove.length > 0) {
             db.assignments.bulkDelete(assignmentsToRemove.map(a => a.id!))
+              // ★★★ 変更点 4: 成功時（then）も _syncAssignments を呼ぶように変更 ★★★
+              .then(async () => {
+                const allAssignmentsFromDB = await db.assignments.toArray();
+                console.log(`[DEBUG] Async Cut Callback Fired. MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current}`);
+                if (syncLockRef.current === currentSyncId) {
+                    console.log(`[DEBUG] Sync Check PASSED (Cut). MyID: ${currentSyncId}. Dispatching _syncAssignments.`);
+                    dispatch(_syncAssignments(allAssignmentsFromDB));
+                } else {
+                    console.warn(`[DEBUG] Stale _syncAssignments call detected (Cut). SKIPPING SYNC. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
+                }
+              })
               .catch(e => {
                 console.error("カット(DB削除)に失敗:", e);
                 // ★★★ v1.2 の Stale Check ★★★

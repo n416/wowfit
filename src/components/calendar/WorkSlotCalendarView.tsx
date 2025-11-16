@@ -84,7 +84,10 @@ export default function WorkSlotCalendarView({
 }: WorkSlotCalendarViewProps) {
   const { staff: staffList } = useSelector((state: RootState) => state.staff);
   const unitList = useSelector((state: RootState) => state.unit.units);
-  const { assignments } = useSelector((state: RootState) => state.assignment);
+  
+  // ★★★ 変更点: state.assignment.present から assignments を取得 ★★★
+  const { assignments } = useSelector((state: RootState) => state.assignment.present);
+  
   const { patterns: shiftPatterns } = useSelector((state: RootState) => state.pattern);
 
   const staffMap = useMemo(() => new Map(staffList.map((s: IStaff) => [s.staffId, s])), [staffList]);
@@ -94,7 +97,7 @@ export default function WorkSlotCalendarView({
   
   const assignmentsMap = useMemo(() => {
     const map = new Map<string, IAssignment[]>(); 
-    for (const assignment of assignments) { 
+    for (const assignment of assignments) { // ★ これで `assignments` が配列として扱われる
       if (assignment.unitId) {
         const key = `${assignment.date}_${assignment.unitId}`;
         if (!map.has(key)) map.set(key, []);

@@ -1,6 +1,6 @@
 import { createSlice, PayloadAction, createAsyncThunk } from '@reduxjs/toolkit';
 // ★ 1. redux-undo と ActionTypes をインポート
-import undoable, { excludeAction, ActionTypes } from 'redux-undo';
+import undoable, { excludeAction } from 'redux-undo';
 import { IStaff, IShiftPattern, db, IAssignment, IUnit } from '../db/dexie'; 
 import { GeminiApiClient } from '../api/geminiApiClient'; 
 import { extractJson } from '../utils/jsonExtractor'; 

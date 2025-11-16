@@ -1,7 +1,8 @@
 import { CSSProperties, useState, useMemo, useRef, MouseEvent, useCallback, useEffect } from 'react'; 
 import { IStaff, IShiftPattern, IUnit, IAssignment, db } from '../../db/dexie'; 
 import { useDispatch, useSelector } from 'react-redux'; 
-import { setAssignments, _syncOptimisticAssignment } from '../../store/assignmentSlice'; 
+// ★★★ 変更点: _syncOptimisticAssignment をインポートから削除 ★★★
+import { setAssignments } from '../../store/assignmentSlice'; 
 import type { AppDispatch, RootState } from '../../store'; 
 // import { getPrevDateStr, MONTH_DAYS } from '../../utils/dateUtils'; // ★★★ 削除 ★★★
 
@@ -45,7 +46,7 @@ interface DailyUnitGanttModalProps {
 
 // (styles 定義は変更なし)
 const styles: { [key: string]: CSSProperties } = {
-  // ... (スタイル定義は省略) ...
+  // モーダル
   backdrop: {
     position: 'fixed',
     inset: 0,
@@ -769,7 +770,8 @@ export default function DailyUnitGanttModal({
         <div style={styles.actions}>
           {/* ★★★ 変更履歴 (pendingChanges) のサイズに応じてボタンを出し分ける ★★★ */}
           {pendingChanges.size === 0 ? (
-            <button onClick={onClose} style={{...styles.button, width: '100%'}}>
+            // ★★★ 変更点: `width: '100%'` を削除 ★★★
+            <button onClick={onClose} style={styles.button}>
               閉じる
             </button>
           ) : (

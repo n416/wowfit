@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   Box, Paper, Typography, Tabs, Tab, 
   // ★ 未使用のMUIコンポーネント (TextField, Button, Select, Dialog 等) を削除
@@ -42,10 +42,12 @@ import NewStaffForm from '../components/data/NewStaffForm';
 import EditStaffModal from '../components/data/EditStaffModal';
 // ★★★↓ v5.9 モックデータをインポート ↓★★★
 import { MOCK_PATTERNS_V5, MOCK_UNITS_V5, MOCK_STAFF_V4 } from '../db/mockData';
-// ★★★↑ インポートを修正 ↑★★★
+// ★★★ 変更点 1: 汎用 TabPanel をインポート ★★★
+import TabPanel from '../components/TabPanel';
 
 
-// TabPanel (変更なし)
+// ★★★ 変更点 2: ローカルの TabPanel 定義 (約13行) を削除 ★★★
+/*
 interface TabPanelProps {
   children?: React.ReactNode;
   index: number;
@@ -59,6 +61,8 @@ function TabPanel(props: TabPanelProps) {
     </div>
   );
 }
+*/
+// ★★★ 変更点 2 ここまで ★★★
 
 // (getDefaultDemand は削除済み)
 
@@ -182,7 +186,7 @@ function DataManagementPage() {
           </Tabs>
         </Box>
         
-        {/* ★★★ v5.2: ユニット・デマンド管理タブ ★★★ */}
+        {/* ★★★ v5.2: ユニット・デマンド管理タブ (★ 汎用コンポーネントを使用) ★★★ */}
         <TabPanel value={tabValue} index={0}>
           <Typography variant="h6" gutterBottom>ユニットの登録</Typography>
           {/* ★★★↓ コンポーネント呼び出しに変更 ↓★★★ */}
@@ -213,7 +217,7 @@ function DataManagementPage() {
           </TableContainer>
         </TabPanel>
 
-        {/* ★★★ v5: 勤務パターン管理タブ ★★★ */}
+        {/* ★★★ v5: 勤務パターン管理タブ (★ 汎用コンポーネントを使用) ★★★ */}
         <TabPanel value={tabValue} index={1}>
           <Typography variant="h6" gutterBottom>勤務パターンの登録</Typography>
           {/* ★★★↓ コンポーネント呼び出しに変更 ↓★★★ */}
@@ -242,7 +246,7 @@ function DataManagementPage() {
           </TableContainer>
         </TabPanel>
 
-        {/* ★★★ v5: スタッフ管理タブ ★★★ */}
+        {/* ★★★ v5: スタッフ管理タブ (★ 汎用コンポーネントを使用) ★★★ */}
         <TabPanel value={tabValue} index={2}>
           <Typography variant="h6" gutterBottom>新規スタッフの登録</Typography>
           {/* ★★★↓ コンポーネント呼び出しに変更 ↓★★★ */}
@@ -283,6 +287,7 @@ function DataManagementPage() {
           </TableContainer>
         </TabPanel>
         
+        {/* ★ 汎用コンポーネントを使用 */}
         <TabPanel value={tabValue} index={3}><Typography>インポート/エクスポート（未実装）</Typography></TabPanel>
         
       </Paper>

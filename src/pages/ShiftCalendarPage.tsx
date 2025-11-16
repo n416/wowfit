@@ -28,6 +28,8 @@ import AiSupportPane from '../components/calendar/AiSupportPane';
 import BurdenSidebar from '../components/calendar/BurdenSidebar'; 
 import DailyUnitGanttModal from '../components/calendar/DailyUnitGanttModal';
 import ClearStaffAssignmentsModal from '../components/calendar/ClearStaffAssignmentsModal'; 
+// ★★★ 変更点 1: 汎用 TabPanel をインポート ★★★
+import TabPanel from '../components/TabPanel'; 
 
 // (MONTH_DAYS のインポート削除は変更なし)
 import { MOCK_PATTERNS_V5, MOCK_UNITS_V5, MOCK_STAFF_V4 } from '../db/mockData';
@@ -44,12 +46,14 @@ import { useShiftCalendarLogic } from '../hooks/useShiftCalendarLogic';
 // アイコン
 import EditIcon from '@mui/icons-material/Edit';
 import HolidayIcon from '@mui/icons-material/BeachAccess';
+// ★★★ v1.5 の修正: FlightTakeoff をインポート ★★★
 import PaidLeaveIcon from '@mui/icons-material/FlightTakeoff';
 import UndoIcon from '@mui/icons-material/Undo'; 
 import RedoIcon from '@mui/icons-material/Redo'; 
 import SelectAllIcon from '@mui/icons-material/SelectAll';
 
-// (TabPanel は変更なし)
+// ★★★ 変更点 2: ローカルの TabPanel 定義 (約28行) を削除 ★★★
+/*
 interface TabPanelProps {
   children?: React.ReactNode;
   index: number;
@@ -80,6 +84,8 @@ function TabPanel(props: TabPanelProps) {
     </div>
   );
 }
+*/
+// ★★★ 変更点 2 ここまで ★★★
 
 
 // --- メインコンポーネント ---
@@ -147,7 +153,7 @@ function ShiftCalendarPage() {
     handleCellMouseDown,
     handleCellMouseMove,
     handleCellMouseUp,
-    // ★★★ 変更点 1: invalidateSyncLock を取得 ★★★
+    // ★★★ v1.4 の修正: invalidateSyncLock を取得 ★★★
     invalidateSyncLock,
   } = useCalendarInteractions(sortedStaffList); // (内部で `store.getState()` を使うため Stale Closure 回避)
 
@@ -183,7 +189,7 @@ function ShiftCalendarPage() {
   } = useShiftCalendarLogic();
 
   // (キーボードショートカットフック)
-  // ★★★ 変更点 2: invalidateSyncLock を渡す ★★★
+  // ★★★ v1.4 の修正: invalidateSyncLock を渡す ★★★
   useUndoRedoKeyboard(invalidateSyncLock); 
 
 
@@ -299,7 +305,7 @@ function ShiftCalendarPage() {
             <Box sx={{ flexShrink: 0, pr: 2, display: 'flex', alignItems: 'center', gap: 0.5 }}>
               <IconButton 
                 title="元に戻す (Ctrl+Z)"
-                // ★★★ 変更点 3: invalidateSyncLock を呼び出す ★★★
+                // ★★★ v1.4 の修正: invalidateSyncLock を呼び出す ★★★
                 onClick={() => {
                   dispatch(UndoActionCreators.undo());
                   invalidateSyncLock();
@@ -311,7 +317,7 @@ function ShiftCalendarPage() {
               </IconButton>
               <IconButton 
                 title="やり直す (Ctrl+Y)"
-                // ★★★ 変更点 4: invalidateSyncLock を呼び出す ★★★
+                // ★★★ v1.4 の修正: invalidateSyncLock を呼び出す ★★★
                 onClick={() => {
                   dispatch(UndoActionCreators.redo());
                   invalidateSyncLock();
@@ -334,7 +340,7 @@ function ShiftCalendarPage() {
             </Box>
           </Box>
           
-          {/* タブパネル */}
+          {/* タブパネル (★ 汎用コンポーネントを使用) */}
           <TabPanel value={tabValue} index={0}>
             {/* ... (ToggleButtonGroup は変更なし) ... */}
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: '0 24px 16px 24px' }}>
@@ -359,7 +365,7 @@ function ShiftCalendarPage() {
                   <HolidayIcon />
                 </ToggleButton>
                 <ToggleButton value="paid_leave" title="有給ポチポチモード">
-                  {/* ★★★ 変更点 5: FlightTakeoff -> PaidLeaveIcon ★★★ */}
+                  {/* ★★★ v1.5 の修正: FlightTakeoff -> PaidLeaveIcon ★★★ */}
                   <PaidLeaveIcon />
                 </ToggleButton>
                 <ToggleButton value="select" title="セル選択モード (Ctrl+C, V, X)">

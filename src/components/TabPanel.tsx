@@ -14,12 +14,18 @@ export default function TabPanel(props: TabPanelProps) {
     <div 
       hidden={value !== index}
       {...other}
+      // ★★★ 変更点 1: TabPanelのdiv自体に高さを継承させる ★★★
+      // (親コンポーネント(Paper)のflex: 1の高さを引き継ぐため)
+      style={{ height: '100%' }} 
     >
       {value === index && (
-        // ★ ShiftCalendarPage v5.9 の修正に基づき、
-        // TabPanel 自身はスクロールやパディングを持たず、
-        // 中身（children）がそれを制御するようにします。
-        <Box sx={{ height: '100%' }}> 
+        // ★★★ 変更点 2: flexコンテナに変更 ★★★
+        // (中の子要素(ToggleBoxやStaffCalendarView)を縦に並べるため)
+        <Box sx={{ 
+          height: '100%', 
+          display: 'flex', 
+          flexDirection: 'column' 
+        }}> 
           {children}
         </Box>
       )}

@@ -100,8 +100,33 @@ export const useCalendarInteractions = (
   // ★★★ v1.4 のロック無効化関数 ★★★
   const invalidateSyncLock = useCallback(() => {
     // [DEBUG] ログを削除
-    syncLockRef.current = 0;
-  }, []);
+    syncLockRef.current = 0; // 進行中の非同期同期をキャンセル
+
+    // ★★★ アンドゥ/リドゥ操作の直後にDBをUI(present)の状態に強制同期する ★★★
+    const assignmentsInUI = store.getState().assignment.present.assignments;
+    console.log("[DEBUG] Forcing DB sync to current UI state due to Undo/Redo.");
+
+    (async () => {
+      try {
+        await db.transaction('rw', db.assignments, async () => {
+          await db.assignments.clear();
+          const assignmentsToPut = assignmentsInUI.map(({ id, ...rest }) => rest);
+          await db.assignments.bulkPut(assignmentsToPut);
+        });
+        
+        // 同期後、DBからID付きで読み直し、UIのIDをDBと一致させる
+        const allAssignmentsFromDB = await db.assignments.toArray();
+        dispatch(_syncAssignments(allAssignmentsFromDB));
+        
+      } catch (e) {
+        console.error("アンドゥ/リドゥ後のDB強制同期に失敗:", e);
+        // エラー時は、DBから再度読み込んでUIをDBに合わせる
+        const allAssignmentsFromDB = await db.assignments.toArray();
+        dispatch(_syncAssignments(allAssignmentsFromDB));
+      }
+    })();
+    // ★★★ 修正ここまで ★★★
+  }, [dispatch, store]); // ★ store と dispatch を依存配列に追加
 
 
   // --- ポチポチモード (バグ修正) ---
@@ -127,21 +152,22 @@ export const useCalendarInteractions = (
     const existingIsTarget = existing.length === 1 && existing[0].patternId === targetPatternId;
 
     let newOptimisticAssignments: IAssignment[];
-    let dbOperation: () => Promise<any>;
+    // ★★★ 修正: dbOperation 変数の宣言を削除 ★★★
     const tempId = Date.now(); 
+    
+    // ★★★ 修正: トグルオン/オフで追加されるアサイン(またはnull)を保持する変数 ★★★
+    let newAssignmentBase: Omit<IAssignment, 'id'> | null = null;
+
 
     if (existingIsTarget) {
       // (トグルオフ)
       newOptimisticAssignments = currentAssignments.filter((a: IAssignment) => !(a.date === date && a.staffId === staff.staffId));
-      dbOperation = async () => {
-        if (existing.length > 0) {
-          await db.assignments.bulkDelete(existing.map(a => a.id!));
-        }
-      };
+      // ★★★ 修正: dbOperation の定義を削除 ★★★
+      newAssignmentBase = null; // 削除する
       // ★★★ [DEBUG] ログを削除 ★★★
     } else {
       // (トグルオン)
-      const newAssignmentBase: Omit<IAssignment, 'id'> = {
+      newAssignmentBase = { // ★ 変数に代入
         date: date, staffId: staff.staffId, patternId: targetPatternId,
         unitId: null, locked: true 
       };
@@ -149,13 +175,7 @@ export const useCalendarInteractions = (
       
       newOptimisticAssignments = [...otherAssignments, { ...newAssignmentBase, id: tempId }]; 
 
-      dbOperation = async () => {
-        if (existing.length > 0) {
-          await db.assignments.bulkDelete(existing.map((a: IAssignment) => a.id!));
-        }
-        // ★★★ v1.9 修正: _syncOptimisticAssignment 呼び出しを削除 ★★★
-        await db.assignments.add(newAssignmentBase);
-      };
+      // ★★★ 修正: dbOperation の定義を削除 ★★★
       // ★★★ [DEBUG] ログを削除 ★★★
     }
     // ★★★ [DEBUG] console.groupEnd を削除 ★★★
@@ -166,37 +186,56 @@ export const useCalendarInteractions = (
     
     dispatch(setAssignments(newOptimisticAssignments)); // ★ UI即時更新 (履歴に積む)
 
-    dbOperation()
-      // ★★★ v1.9 修正: 成功時（then）も _syncAssignments を呼ぶように変更 ★★★
-      .then(async () => {
-        // DB書き込み成功
-        const allAssignmentsFromDB = await db.assignments.toArray();
-        // ★★★ [DEBUG] ログを削除 ★★★
-        
+    // ★★★ 修正: トランザクションロジックをポチポチ専用に修正 (v2.0) ★★★
+    (async () => {
+      let updatedAssignments: IAssignment[] = [];
+      try {
+        updatedAssignments = await db.transaction('rw', db.assignments, async () => {
+          
+          // 1. DBからこのセルの既存のアサインを取得して削除 (勤務"C"などを削除するため)
+          const existingInDB = await db.assignments
+            .where('[date+staffId]')
+            .equals([date, staff.staffId])
+            .toArray();
+            
+          if (existingInDB.length > 0) {
+            await db.assignments.bulkDelete(existingInDB.map(a => a.id!));
+          }
+
+          // 2. 新しいアサイン（トグルオンの場合）を追加
+          if (newAssignmentBase) { // newAssignmentBase が null (トグルオフ) でない場合
+            await db.assignments.add(newAssignmentBase);
+          }
+          
+          // 3. トランザクション後の最新のDB状態を返す
+          return db.assignments.toArray();
+        }); // ★★★ トランザクションここまで ★★★
+
+        // トランザクション成功
         if (syncLockRef.current === currentSyncId) {
-            // ★★★ [DEBUG] ログを削除 ★★★
-            dispatch(_syncAssignments(allAssignmentsFromDB));
+            dispatch(_syncAssignments(updatedAssignments));
         } else {
             console.warn(`[DEBUG] Stale _syncAssignments call detected (Pochi). SKIPPING SYNC. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
         }
-      })
-      .catch(e => {
+
+      } catch (e) {
+        // トランザクション失敗
         console.error("アサインの即時更新（DB反映）に失敗:", e);
-        // ★★★ v1.2 の Stale Check ★★★
         if (syncLockRef.current === currentSyncId) {
             console.warn("[DEBUG] DB Pochi failed. Reverting optimistic update.");
             db.assignments.toArray().then(dbAssignments => dispatch(_syncAssignments(dbAssignments)));
         } else {
             console.warn(`[DEBUG] DB Pochi failed, but state is already stale. SKIPPING SYNC. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
         }
-      })
-      .finally(() => {
+      } finally {
+        // マウスクリックのキーロック解除
         if (processingCellKeyRef.current === cellKey) {
           processingCellKeyRef.current = null;
         }
-      });
+      }
+    })(); // ★★★ 非同期関数の即時実行 ★★★
 
-  }, [dispatch, store]); 
+  }, [dispatch, store]); // ★★★ 修正: 依存配列から holiday/paidLeave PatternId を削除
 
 
   // --- セルクリック / マウスドラッグイベント ---
@@ -355,28 +394,56 @@ export const useCalendarInteractions = (
           dispatch(setAssignments(newOptimisticAssignments)); // ★ 履歴に積む
           
           if (assignmentsToRemove.length > 0) {
-            db.assignments.bulkDelete(assignmentsToRemove.map(a => a.id!))
-              // ★★★ v1.9 修正: 成功時（then）も _syncAssignments を呼ぶように変更 ★★★
-              .then(async () => {
-                const allAssignmentsFromDB = await db.assignments.toArray();
-                // ★★★ [DEBUG] ログを削除 ★★★
+            // ★★★ 修正: `db.transaction` を使用 ★★★
+            (async () => {
+              let updatedAssignments: IAssignment[] = [];
+              try {
+                updatedAssignments = await db.transaction('rw', db.assignments, async () => {
+                  const allAssignmentsInDB = await db.assignments.toArray();
+                  const finalOptimisticState = newOptimisticAssignments;
+
+                  const assignmentsToRemoveDB = allAssignmentsInDB.filter(dbAssignment => {
+                    const existsInOptimistic = finalOptimisticState.some(optimistic => 
+                      (dbAssignment.id && optimistic.id === dbAssignment.id) ||
+                      (optimistic.staffId === dbAssignment.staffId && optimistic.date === dbAssignment.date)
+                    );
+                    return !existsInOptimistic;
+                  });
+                  
+                  const assignmentsToAddDB = finalOptimisticState.filter(optimistic => {
+                      const existsInDB = allAssignmentsInDB.some(dbAssignment => 
+                          (dbAssignment.id && optimistic.id === dbAssignment.id) ||
+                          (optimistic.staffId === dbAssignment.staffId && optimistic.date === dbAssignment.date)
+                      );
+                      return !existsInDB;
+                  }).map(({ id, ...rest }) => rest);
+
+                  if (assignmentsToRemoveDB.length > 0) {
+                      await db.assignments.bulkDelete(assignmentsToRemoveDB.map(a => a.id!));
+                  }
+                  if (assignmentsToAddDB.length > 0) {
+                      await db.assignments.bulkAdd(assignmentsToAddDB);
+                  }
+                  return db.assignments.toArray();
+                });
+
+                // Transaction Succeeded
                 if (syncLockRef.current === currentSyncId) {
-                    // ★★★ [DEBUG] ログを削除 ★★★
-                    dispatch(_syncAssignments(allAssignmentsFromDB));
+                    dispatch(_syncAssignments(updatedAssignments));
                 } else {
                     console.warn(`[DEBUG] Stale _syncAssignments call detected (Cut). SKIPPING SYNC. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
                 }
-              })
-              .catch(e => {
+              } catch (e) {
+                // Transaction Failed
                 console.error("カット(DB削除)に失敗:", e);
-                // ★★★ v1.2 の Stale Check ★★★
                 if (syncLockRef.current === currentSyncId) {
                     console.warn("[DEBUG] DB Cut failed. Reverting optimistic update.");
                     db.assignments.toArray().then(dbAssignments => dispatch(_syncAssignments(dbAssignments)));
                 } else {
                     console.warn(`[DEBUG] DB Cut failed, but state is already stale. SKIPPING SYNC. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
                 }
-              });
+              }
+            })(); // ★★★ 非同期関数の即時実行 ★★★
           }
         } else {
           // ★★★ [DEBUG] console.groupEnd を削除 ★★★

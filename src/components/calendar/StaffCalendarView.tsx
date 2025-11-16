@@ -123,18 +123,15 @@ export default function StaffCalendarView({
 }: StaffCalendarViewProps) {
   
   const { patterns: shiftPatterns } = useSelector((state: RootState) => state.pattern);
-  
-  // ★★★ 修正: state.assignment.present から assignments を取得 ★★★
-  // (StaffCalendarView.tsx:134)
+  // ★ 修正: state.assignment.present から assignments を取得
   const { assignments } = useSelector((state: RootState) => state.assignment.present);
   
   const patternMap = useMemo(() => new Map(shiftPatterns.map((p: IShiftPattern) => [p.patternId, p])), [shiftPatterns]);
   
-  // (ソートロジックは削除済み)
+  // ★ 内部でのソートロジックを削除 (props で sortedStaffList を受け取るため)
 
   const assignmentsMap = useMemo(() => {
     const map = new Map<string, IAssignment[]>(); 
-    // ★ `assignments` は .present から来た配列 (IAssignment[])
     for (const assignment of assignments) { 
       const key = `${assignment.staffId}_${assignment.date}`;
       if (!map.has(key)) map.set(key, []);
@@ -243,7 +240,39 @@ export default function StaffCalendarView({
                            activeCell.date === dayInfo.dateStr;
           
           const cellStyle = clickMode === 'select' ? styles.cellSelectable : styles.cellClickable;
-          // --- ★ スタイル計算ここまで ---
+          
+          // ★★★ 要望1の修正箇所 ★★★
+          let selectionBorderStyle: CSSProperties = {};
+          if (clickMode === 'select' && isSelected && selectedRangeIndices) {
+            const { minStaff, maxStaff, minDate, maxDate } = selectedRangeIndices;
+            
+            // 選択範囲の外枠に太い罫線を引く
+            const borderStyle = '2px solid #1976d2'; // (primary.main)
+            if (staffIndex === minStaff) {
+              selectionBorderStyle.borderTop = borderStyle;
+            }
+            if (staffIndex === maxStaff) {
+              selectionBorderStyle.borderBottom = borderStyle;
+            }
+            if (dayIndex === minDate) {
+              selectionBorderStyle.borderLeft = borderStyle;
+            }
+            if (dayIndex === maxDate) {
+              selectionBorderStyle.borderRight = borderStyle;
+            }
+          }
+
+          // アクティブセル（点線のフォーカス）は、選択範囲の罫線より優先・共存する
+          if (isActive) {
+            selectionBorderStyle = { 
+              ...selectionBorderStyle, // 選択範囲の罫線を維持
+              outline: '2px dotted #0d47a1', // (primary.dark)
+              outlineOffset: '-2px',
+              zIndex: 1, 
+              position: 'relative', 
+            };
+          }
+          // ★★★ 修正ここまで ★★★
 
           return (
             <TableCell 
@@ -253,10 +282,12 @@ export default function StaffCalendarView({
                 ...cellStyle, // ★ カーソルをモードによって変更
                 ...(isWeekend ? styles.weekendBg : {}),
                 ...rowBorderStyle,
-                // ★ 選択範囲のハイライト
+                
+                // ★ 選択範囲の背景色
                 ...(isSelected ? { backgroundColor: 'rgba(25, 118, 210, 0.1)' } : {}),
-                // ★ アクティブセルの枠線
-                ...(isActive ? { outline: '2px solid #1976d2', outlineOffset: '-2px' } : {}),
+                
+                // ★ 修正: 罫線とフォーカス枠を適用
+                ...selectionBorderStyle,
               }}
               // ★ クリックとマウスイベントを接続 (index と dayIndex を渡す)
               onClick={() => onCellClick(dayInfo.dateStr, staff.staffId, staffIndex, dayIndex)}

@@ -452,6 +452,37 @@ export const useCalendarInteractions = (
         
         dispatch(setAssignments(finalOptimisticState)); // ★ 履歴に積む
 
+        // ★★★ 要望2の修正箇所 ★★★
+        // 貼り付け後、貼り付けた範囲を新しい選択範囲として設定する
+        if (keysToOverwrite.size > 0 && activeCell) {
+          const endStaffIndex = activeCell.staffIndex + rowCount - 1;
+          const endDateIndex = activeCell.dateIndex + colCount - 1;
+
+          // 範囲がカレンダーの境界を超えないように調整
+          const clampedEndStaffIndex = Math.min(endStaffIndex, sortedStaffList.length - 1);
+          const clampedEndDateIndex = Math.min(endDateIndex, MONTH_DAYS.length - 1);
+
+          if (clampedEndStaffIndex >= activeCell.staffIndex && clampedEndDateIndex >= activeCell.dateIndex) {
+            const endStaff = sortedStaffList[clampedEndStaffIndex];
+            const endDay = MONTH_DAYS[clampedEndDateIndex];
+
+            const newEndCell: CellCoords = {
+              staffId: endStaff.staffId,
+              date: endDay.dateStr,
+              staffIndex: clampedEndStaffIndex,
+              dateIndex: clampedEndDateIndex,
+            };
+            
+            // activeCell は開始点のまま
+            setSelectionRange({ start: activeCell, end: newEndCell });
+          } else {
+            // 範囲が不正な場合は、アクティブセルのみにリセット
+            setSelectionRange({ start: activeCell, end: activeCell });
+          }
+          // activeCell は変更しない (貼り付けの起点なので)
+        }
+        // ★★★ 修正ここまで ★★★
+
         // --- DB操作 (非同期) ---
         (async () => {
           let updatedAssignments: IAssignment[] = [];

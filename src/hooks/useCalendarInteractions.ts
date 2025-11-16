@@ -6,14 +6,17 @@ import { db } from '../db/dexie';
 import { setAssignments, _syncAssignments } from '../store/assignmentSlice'; 
 import { MONTH_DAYS } from '../utils/dateUtils'; 
 
-// (型定義 - 変更なし)
+// --- 型定義 ---
+
 export type ClickMode = 'normal' | 'holiday' | 'paid_leave' | 'select';
+
 export type CellCoords = {
   staffId: string;
   date: string;
   staffIndex: number;
   dateIndex: number;
 };
+
 type ClipboardData = {
   assignments: (Omit<IAssignment, 'id' | 'staffId' | 'date'> | null)[];
   rowCount: number;    
@@ -83,7 +86,7 @@ export const useCalendarInteractions = (
   [shiftPatterns]);
 
   
-  // (内部ヘルパー - 変更なし)
+  // --- 内部ヘルパー (作業領域定義) ---
   const getRangeIndices = useCallback((range: { start: CellCoords, end: CellCoords } | null) => {
     if (!range) return null;
     return {
@@ -98,14 +101,8 @@ export const useCalendarInteractions = (
     return Math.max(10, calculatedRows);
   }, [sortedStaffList.length]);
   const workAreaColCount = useMemo(() => MONTH_DAYS.length, []);
-  const virtualWorkAreaRows = useMemo(() => {
-    return Array.from({ length: workAreaRowCount }, (_, index) => {
-      return {
-        staffId: `${WORK_AREA_STAFF_ID_PREFIX}${index}`, 
-        staffIndex: WORK_AREA_STAFF_INDEX_START + index, 
-      };
-    });
-  }, [workAreaRowCount]);
+
+  // ★ 仮想の列情報 (日付の代わり)
   const virtualWorkAreaCols = useMemo(() => {
     return MONTH_DAYS.map((dayInfo, index) => {
       return {
@@ -114,18 +111,38 @@ export const useCalendarInteractions = (
         originalDateKey: dayInfo.dateStr, 
       };
     });
-  }, []); 
+  }, []); // MONTH_DAYSは不変
+
+  // ★ 仮想の行情報 (スタッフの代わり)
+  const virtualWorkAreaRowsWithCoords = useMemo(() => {
+    return Array.from({ length: workAreaRowCount }, (_, index) => {
+      const staffIndex = WORK_AREA_STAFF_INDEX_START + index;
+      return {
+        staffId: `${WORK_AREA_STAFF_ID_PREFIX}${index}`, 
+        staffIndex: staffIndex, 
+        getCellCoords: (dateIndex: number) => {
+          const dateCol = virtualWorkAreaCols[dateIndex - WORK_AREA_DATE_INDEX_START];
+          if (!dateCol) return null;
+          return { staffId: `${WORK_AREA_STAFF_ID_PREFIX}${index}`, date: dateCol.date, staffIndex, dateIndex };
+        }
+      };
+    });
+  }, [workAreaRowCount, virtualWorkAreaCols]);
+
   const isWorkAreaCell = useCallback((staffIndex: number, dateIndex: number) => {
     return staffIndex >= WORK_AREA_STAFF_INDEX_START && dateIndex >= WORK_AREA_DATE_INDEX_START;
   }, []);
+  
+  // (setClickMode - 変更なし)
   const setClickMode = useCallback((newMode: ClickMode) => {
     _setClickMode(newMode);
     setActiveCell(null);
     setSelectionRange(null);
     setIsDragging(false);
   }, []); 
+
+  // (invalidateSyncLock - 変更なし)
   const invalidateSyncLock = useCallback(() => { 
-    // (中略 - 変更なし)
     syncLockRef.current = 0; 
     const assignmentsInUI = store.getState().assignment.present.assignments;
     console.log("[DEBUG] Forcing DB sync to current UI state due to Undo/Redo.");
@@ -149,7 +166,6 @@ export const useCalendarInteractions = (
 
   // (ポチポチモード - 変更なし)
   const toggleHoliday = useCallback((date: string, staff: IStaff, targetPatternId: string) => {
-    // (中略 - 変更なし)
     if (staff.staffId.startsWith(WORK_AREA_STAFF_ID_PREFIX)) { return; }
     const cellKey = `${staff.staffId}_${date}`;
     if (processingCellKeyRef.current === cellKey) { return; }
@@ -210,16 +226,45 @@ export const useCalendarInteractions = (
   }, [dispatch, store]); 
 
 
-  // (セルクリック - 変更なし)
-  const handleCellClick = useCallback((date: string, staffId: string, staffIndex: number, dateIndex: number) => {
+  // --- セルクリック / マウスドラッグイベント ---
+
+  // ★★★ 修正: handleCellClick (SHIFT+クリック対応) ★★★
+  const handleCellClick = useCallback((
+    e: React.MouseEvent, // ★ イベント(e)を受け取る
+    date: string, 
+    staffId: string, 
+    staffIndex: number, 
+    dateIndex: number
+  ) => {
+    
     const staff = sortedStaffList.find(s => s.staffId === staffId); 
     const cell: CellCoords = { date, staffId, staffIndex, dateIndex };
+
     if (_clickMode !== 'holiday' && _clickMode !== 'paid_leave') {
       processingCellKeyRef.current = null; 
     }
+
     switch (_clickMode) { 
       case 'select':
-        setActiveCell(cell); setSelectionRange({ start: cell, end: cell }); setIsDragging(false); break;
+        // ★ SHIFTキーが押されていて、基点(activeCell)がある場合
+        if (e.shiftKey && activeCell) {
+          // 領域をまたぐ選択は許可しない
+          const isDragStartedInWorkArea = isWorkAreaCell(activeCell.staffIndex, activeCell.dateIndex);
+          const isMouseCurrentlyInWorkArea = isWorkAreaCell(staffIndex, dateIndex);
+          
+          if (isDragStartedInWorkArea === isMouseCurrentlyInWorkArea) {
+            // 基点(activeCell)は変えずに、終点(end)だけをクリックしたセルに更新
+            setSelectionRange({ start: activeCell, end: cell });
+          }
+        } else {
+          // ★ 通常のクリック (SHIFTなし、または基点なし)
+          setActiveCell(cell); 
+          setSelectionRange({ start: cell, end: cell }); 
+        }
+        setIsDragging(false); 
+        break;
+      
+      // (ポチポチモード - 変更なし)
       case 'holiday':
         if (staff) {
           toggleHoliday(date, staff, holidayPatternId); 
@@ -236,40 +281,38 @@ export const useCalendarInteractions = (
   }, [
       _clickMode, sortedStaffList, 
       toggleHoliday, 
-      holidayPatternId, paidLeavePatternId
+      holidayPatternId, paidLeavePatternId,
+      activeCell, // ★ activeCell を依存配列に追加
+      isWorkAreaCell // ★ isWorkAreaCell を依存配列に追加
   ]); 
+  // ★★★ 修正ここまで ★★★
 
   // (マウスダウン - 変更なし)
   const handleCellMouseDown = useCallback((e: React.MouseEvent, date: string, staffId: string, staffIndex: number, dateIndex: number) => {
     if (_clickMode !== 'select') return; 
     e.preventDefault(); 
     const cell: CellCoords = { date, staffId, staffIndex, dateIndex };
-    setActiveCell(cell); setSelectionRange({ start: cell, end: cell }); setIsDragging(true);
-  }, [_clickMode]); 
+    // ★ SHIFTキーが押されている場合は、基点(activeCell)を変更しない
+    if (e.shiftKey && activeCell) {
+      setSelectionRange({ start: activeCell, end: cell });
+    } else {
+      setActiveCell(cell); 
+      setSelectionRange({ start: cell, end: cell }); 
+    }
+    setIsDragging(true);
+  }, [_clickMode, activeCell]); // ★ activeCell を依存配列に追加
 
-  // ★★★ ここから修正 (handleCellMouseMove) ★★★
+  // (マウスムーブ (セル上) - 変更なし)
   const handleCellMouseMove = useCallback((date: string, staffId: string, staffIndex: number, dateIndex: number) => {
-    // ★ 修正: activeCell (ドラッグ開始地点) がなければ何もしない
     if (_clickMode !== 'select' || !isDragging || !selectionRange || !activeCell) return; 
-
-    // ★ 修正: ドラッグ開始地点 (activeCell) が作業領域か判定
     const isDragStartedInWorkArea = isWorkAreaCell(activeCell.staffIndex, activeCell.dateIndex);
-
-    // ★ 修正: 現在のホバーセルが作業領域か判定
     const isMouseCurrentlyInWorkArea = isWorkAreaCell(staffIndex, dateIndex);
-
-    // ★ 修正: ドラッグ開始領域と現在の領域が異なる場合は、
-    // selectionRange.end を更新しない (矩形選択をジャンプさせない)
     if (isDragStartedInWorkArea !== isMouseCurrentlyInWorkArea) {
       return; 
     }
-
-    // ★ 領域が一致する場合のみ、selectionRange.end を更新
     const cell: CellCoords = { date, staffId, staffIndex, dateIndex };
     setSelectionRange({ ...selectionRange, end: cell });
-
-  }, [_clickMode, isDragging, selectionRange, activeCell, isWorkAreaCell]); // ★ 依存配列に activeCell と isWorkAreaCell を追加
-  // ★★★ 修正ここまで ★★★
+  }, [_clickMode, isDragging, selectionRange, activeCell, isWorkAreaCell]);
 
   // (マウスアップ - 変更なし)
   const handleCellMouseUp = useCallback(() => {
@@ -279,7 +322,7 @@ export const useCalendarInteractions = (
   }, [_clickMode, stopAutoScroll]); 
 
 
-  // --- C/X/V キーボードイベント ---
+  // --- C/X/V/矢印キー イベント ---
   useEffect(() => {
     // (latestAssignmentsRef, unsubscribe - 変更なし)
     const latestAssignmentsRef = { 
@@ -292,15 +335,130 @@ export const useCalendarInteractions = (
       }
     });
 
-    // (KeyDownハンドラ - 変更なし)
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
         return;
       }
+      
       processingCellKeyRef.current = null;
+      
       const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
       const ctrlKey = isMac ? event.metaKey : event.ctrlKey;
       
+      // ★★★ ここから修正 (矢印キー単体) ★★★
+      if (!event.shiftKey && !ctrlKey && !event.metaKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+        event.preventDefault();
+
+        // アクティブセルがなければ、(0, 0) を選択
+        if (!activeCell) {
+          const staff = sortedStaffList[0];
+          const day = MONTH_DAYS[0];
+          if (staff && day) {
+            const newCell: CellCoords = { staffId: staff.staffId, date: day.dateStr, staffIndex: 0, dateIndex: 0 };
+            setActiveCell(newCell);
+            setSelectionRange({ start: newCell, end: newCell });
+          }
+          return;
+        }
+
+        // 現在のアクティブセルを基点に移動
+        let { staffIndex, dateIndex } = activeCell;
+
+        // --- 座標の計算 ---
+        const isCurrentCellInWorkArea = isWorkAreaCell(staffIndex, dateIndex);
+        
+        const minStaffIndex = isCurrentCellInWorkArea ? WORK_AREA_STAFF_INDEX_START : 0;
+        const maxStaffIndex = isCurrentCellInWorkArea ? (WORK_AREA_STAFF_INDEX_START + workAreaRowCount - 1) : (sortedStaffList.length - 1);
+        const minDateIndex = isCurrentCellInWorkArea ? WORK_AREA_DATE_INDEX_START : 0;
+        const maxDateIndex = isCurrentCellInWorkArea ? (WORK_AREA_DATE_INDEX_START + workAreaColCount - 1) : (MONTH_DAYS.length - 1);
+
+        switch (event.key) {
+          case 'ArrowUp':
+            staffIndex = Math.max(minStaffIndex, staffIndex - 1);
+            break;
+          case 'ArrowDown':
+            staffIndex = Math.min(maxStaffIndex, staffIndex + 1);
+            break;
+          case 'ArrowLeft':
+            dateIndex = Math.max(minDateIndex, dateIndex - 1);
+            break;
+          case 'ArrowRight':
+            dateIndex = Math.min(maxDateIndex, dateIndex + 1);
+            break;
+        }
+
+        // --- 新しいセルの座標情報 (staffId, date) を取得 ---
+        let newActiveCell: CellCoords | null = null;
+        if (isCurrentCellInWorkArea) {
+          newActiveCell = virtualWorkAreaRowsWithCoords[staffIndex - WORK_AREA_STAFF_INDEX_START]?.getCellCoords(dateIndex) || null;
+        } else {
+          const staff = sortedStaffList[staffIndex];
+          const day = MONTH_DAYS[dateIndex];
+          if (staff && day) {
+            newActiveCell = { staffId: staff.staffId, date: day.dateStr, staffIndex, dateIndex };
+          }
+        }
+        
+        // 新しい座標が見つかれば、activeCell と selectionRange の両方を更新
+        if (newActiveCell) {
+          setActiveCell(newActiveCell);
+          setSelectionRange({ start: newActiveCell, end: newActiveCell });
+        }
+        return; // 矢印キー操作はここで終了
+      }
+      
+      // ★★★ SHIFT + 矢印キー (修正) ★★★
+      if (event.shiftKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+        event.preventDefault();
+        
+        // ★ 修正: selectionRange.end (終点) が基点
+        if (!activeCell || !selectionRange) return;
+        let { staffIndex, dateIndex } = selectionRange.end;
+
+        // --- 座標の計算 ---
+        const isCurrentCellInWorkArea = isWorkAreaCell(staffIndex, dateIndex);
+        
+        const minStaffIndex = isCurrentCellInWorkArea ? WORK_AREA_STAFF_INDEX_START : 0;
+        const maxStaffIndex = isCurrentCellInWorkArea ? (WORK_AREA_STAFF_INDEX_START + workAreaRowCount - 1) : (sortedStaffList.length - 1);
+        const minDateIndex = isCurrentCellInWorkArea ? WORK_AREA_DATE_INDEX_START : 0;
+        const maxDateIndex = isCurrentCellInWorkArea ? (WORK_AREA_DATE_INDEX_START + workAreaColCount - 1) : (MONTH_DAYS.length - 1);
+
+        switch (event.key) {
+          case 'ArrowUp':
+            staffIndex = Math.max(minStaffIndex, staffIndex - 1);
+            break;
+          case 'ArrowDown':
+            staffIndex = Math.min(maxStaffIndex, staffIndex + 1);
+            break;
+          case 'ArrowLeft':
+            dateIndex = Math.max(minDateIndex, dateIndex - 1);
+            break;
+          case 'ArrowRight':
+            dateIndex = Math.min(maxDateIndex, dateIndex + 1);
+            break;
+        }
+
+        // --- 新しいセルの座標情報 (staffId, date) を取得 ---
+        let newEndCell: CellCoords | null = null;
+        if (isCurrentCellInWorkArea) {
+          newEndCell = virtualWorkAreaRowsWithCoords[staffIndex - WORK_AREA_STAFF_INDEX_START]?.getCellCoords(dateIndex) || null;
+        } else {
+          const staff = sortedStaffList[staffIndex];
+          const day = MONTH_DAYS[dateIndex];
+          if (staff && day) {
+            newEndCell = { staffId: staff.staffId, date: day.dateStr, staffIndex, dateIndex };
+          }
+        }
+        
+        if (newEndCell) {
+          // activeCell (基点) はそのまま、end (終点) だけを更新
+          setSelectionRange({ start: activeCell, end: newEndCell });
+        }
+        return; 
+      }
+      // ★★★ 修正ここまで ★★★
+
+
       // (Ctrl+C / Ctrl+X のロジック - 変更なし)
       if (ctrlKey && (event.key === 'c' || event.key === 'x')) {
         event.preventDefault();
@@ -315,7 +473,7 @@ export const useCalendarInteractions = (
           for (let dIdx = minDate; dIdx <= maxDate; dIdx++) {
             let key: string | null = null;
             if (isCopyFromWorkArea) {
-              const staffRow = virtualWorkAreaRows[sIdx - WORK_AREA_STAFF_INDEX_START];
+              const staffRow = virtualWorkAreaRowsWithCoords[sIdx - WORK_AREA_STAFF_INDEX_START]; 
               const dateCol = virtualWorkAreaCols[dIdx - WORK_AREA_DATE_INDEX_START];
               if (staffRow && dateCol) {
                 key = `${staffRow.staffId}_${dateCol.date}`;
@@ -351,7 +509,6 @@ export const useCalendarInteractions = (
           sourceType: isCopyFromWorkArea ? 'WORK_AREA' : 'MAIN',
         };
         if (event.key === 'x') {
-          // --- CUT (X) ---
           const assignmentsToRemove = currentAssignments.filter(a => keysToCut.has(`${a.staffId}_${a.date}`));
           const newOptimisticAssignments = currentAssignments.filter(a => !keysToCut.has(`${a.staffId}_${a.date}`));
           const currentSyncId = Date.now();
@@ -423,7 +580,7 @@ export const useCalendarInteractions = (
             if (isPasteToWorkArea) {
               const staffIndex = activeCell.staffIndex + r;
               const dateIndex = activeCell.dateIndex + c;
-              const staffRow = virtualWorkAreaRows[staffIndex - WORK_AREA_STAFF_INDEX_START];
+              const staffRow = virtualWorkAreaRowsWithCoords[staffIndex - WORK_AREA_STAFF_INDEX_START]; 
               const dateCol = virtualWorkAreaCols[dateIndex - WORK_AREA_DATE_INDEX_START];
               if (!staffRow || !dateCol) continue; 
               targetStaffId = staffRow.staffId;
@@ -489,7 +646,7 @@ export const useCalendarInteractions = (
             let endStaffId: string | null = null;
             let endDate: string | null = null;
             if (isPasteToWorkArea) {
-              const staffRow = virtualWorkAreaRows[clampedEndStaffIndex - WORK_AREA_STAFF_INDEX_START];
+              const staffRow = virtualWorkAreaRowsWithCoords[clampedEndStaffIndex - WORK_AREA_STAFF_INDEX_START]; 
               const dateCol = virtualWorkAreaCols[clampedEndDateIndex - WORK_AREA_DATE_INDEX_START];
               if (staffRow && dateCol) {
                 endStaffId = staffRow.staffId;
@@ -563,48 +720,36 @@ export const useCalendarInteractions = (
       }
     };
 
-    // ★★★ 自動スクロール用 Window MouseMove (修正済み) ★★★
+    // (自動スクロール(MouseMove) - 変更なし)
     const handleWindowMouseMove = (e: MouseEvent) => {
-      // ★ 修正: activeCell もチェック
       if (!isDragging || _clickMode !== 'select' || !activeCell) {
         stopAutoScroll();
         return;
       }
-      
-      // ★ 修正: ドラッグ開始地点が作業領域か判定
       const isDragInWorkArea = isWorkAreaCell(activeCell.staffIndex, activeCell.dateIndex);
-      
-      // ★ 修正: 判定結果に基づき、スクロール対象のコンテナ(DOM)を切り替える
       const container = isDragInWorkArea 
         ? workAreaRef.current 
-        : mainCalendarScrollerRef.current; // ★ メインカレンダーのScroller
-
+        : mainCalendarScrollerRef.current; 
       if (!container) {
         stopAutoScroll();
         return;
       }
-      
       const rect = container.getBoundingClientRect();
       const clientX = e.clientX;
       const clientY = e.clientY;
-      
       const threshold = 40; 
       const scrollSpeed = 20; 
       const interval = 50; 
-
       let scrollX = 0;
       let scrollY = 0;
       const buffer = threshold * 2; 
-
       if (clientY < rect.top + threshold && clientY > rect.top - buffer) scrollY = -scrollSpeed;
       else if (clientY > rect.bottom - threshold && clientY < rect.bottom + buffer) scrollY = scrollSpeed;
       if (clientX < rect.left + threshold && clientX > rect.left - buffer) scrollX = -scrollSpeed;
       else if (clientX > rect.right - threshold && clientX < rect.right + buffer) scrollX = scrollSpeed;
-
       if (scrollX !== 0 || scrollY !== 0) {
         if (!autoScrollIntervalRef.current) {
           autoScrollIntervalRef.current = setInterval(() => {
-            // ★ 修正: インターバル内でも、再度コンテナを動的に取得する
             const currentContainer = isDragInWorkArea 
               ? workAreaRef.current 
               : mainCalendarScrollerRef.current;
@@ -639,13 +784,36 @@ export const useCalendarInteractions = (
     paidLeavePatternId,
     invalidateSyncLock,
     assignmentsMap,
-    virtualWorkAreaRows, virtualWorkAreaCols, isWorkAreaCell,
+    virtualWorkAreaRowsWithCoords, virtualWorkAreaCols, isWorkAreaCell,
     workAreaColCount, workAreaRowCount,
     stopAutoScroll, 
     workAreaRef, 
     mainCalendarScrollerRef, 
     handleCellMouseUp
   ]);
+
+  // ★★★ 自動スクロール (SHIFT+矢印キー / 矢印キー単体) ★★★
+  useEffect(() => {
+    // SHIFT+矢印キー または 矢印キー単体 で selectionRange が変更された時
+    // (isDragging = false)
+    if (selectionRange && !isDragging) {
+      
+      const { end: endCell } = selectionRange;
+      
+      // 終点のセルIDを特定
+      const cellId = `cell-${endCell.staffId}-${endCell.date}`;
+      const element = document.getElementById(cellId);
+
+      // 対応するDOM要素が見つかれば、そこまでスクロールする
+      if (element) {
+        element.scrollIntoView({
+          behavior: 'smooth', 
+          block: 'nearest',  
+          inline: 'nearest' 
+        });
+      }
+    }
+  }, [selectionRange, isDragging]); // ★ selectionRange か isDragging が変わるたびに実行
 
 
   return {

@@ -13,13 +13,13 @@ import { IStaff, IShiftPattern, IAssignment } from '../../db/dexie';
 import { MONTH_DAYS } from '../../utils/dateUtils';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
-// ★ TableVirtuoso の型をインポート
-import { TableVirtuoso, TableVirtuosoHandle } from 'react-virtuoso';
+import { TableVirtuoso } from 'react-virtuoso';
 import { CellCoords, ClickMode } from '../../hooks/useCalendarInteractions';
 
 interface StaffCalendarViewProps {
   sortedStaffList: IStaff[]; 
-  onCellClick: (date: string, staffId: string, staffIndex: number, dateIndex: number) => void;
+  // ★★★ 修正: (e: React.MouseEvent) を追加 ★★★
+  onCellClick: (e: React.MouseEvent, date: string, staffId: string, staffIndex: number, dateIndex: number) => void;
   onHolidayIncrement: (staffId: string) => void;
   onHolidayDecrement: (staffId: string) => void;
   staffHolidayRequirements: Map<string, number>; 
@@ -31,11 +31,10 @@ interface StaffCalendarViewProps {
   onCellMouseMove: (date: string, staffId: string, staffIndex: number, dateIndex: number) => void;
   onCellMouseUp: () => void;
   workAreaRef: React.RefObject<HTMLDivElement | null>;
-  // ★ 型 'RefObject<HTMLElement | null>' は正しい
   mainCalendarScrollerRef: React.RefObject<HTMLElement | null>;
 }
 
-// (styles 定義 - box-shadow 修正済み)
+// (styles 定義 - 変更なし)
 const styles: { [key: string]: CSSProperties } = {
   th: {
     padding: '8px',
@@ -81,12 +80,12 @@ const styles: { [key: string]: CSSProperties } = {
     backgroundColor: '#f5f5f5',
   },
   cellClickable: {
-    padding: '4px', // ★ tdのpadding(8px) -> 4px に上書き
+    padding: '4px', 
     borderLeft: '1px solid #e0e0e0',
     cursor: 'pointer',
   },
   cellSelectable: {
-    padding: '4px', // ★ tdのpadding(8px) -> 4px に上書き
+    padding: '4px', 
     borderLeft: '1px solid #e0e0e0',
     cursor: 'cell',
   },
@@ -101,9 +100,8 @@ const styles: { [key: string]: CSSProperties } = {
     border: '1px solid #9e9e9e',
     pointerEvents: 'none',
   },
-  // ★★★ 作業領域セル用のスタイル ★★★
   workAreaCell: {
-    padding: '8px', // ★ 基本のpaddingは8px
+    padding: '8px', 
     border: '1px solid #e0e0e0',
     verticalAlign: 'top',
     userSelect: 'none',
@@ -115,7 +113,7 @@ const styles: { [key: string]: CSSProperties } = {
 
 
 export default function StaffCalendarView({ 
-  // (props)
+  // (props - 変更なし)
   sortedStaffList, 
   onCellClick, 
   onHolidayIncrement, 
@@ -128,7 +126,6 @@ export default function StaffCalendarView({
   onCellMouseDown,
   onCellMouseMove,
   onCellMouseUp,
-  // ★ ref を受け取る
   workAreaRef,
   mainCalendarScrollerRef
 }: StaffCalendarViewProps) {
@@ -219,7 +216,7 @@ export default function StaffCalendarView({
     </TableRow>
   );
 
-  // (データ行をレンダリングする関数 - box-shadow修正済み)
+  // (データ行をレンダリングする関数)
   const itemContent = useCallback((index: number, staff: IStaff) => {
     const staffIndex = index;
     let rowBorderStyle: CSSProperties = {};
@@ -268,7 +265,7 @@ export default function StaffCalendarView({
           </div>
         </TableCell>
 
-        {/* (日付セル - 変更あり) */}
+        {/* ★★★ (日付セル - 修正あり) ★★★ */}
         {MONTH_DAYS.map((dayInfo, dayIndex) => {
           const key = `${staff.staffId}_${dayInfo.dateStr}`;
           const assignmentsForCell = assignmentsMap.get(key) || [];
@@ -312,6 +309,8 @@ export default function StaffCalendarView({
           return (
             <TableCell 
               key={key} 
+              // ★ 修正: id を追加
+              id={`cell-${staff.staffId}-${dayInfo.dateStr}`}
               style={{
                 ...styles.td, 
                 ...cellStyle, 
@@ -320,8 +319,8 @@ export default function StaffCalendarView({
                 ...(isSelected ? { backgroundColor: 'rgba(25, 118, 210, 0.1)' } : {}),
                 ...selectionStyle, 
               }}
-              // (イベントハンドラ - 変更なし)
-              onClick={() => onCellClick(dayInfo.dateStr, staff.staffId, staffIndex, dayIndex)}
+              // ★ 修正: onClick にイベント(e)を渡す
+              onClick={(e) => onCellClick(e, dayInfo.dateStr, staff.staffId, staffIndex, dayIndex)}
               onMouseDown={(e) => onCellMouseDown(e, dayInfo.dateStr, staff.staffId, staffIndex, dayIndex)}
               onMouseMove={() => onCellMouseMove(dayInfo.dateStr, staff.staffId, staffIndex, dayIndex)}
               onMouseUp={onCellMouseUp}
@@ -368,18 +367,14 @@ export default function StaffCalendarView({
       {/* 1. メインのカレンダー (Virtuoso) */}
       <Box sx={{ flex: 1, minHeight: 0 }}>
         <TableVirtuoso
-          // ★★★ ここが修正点です ★★★
-          // scrollerRef={mainCalendarScrollerRef} (誤)
-          scrollerRef={(ref) => { // (正)
-            // Virtuoso から受け取った scroller (HTMLElement | Window | null) を
-            // 親 (Page) から渡された ref (RefObject) に設定する
+          // (scrollerRef 修正済み)
+          scrollerRef={(ref) => { 
             if (ref && !(ref instanceof Window)) {
               mainCalendarScrollerRef.current = ref;
             } else {
               mainCalendarScrollerRef.current = null;
             }
           }}
-          // ★★★ 修正ここまで ★★★
           style={{ height: '100%', border: '1px solid #e0e0e0', borderRadius: '4px' }}
           data={sortedStaffList} 
           fixedHeaderContent={fixedHeaderContent}
@@ -421,7 +416,7 @@ export default function StaffCalendarView({
       <Collapse in={showWorkArea} sx={{ flexShrink: 0, borderBottom: '1px solid #e0e0e0' }}>
         {/* ★ スクロール用のコンテナ */}
         <Box 
-          // ★ ref を設定 (変更なし)
+          // ★ ref (変更なし)
           ref={workAreaRef} 
           sx={{
             height: '250px', 
@@ -482,6 +477,8 @@ export default function StaffCalendarView({
                 return (
                   <Box
                     key={key}
+                    // ★★★ 修正: id を追加 ★★★
+                    id={`cell-${row.staffId}-${col.date}`}
                     style={{
                       ...styles.workAreaCell, 
                       cursor: (clickMode === 'select' ? styles.cellSelectable.cursor : styles.cellClickable.cursor),
@@ -489,8 +486,8 @@ export default function StaffCalendarView({
                       ...(isSelected ? { backgroundColor: 'rgba(25, 118, 210, 0.1)' } : {}), // 選択背景
                       ...selectionStyle, // ★ ここで適用
                     }}
-                    // (イベントハンドラ - 変更なし)
-                    onClick={() => onCellClick(col.date, row.staffId, row.staffIndex, col.dateIndex)}
+                    // ★★★ 修正: onClick にイベント(e)を渡す ★★★
+                    onClick={(e) => onCellClick(e, col.date, row.staffId, row.staffIndex, col.dateIndex)}
                     onMouseDown={(e) => onCellMouseDown(e, col.date, row.staffId, row.staffIndex, col.dateIndex)}
                     onMouseMove={() => onCellMouseMove(col.date, row.staffId, row.staffIndex, col.dateIndex)}
                     onMouseUp={onCellMouseUp}

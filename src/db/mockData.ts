@@ -1,7 +1,7 @@
 import { IShiftPattern, IUnit, IStaff, IStaffConstraints } from './dexie';
 
 // ★★★ v5版: 勤務パターンの初期データ ★★★
-export const MOCK_PATTERNS_V5: IShiftPattern[] = [
+const originalPatterns: IShiftPattern[] = [
   { patternId: 'SA', name: '早出勤務', mainCategory: '早出', workType: 'Work', crossUnitWorkType: '-', startTime: '06:30', endTime: '15:30', breakDurationMinutes: 60, durationHours: 8, isNightShift: false, crossesMidnight: false },
   { patternId: 'A', name: '早出勤務1', mainCategory: '早出', workType: 'Work', crossUnitWorkType: '-', startTime: '07:00', endTime: '16:00', breakDurationMinutes: 60, durationHours: 8, isNightShift: false, crossesMidnight: false },
   { patternId: 'AA', name: '早出勤務1’', mainCategory: '早出', workType: 'Work', crossUnitWorkType: '有', startTime: '07:00', endTime: '16:00', breakDurationMinutes: 60, durationHours: 8, isNightShift: false, crossesMidnight: false },
@@ -42,7 +42,36 @@ export const MOCK_PATTERNS_V5: IShiftPattern[] = [
   { patternId: '会議', name: '外部会議', mainCategory: 'その他', workType: 'Meeting', crossUnitWorkType: '-', startTime: '09:00', endTime: '17:00', breakDurationMinutes: 0, durationHours: 8, isNightShift: false, crossesMidnight: false },
 ];
 
-// ★★★ v5版: ユニットの初期データ (24hデマンド配列を持つ) ★★★
+// ★★★ 追加: P1～P7.5 の契約パターン ★★★
+const contractPatterns: IShiftPattern[] = [];
+for (let i = 1; i <= 7.5; i += 0.5) {
+  const id = `P${i}`;
+  const name = `パート${i}`;
+  contractPatterns.push({ 
+    patternId: id, 
+    name: name, 
+    mainCategory: '契約', 
+    workType: 'Other', // 「その他」として分類
+    crossUnitWorkType: '-', 
+    startTime: '00:00', 
+    endTime: '00:00', 
+    breakDurationMinutes: 0, 
+    durationHours: i, // P1.5 なら 1.5時間
+    isNightShift: false, 
+    crossesMidnight: false 
+  });
+}
+
+// ★ 結合したパターンリストをエクスポート
+export const MOCK_PATTERNS_V5: IShiftPattern[] = [
+  ...originalPatterns,
+  ...contractPatterns
+];
+
+// ★ 全パターンIDのリスト (スタッフ作成用)
+const allAvailablePatternIds = MOCK_PATTERNS_V5.map(p => p.patternId);
+
+// ★★★ v5版: ユニットの初期データ (変更なし) ★★★
 export const MOCK_UNITS_V5: IUnit[] = [
   { unitId: 'U01', name: 'ユニットA', demand: [
     1, 1, 1, 1, 1, 1, 2, 2, // 0-7時 (深夜1, 早出1)
@@ -56,42 +85,45 @@ export const MOCK_UNITS_V5: IUnit[] = [
   ]},
 ];
 
-// (v4の簡略化された制約のデフォルト)
+// (v4の簡略化された制約のデフォルト - 変更なし)
 export const getDefaultConstraints = (): IStaffConstraints => ({
   maxConsecutiveDays: 5,
   minIntervalHours: 12,
 });
 
-// v4版: スタッフの初期データ (v5.4修正: 「公休」「有給」を除外)
+// ★★★ 修正: ユーザーの要求に合わせてスタッフリストを総入れ替え ★★★
 export const MOCK_STAFF_V4: IStaff[] = [
-  { staffId: 's001', name: '夜勤さんX', employmentType: 'FullTime', status: 'Active', skills: ['Leader'], unitId: 'U01', 
-    availablePatternIds: ['N', 'NN3', 'N2', 'N4', 'SN3', 'SN2', 'SN4'], 
-    constraints: { maxConsecutiveDays: 5, minIntervalHours: 12 }, memo: '夜勤専門' },
-  { staffId: 's002', name: '夜勤さんY', employmentType: 'FullTime', status: 'Active', skills: [], unitId: 'U02', 
-    availablePatternIds: ['N', 'NN3', 'N2', 'N4', 'SN3', 'SN2', 'SN4'], 
-    constraints: { maxConsecutiveDays: 5, minIntervalHours: 12 }, memo: '夜勤専門' },
-  { staffId: 's003', name: '日勤Aさん', employmentType: 'FullTime', status: 'Active', skills: [], unitId: 'U01', 
-    availablePatternIds: ['A', 'AA', 'C', 'CC', 'E', 'EE', 'C2', 'C3', 'C4', 'E2', 'E3', 'E4', 'E5', 'SA'], 
-    constraints: { maxConsecutiveDays: 5, minIntervalHours: 12 }, memo: '夜勤不可' },
-  { staffId: 's004', name: '日勤Bさん', employmentType: 'FullTime', status: 'Active', skills: [], unitId: 'U01', 
-    availablePatternIds: ['A', 'AA', 'C', 'CC', 'E', 'EE'], 
-    constraints: { maxConsecutiveDays: 5, minIntervalHours: 12 }, memo: '夜勤不可' },
-  { staffId: 's005', name: '日勤Cさん', employmentType: 'FullTime', status: 'Active', skills: [], unitId: 'U02', 
-    availablePatternIds: ['A', 'AA', 'C', 'CC', 'E', 'EE'], 
-    constraints: { maxConsecutiveDays: 5, minIntervalHours: 12 }, memo: '夜勤不可' },
-  { staffId: 's006', name: '日勤Dさん', employmentType: 'FullTime', status: 'Active', skills: [], unitId: 'U02', 
-    availablePatternIds: ['A', 'AA', 'C', 'CC', 'E', 'EE'], 
-    constraints: { maxConsecutiveDays: 5, minIntervalHours: 12 }, memo: '夜勤不可' },
-  { staffId: 's007', name: 'パートNさん', employmentType: 'PartTime', status: 'Active', skills: [], unitId: 'U01', 
-    availablePatternIds: ['半1', '半2', '半3', '半4', '半5'], 
-    constraints: { maxConsecutiveDays: 3, minIntervalHours: 12 }, memo: '夜勤不可' },
-  { staffId: 's008', name: 'パートOさん', employmentType: 'PartTime', status: 'Active', skills: [], unitId: 'U01', 
-    availablePatternIds: ['半1', '半2', '半3', '半4', '半5'], 
-    constraints: { maxConsecutiveDays: 3, minIntervalHours: 12 }, memo: '夜勤不可' },
-  { staffId: 's009', name: 'パートPさん', employmentType: 'PartTime', status: 'Active', skills: [], unitId: 'U02', 
-    availablePatternIds: ['半1', '半2', '半3', '半4', '半5'], 
-    constraints: { maxConsecutiveDays: 3, minIntervalHours: 12 }, memo: '夜勤不可' },
-  { staffId: 's010', name: 'パートQさん', employmentType: 'PartTime', status: 'Active', skills: [], unitId: 'U02', 
-    availablePatternIds: ['半1', '半2', '半3', '半4', '半5'], 
-    constraints: { maxConsecutiveDays: 3, minIntervalHours: 12 }, memo: '夜勤不可' },
+  // スタッフA～H (8名)
+  { staffId: 's001', name: 'スタッフA', employmentType: 'FullTime', status: 'Active', skills: ['Leader'], unitId: 'U01', 
+    availablePatternIds: allAvailablePatternIds, 
+    constraints: getDefaultConstraints(), memo: '全パターン対応' },
+  { staffId: 's002', name: 'スタッフB', employmentType: 'FullTime', status: 'Active', skills: [], unitId: 'U01', 
+    availablePatternIds: allAvailablePatternIds, 
+    constraints: getDefaultConstraints(), memo: '全パターン対応' },
+  { staffId: 's003', name: 'スタッフC', employmentType: 'FullTime', status: 'Active', skills: [], unitId: 'U01', 
+    availablePatternIds: allAvailablePatternIds, 
+    constraints: getDefaultConstraints(), memo: '全パターン対応' },
+  { staffId: 's004', name: 'スタッフD', employmentType: 'FullTime', status: 'Active', skills: [], unitId: 'U01', 
+    availablePatternIds: allAvailablePatternIds, 
+    constraints: getDefaultConstraints(), memo: '全パターン対応' },
+  { staffId: 's005', name: 'スタッフE', employmentType: 'FullTime', status: 'Active', skills: [], unitId: 'U02', 
+    availablePatternIds: allAvailablePatternIds, 
+    constraints: getDefaultConstraints(), memo: '全パターン対応' },
+  { staffId: 's006', name: 'スタッフF', employmentType: 'FullTime', status: 'Active', skills: [], unitId: 'U02', 
+    availablePatternIds: allAvailablePatternIds, 
+    constraints: getDefaultConstraints(), memo: '全パターン対応' },
+  { staffId: 's007', name: 'スタッフG', employmentType: 'FullTime', status: 'Active', skills: [], unitId: 'U02', 
+    availablePatternIds: allAvailablePatternIds, 
+    constraints: getDefaultConstraints(), memo: '全パターン対応' },
+  { staffId: 's008', name: 'スタッフH', employmentType: 'FullTime', status: 'Active', skills: [], unitId: 'U02', 
+    availablePatternIds: allAvailablePatternIds, 
+    constraints: getDefaultConstraints(), memo: '全パターン対応' },
+
+  // 応援スタッフ (2名)
+  { staffId: 's009', name: '応援スタッフ1', employmentType: 'Rental', status: 'Active', skills: [], unitId: null, 
+    availablePatternIds: allAvailablePatternIds, 
+    constraints: getDefaultConstraints(), memo: '応援スタッフ (全パターン対応)' },
+  { staffId: 's010', name: '応援スタッフ2', employmentType: 'Rental', status: 'Active', skills: [], unitId: null, 
+    availablePatternIds: allAvailablePatternIds, 
+    constraints: getDefaultConstraints(), memo: '応援スタッフ (全パターン対応)' },
 ];

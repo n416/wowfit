@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { 
   Box, Paper, Tabs, Tab, 
   Button,
@@ -53,39 +53,6 @@ import RedoIcon from '@mui/icons-material/Redo';
 import SelectAllIcon from '@mui/icons-material/SelectAll';
 
 // ★★★ 変更点 2: ローカルの TabPanel 定義 (約28行) を削除 ★★★
-/*
-interface TabPanelProps {
-  children?: React.ReactNode;
-  index: number;
-  value: number;
-}
-function TabPanel(props: TabPanelProps) {
-  // ... (変更なし) ...
-  const { children, value, index, ...other } = props;
-  return (
-    <div 
-      role="tabpanel"
-      hidden={value !== index}
-      id={`simple-tabpanel-${index}`}
-      aria-labelledby={`simple-tab-${index}`}
-      {...other}
-      style={{ flex: 1, minHeight: 0 }}
-    >
-      {value === index && (
-        <Box sx={{ 
-          height: '100%', 
-          boxSizing: 'border-box', 
-          display: 'flex', 
-          flexDirection: 'column' 
-        }}>
-          {children}
-        </Box>
-      )}
-    </div>
-  );
-}
-*/
-// ★★★ 変更点 2 ここまで ★★★
 
 
 // --- メインコンポーネント ---
@@ -95,6 +62,14 @@ function ShiftCalendarPage() {
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   
+  // ★ 作業領域のスクロールコンテナへの参照 (変更なし)
+  const workAreaRef = useRef<HTMLDivElement | null>(null);
+  
+  // ★★★ ここから追加 ★★★
+  // メインカレンダー(Virtuoso)のスクローラへの参照
+  const mainCalendarScrollerRef = useRef<HTMLElement | null>(null);
+  // ★★★ 追加ここまで ★★★
+
   // --- 1. グローバル状態の取得 (★ redux-undo 対応) ---
   const { 
     // ★ 2. `past` と `future` は state.assignment の直下から取得
@@ -155,7 +130,8 @@ function ShiftCalendarPage() {
     handleCellMouseUp,
     // ★★★ v1.4 の修正: invalidateSyncLock を取得 ★★★
     invalidateSyncLock,
-  } = useCalendarInteractions(sortedStaffList); // (内部で `store.getState()` を使うため Stale Closure 回避)
+  // ★★★ 修正: フックに mainCalendarScrollerRef を渡す ★★★
+  } = useCalendarInteractions(sortedStaffList, workAreaRef, mainCalendarScrollerRef); 
 
   // (モーダルフック)
   // ★ `useShiftCalendarModals` は内部で `state.assignment.present.assignments` を参照
@@ -253,9 +229,11 @@ function ShiftCalendarPage() {
 
     // スタッフビュー (tabValue === 0)
     if (staffIdOrUnitId && staffIndex !== undefined && dateIndex !== undefined) {
-      if (clickMode === 'normal') {
+      // ★ 修正: 作業領域のセル ("WA_STAFF_...") がクリックされたら、normalモードでも何もしない
+      if (clickMode === 'normal' && !staffIdOrUnitId.startsWith('WA_STAFF_')) {
         openAssignModal(date, staffIdOrUnitId);
       } else {
+        // (select, holiday, paid_leave モード、または作業領域のクリック)
         handleInteractionCellClick(date, staffIdOrUnitId, staffIndex, dateIndex);
       }
     }
@@ -387,6 +365,9 @@ function ShiftCalendarPage() {
               onCellMouseDown={handleCellMouseDown}
               onCellMouseMove={handleCellMouseMove}
               onCellMouseUp={handleCellMouseUp}
+              workAreaRef={workAreaRef} 
+              // ★★★ 修正: ref を渡す ★★★
+              mainCalendarScrollerRef={mainCalendarScrollerRef}
             />
           </TabPanel>
           

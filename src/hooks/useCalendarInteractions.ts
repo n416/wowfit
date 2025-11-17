@@ -24,23 +24,21 @@ export type CellCoords = {
   dateIndex: number;
 };
 // ★★★ 修正: アプリ内クリップボードの型定義を削除 ★★★
-// type ClipboardData = { ... };
 
-// (作業領域の定義 - 変更なし)
-const WORK_AREA_STAFF_INDEX_START = 900;
-const WORK_AREA_DATE_INDEX_START = 900;
-const WORK_AREA_STAFF_ID_PREFIX = "WA_STAFF_";
-const WORK_AREA_DATE_PREFIX = "WA_DATE_";
+
+// ★★★ 修正: 作業領域(WORK_AREA)関連の定数をすべて削除 ★★★
+// const WORK_AREA_STAFF_INDEX_START = 900;
+// ...
 
 
 /**
  * @param sortedStaffList StaffCalendarView に表示されている順序のスタッフリスト
- * @param workAreaRef 作業領域のスクロールコンテナDOMへの参照
  * @param mainCalendarScrollerRef メインカレンダー(Virtuoso)のスクローラDOMへの参照
  */
 export const useCalendarInteractions = (
   sortedStaffList: IStaff[], 
-  workAreaRef: React.RefObject<HTMLDivElement | null>, 
+  // ★★★ 修正: workAreaRef を引数から削除 ★★★
+  // workAreaRef: React.RefObject<HTMLDivElement | null>, 
   mainCalendarScrollerRef: React.RefObject<HTMLElement | null>,
   monthDays: MonthDay[]
 ) => {
@@ -56,8 +54,6 @@ export const useCalendarInteractions = (
   const [isDragging, setIsDragging] = useState(false);
   
   // (ref - 変更なし)
-  // ★★★ 修正: アプリ内クリップボード（clipboardRef）を削除 ★★★
-  // const clipboardRef = useRef<ClipboardData | null>(null);
   const processingCellKeyRef = useRef<string | null>(null);
   const syncLockRef = useRef<number>(0);
   const autoScrollIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -110,46 +106,9 @@ export const useCalendarInteractions = (
     };
   }, []);
   
-  // (workAreaRowCount - 変更なし)
-  const workAreaRowCount = useMemo(() => {
-    const calculatedRows = Math.ceil(sortedStaffList.length * 1.5);
-    return Math.max(10, calculatedRows);
-  }, [sortedStaffList.length]);
+  // ★★★ 修正: 作業領域関連のフック (workAreaRowCount, virtualWorkAreaCols, virtualWorkAreaRowsWithCoords) をすべて削除 ★★★
 
-  // (workAreaColCount - 変更なし)
-  const workAreaColCount = useMemo(() => monthDays.length, [monthDays]);
-
-  // (virtualWorkAreaCols - 変更なし)
-  const virtualWorkAreaCols = useMemo(() => {
-    return monthDays.map((dayInfo, index) => {
-      return {
-        date: `${WORK_AREA_DATE_PREFIX}${index}`,
-        dateIndex: WORK_AREA_DATE_INDEX_START + index,
-        originalDateKey: dayInfo.dateStr, 
-      };
-    });
-  }, [monthDays]); 
-
-  // (virtualWorkAreaRowsWithCoords - 変更なし)
-  const virtualWorkAreaRowsWithCoords = useMemo(() => {
-    return Array.from({ length: workAreaRowCount }, (_, index) => {
-      const staffIndex = WORK_AREA_STAFF_INDEX_START + index;
-      return {
-        staffId: `${WORK_AREA_STAFF_ID_PREFIX}${index}`, 
-        staffIndex: staffIndex, 
-        getCellCoords: (dateIndex: number) => {
-          const dateCol = virtualWorkAreaCols[dateIndex - WORK_AREA_DATE_INDEX_START];
-          if (!dateCol) return null;
-          return { staffId: `${WORK_AREA_STAFF_ID_PREFIX}${index}`, date: dateCol.date, staffIndex, dateIndex };
-        }
-      };
-    });
-  }, [workAreaRowCount, virtualWorkAreaCols]);
-
-  // (isWorkAreaCell - 変更なし)
-  const isWorkAreaCell = useCallback((staffIndex: number, dateIndex: number) => {
-    return staffIndex >= WORK_AREA_STAFF_INDEX_START && dateIndex >= WORK_AREA_DATE_INDEX_START;
-  }, []);
+  // ★★★ 修正: isWorkAreaCell を削除 ★★★
   
   // (setClickMode - 変更なし)
   const setClickMode = useCallback((newMode: ClickMode) => {
@@ -159,23 +118,22 @@ export const useCalendarInteractions = (
     setIsDragging(false);
   }, []); 
 
-  // (invalidateSyncLock - 削除済み)
 
-
-  // (ポチポチモード - ★★★ Plan F: dispatch 順序入れ替え ★★★)
+  // (ポチポチモード - ★★★ 修正: 作業領域の staffId チェックを削除 ★★★)
   const toggleHoliday = useCallback((date: string, staff: IStaff, targetPatternId: string) => {
     
-    // (Plan D のローディングガード)
+    // (Plan D のローディングガード - 変更なし)
     const state = store.getState();
     const isCurrentlyLoading = state.assignment.present.adjustmentLoading ||
                                state.assignment.present.patchLoading ||
                                state.calendar.isMonthLoading;
     if (isCurrentlyLoading) {
-      // console.warn("[Guard] AI/月読込ローディング中のため toggleHoliday をブロック");
       return;
     }
 
-    if (staff.staffId.startsWith(WORK_AREA_STAFF_ID_PREFIX)) { return; }
+    // ★★★ 修正: 作業領域 (WA_STAFF_) のチェックを削除 ★★★
+    // if (staff.staffId.startsWith(WORK_AREA_STAFF_ID_PREFIX)) { return; } 
+
     const cellKey = `${staff.staffId}_${date}`;
     if (processingCellKeyRef.current === cellKey) { return; }
     processingCellKeyRef.current = cellKey; 
@@ -202,19 +160,10 @@ export const useCalendarInteractions = (
     const currentSyncId = Date.now();
     syncLockRef.current = currentSyncId;
     
-    // ★★★ Plan F: 順序入れ替え ★★★
-    
-    // 1. 先に UIを楽観的更新 (履歴に積む)
-    // (この時点では isSyncing: false のため、クリーンな状態が past に保存される)
+    // (Plan F: 順序入れ替え - 変更なし)
     dispatch(setAssignments(newOptimisticAssignments)); 
-    
-    // 2. 次に 同期開始を通知 (履歴から除外)
-    // console.log(`★[LOCK] toggleHoliday: isSyncing = true (ID: ${currentSyncId})`);
-    // console.trace(); 
     dispatch(_setIsSyncing(true)); 
     
-    // ★★★ 順序入れ替えここまで ★★★
-
     // (非同期DB操作 - 変更なし)
     (async () => {
       try {
@@ -243,20 +192,15 @@ export const useCalendarInteractions = (
         
         // (DB操作成功時 - 変更なし)
         if (syncLockRef.current === currentSyncId) {
-            // console.log(`★[UNLOCK] toggleHoliday: isSyncing = false (ID: ${currentSyncId})`);
             dispatch(_setIsSyncing(false));
-        } else {
-            // console.warn(`★[UNLOCK-STALE] toggleHoliday: Stale lock detected. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
         }
         
       } catch (e) {
         // (DB操作失敗時 - 変更なし)
         console.error("アサインの即時更新（DB反映）に失敗:", e);
         if (syncLockRef.current === currentSyncId) {
-            // console.warn(`★[UNLOCK-FAIL] toggleHoliday: Reverting state (ID: ${currentSyncId})`);
             db.assignments.toArray().then(dbAssignments => dispatch(_syncAssignments(dbAssignments))); 
         } else {
-            // console.warn(`★[UNLOCK-FAIL-STALE] toggleHoliday: DB Error, but stale. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
             if (syncLockRef.current === 0) {
               dispatch(_setIsSyncing(false)); 
             }
@@ -271,7 +215,7 @@ export const useCalendarInteractions = (
   }, [dispatch, store, monthDays, holidayPatternId, paidLeavePatternId]); 
 
 
-  // (セルクリック - ★★★ Plan D: ローディングガード ★★★)
+  // (セルクリック - ★★★ 修正: 作業領域の分岐を削除 ★★★)
   const handleCellClick = useCallback((
     e: React.MouseEvent, 
     date: string, 
@@ -280,17 +224,15 @@ export const useCalendarInteractions = (
     dateIndex: number
   ) => {
 
-    // ★★★ Plan D: ローディングガード ★★★
+    // (ローディングガード - 変更なし)
     const state = store.getState();
-    const isCurrentlyLoading = state.assignment.present.isSyncing || // (isSyncing も含める)
+    const isCurrentlyLoading = state.assignment.present.isSyncing ||
                                state.assignment.present.adjustmentLoading ||
                                state.assignment.present.patchLoading ||
                                state.calendar.isMonthLoading;
     if (isCurrentlyLoading) {
-      // console.warn("[Guard] ローディング中のため handleCellClick をブロック");
       return;
     }
-    // ★★★ 修正ここまで ★★★
     
     const staff = sortedStaffList.find(s => s.staffId === staffId); 
     const cell: CellCoords = { date, staffId, staffIndex, dateIndex };
@@ -302,12 +244,8 @@ export const useCalendarInteractions = (
     switch (_clickMode) { 
       case 'select':
         if (e.shiftKey && activeCell) {
-          const isDragStartedInWorkArea = isWorkAreaCell(activeCell.staffIndex, activeCell.dateIndex);
-          const isMouseCurrentlyInWorkArea = isWorkAreaCell(staffIndex, dateIndex);
-          
-          if (isDragStartedInWorkArea === isMouseCurrentlyInWorkArea) {
-            setSelectionRange({ start: activeCell, end: cell });
-          }
+          // ★★★ 修正: 作業領域の分岐を削除 ★★★
+          setSelectionRange({ start: activeCell, end: cell });
         } else {
           setActiveCell(cell); 
           setSelectionRange({ start: cell, end: cell }); 
@@ -332,24 +270,21 @@ export const useCalendarInteractions = (
       toggleHoliday, 
       holidayPatternId, paidLeavePatternId,
       activeCell, 
-      isWorkAreaCell,
-      store // ★ store を依存配列に追加
+      store
   ]); 
 
-  // (マウスダウン - ★★★ Plan D: ローディングガード ★★★)
+  // (マウスダウン - 変更なし)
   const handleCellMouseDown = useCallback((e: React.MouseEvent, date: string, staffId: string, staffIndex: number, dateIndex: number) => {
     
-    // ★★★ Plan D: ローディングガード ★★★
+    // (ローディングガード - 変更なし)
     const state = store.getState();
-    const isCurrentlyLoading = state.assignment.present.isSyncing || // (isSyncing も含める)
+    const isCurrentlyLoading = state.assignment.present.isSyncing ||
                                state.assignment.present.adjustmentLoading ||
                                state.assignment.present.patchLoading ||
                                state.calendar.isMonthLoading;
     if (isCurrentlyLoading) {
-      // console.warn("[Guard] ローディング中のため handleCellMouseDown をブロック");
       return;
     }
-    // ★★★ 修正ここまで ★★★
     
     if (_clickMode !== 'select') return; 
     e.preventDefault(); 
@@ -361,19 +296,22 @@ export const useCalendarInteractions = (
       setSelectionRange({ start: cell, end: cell }); 
     }
     setIsDragging(true);
-  }, [_clickMode, activeCell, store]); // ★ store を依存配列に追加
+  }, [_clickMode, activeCell, store]);
 
-  // (マウスムーブ (セル上) - 変更なし)
+  // (マウスムーブ (セル上) - ★★★ 修正: 作業領域の分岐を削除 ★★★)
   const handleCellMouseMove = useCallback((date: string, staffId: string, staffIndex: number, dateIndex: number) => {
     if (_clickMode !== 'select' || !isDragging || !selectionRange || !activeCell) return; 
-    const isDragStartedInWorkArea = isWorkAreaCell(activeCell.staffIndex, activeCell.dateIndex);
-    const isMouseCurrentlyInWorkArea = isWorkAreaCell(staffIndex, dateIndex);
-    if (isDragStartedInWorkArea !== isMouseCurrentlyInWorkArea) {
-      return; 
-    }
+    
+    // ★★★ 修正: 作業領域の分岐を削除 ★★★
+    // const isDragStartedInWorkArea = isWorkAreaCell(activeCell.staffIndex, activeCell.dateIndex);
+    // const isMouseCurrentlyInWorkArea = isWorkAreaCell(staffIndex, dateIndex);
+    // if (isDragStartedInWorkArea !== isMouseCurrentlyInWorkArea) {
+    //   return; 
+    // }
+
     const cell: CellCoords = { date, staffId, staffIndex, dateIndex };
     setSelectionRange({ ...selectionRange, end: cell });
-  }, [_clickMode, isDragging, selectionRange, activeCell, isWorkAreaCell]);
+  }, [_clickMode, isDragging, selectionRange, activeCell]);
 
   // (マウスアップ - 変更なし)
   const handleCellMouseUp = useCallback(() => {
@@ -396,14 +334,14 @@ export const useCalendarInteractions = (
       }
     });
 
-    // ★★★ 修正: ペースト処理(Ctrl+V)が非同期になるため、handleKeyDown全体をasyncにする ★★★
+    // (handleKeyDown - 変更なし)
     const handleKeyDown = async (event: KeyboardEvent) => {
       // (入力中ガード - 変更なし)
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
         return;
       }
       
-      // (Plan D ローディングガード - 変更なし)
+      // (ローディングガード - 変更なし)
       const state = store.getState();
       const isOverallLoading = state.assignment.present.isSyncing || 
                                state.assignment.present.adjustmentLoading ||
@@ -413,7 +351,6 @@ export const useCalendarInteractions = (
       const ctrlKey = isMac ? event.metaKey : event.ctrlKey;
       if (isOverallLoading) {
         if (ctrlKey && (event.key === 'c' || event.key === 'x' || event.key === 'v')) {
-           // console.warn("[Guard] ローディング中のためキー操作をブロック:", event.key);
            event.preventDefault();
            return;
         }
@@ -421,7 +358,7 @@ export const useCalendarInteractions = (
 
       processingCellKeyRef.current = null;
       
-      // (矢印キー移動 - 変更なし)
+      // (矢印キー移動 - ★★★ 修正: 作業領域の分岐を削除 ★★★)
       if (!event.shiftKey && !ctrlKey && !event.metaKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
         event.preventDefault();
 
@@ -437,12 +374,11 @@ export const useCalendarInteractions = (
         }
 
         let { staffIndex, dateIndex } = activeCell;
-        const isCurrentCellInWorkArea = isWorkAreaCell(staffIndex, dateIndex);
-        
-        const minStaffIndex = isCurrentCellInWorkArea ? WORK_AREA_STAFF_INDEX_START : 0;
-        const maxStaffIndex = isCurrentCellInWorkArea ? (WORK_AREA_STAFF_INDEX_START + workAreaRowCount - 1) : (sortedStaffList.length - 1);
-        const minDateIndex = isCurrentCellInWorkArea ? WORK_AREA_DATE_INDEX_START : 0;
-        const maxDateIndex = isCurrentCellInWorkArea ? (WORK_AREA_DATE_INDEX_START + workAreaColCount - 1) : (monthDays.length - 1); 
+        // ★★★ 修正: 作業領域の分岐を削除 ★★★
+        const minStaffIndex = 0;
+        const maxStaffIndex = sortedStaffList.length - 1;
+        const minDateIndex = 0;
+        const maxDateIndex = monthDays.length - 1; 
 
         switch (event.key) {
           case 'ArrowUp':
@@ -459,15 +395,12 @@ export const useCalendarInteractions = (
             break;
         }
 
+        // ★★★ 修正: 作業領域の分岐を削除 ★★★
         let newActiveCell: CellCoords | null = null;
-        if (isCurrentCellInWorkArea) {
-          newActiveCell = virtualWorkAreaRowsWithCoords[staffIndex - WORK_AREA_STAFF_INDEX_START]?.getCellCoords(dateIndex) || null;
-        } else {
-          const staff = sortedStaffList[staffIndex];
-          const day = monthDays[dateIndex]; 
-          if (staff && day) {
-            newActiveCell = { staffId: staff.staffId, date: day.dateStr, staffIndex, dateIndex };
-          }
+        const staff = sortedStaffList[staffIndex];
+        const day = monthDays[dateIndex]; 
+        if (staff && day) {
+          newActiveCell = { staffId: staff.staffId, date: day.dateStr, staffIndex, dateIndex };
         }
         
         if (newActiveCell) {
@@ -477,19 +410,18 @@ export const useCalendarInteractions = (
         return; 
       }
       
-      // (Shift + 矢印キー移動 - 変更なし)
+      // (Shift + 矢印キー移動 - ★★★ 修正: 作業領域の分岐を削除 ★★★)
       if (event.shiftKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
         event.preventDefault();
         
         if (!activeCell || !selectionRange) return;
         let { staffIndex, dateIndex } = selectionRange.end;
 
-        const isCurrentCellInWorkArea = isWorkAreaCell(staffIndex, dateIndex);
-        
-        const minStaffIndex = isCurrentCellInWorkArea ? WORK_AREA_STAFF_INDEX_START : 0;
-        const maxStaffIndex = isCurrentCellInWorkArea ? (WORK_AREA_STAFF_INDEX_START + workAreaRowCount - 1) : (sortedStaffList.length - 1);
-        const minDateIndex = isCurrentCellInWorkArea ? WORK_AREA_DATE_INDEX_START : 0;
-        const maxDateIndex = isCurrentCellInWorkArea ? (WORK_AREA_DATE_INDEX_START + workAreaColCount - 1) : (monthDays.length - 1); 
+        // ★★★ 修正: 作業領域の分岐を削除 ★★★
+        const minStaffIndex = 0;
+        const maxStaffIndex = sortedStaffList.length - 1;
+        const minDateIndex = 0;
+        const maxDateIndex = monthDays.length - 1; 
 
         switch (event.key) {
           case 'ArrowUp':
@@ -506,15 +438,12 @@ export const useCalendarInteractions = (
             break;
         }
 
+        // ★★★ 修正: 作業領域の分岐を削除 ★★★
         let newEndCell: CellCoords | null = null;
-        if (isCurrentCellInWorkArea) {
-          newEndCell = virtualWorkAreaRowsWithCoords[staffIndex - WORK_AREA_STAFF_INDEX_START]?.getCellCoords(dateIndex) || null;
-        } else {
-          const staff = sortedStaffList[staffIndex];
-          const day = monthDays[dateIndex]; 
-          if (staff && day) {
-            newEndCell = { staffId: staff.staffId, date: day.dateStr, staffIndex, dateIndex };
-          }
+        const staff = sortedStaffList[staffIndex];
+        const day = monthDays[dateIndex]; 
+        if (staff && day) {
+          newEndCell = { staffId: staff.staffId, date: day.dateStr, staffIndex, dateIndex };
         }
         
         if (newEndCell) {
@@ -524,7 +453,7 @@ export const useCalendarInteractions = (
       }
 
 
-      // ★★★ 修正: CUT (Ctrl+X) / COPY (Ctrl+C) - TSV形式でOSクリップボードへ ★★★
+      // (CUT / COPY - ★★★ 修正: 作業領域の分岐を削除 ★★★)
       if (ctrlKey && (event.key === 'c' || event.key === 'x')) {
         event.preventDefault();
         const currentAssignments = latestAssignmentsRef.current;
@@ -536,25 +465,20 @@ export const useCalendarInteractions = (
 
         const tsvRows: string[][] = [];
         const keysToCut = new Set<string>();
-        const isCopyFromWorkArea = isWorkAreaCell(minStaff, minDate);
+        // ★★★ 修正: 作業領域の分岐を削除 ★★★
+        // const isCopyFromWorkArea = false; 
 
         for (let sIdx = minStaff; sIdx <= maxStaff; sIdx++) {
           const row: string[] = [];
           for (let dIdx = minDate; dIdx <= maxDate; dIdx++) {
             let key: string | null = null;
-            if (isCopyFromWorkArea) {
-              const staffRow = virtualWorkAreaRowsWithCoords[sIdx - WORK_AREA_STAFF_INDEX_START]; 
-              const dateCol = virtualWorkAreaCols[dIdx - WORK_AREA_DATE_INDEX_START];
-              if (staffRow && dateCol) {
-                key = `${staffRow.staffId}_${dateCol.date}`;
-              }
-            } else {
-              const staff = sortedStaffList[sIdx];
-              const day = monthDays[dIdx]; 
-              if (staff && day) {
-                key = `${staff.staffId}_${day.dateStr}`;
-              }
+            // ★★★ 修正: 作業領域の分岐を削除 ★★★
+            const staff = sortedStaffList[sIdx];
+            const day = monthDays[dIdx]; 
+            if (staff && day) {
+              key = `${staff.staffId}_${day.dateStr}`;
             }
+            
             if (!key) {
               row.push(""); // 範囲外なら空セル
               continue;
@@ -575,13 +499,12 @@ export const useCalendarInteractions = (
           tsvRows.push(row);
         }
         
-        // ★ TSV文字列を生成し、OSクリップボードに書き込む
+        // (TSV書き込み - 変更なし)
         const tsvString = tsvRows.map(row => row.join('\t')).join('\n');
         try {
           await navigator.clipboard.writeText(tsvString);
         } catch (err) {
           console.error('OSクリップボードへの書き込みに失敗:', err);
-          // (ここで処理を中断)
           return;
         }
 
@@ -633,15 +556,15 @@ export const useCalendarInteractions = (
           })(); 
         }
       } 
-      // ★★★ 修正: PASTE (Ctrl+V) - OSクリップボードからTSVを読み込む ★★★
+      // (PASTE - ★★★ 修正: 作業領域の分岐を削除 ★★★)
       else if (ctrlKey && event.key === 'v') {
         event.preventDefault();
 
         if (!activeCell) return;
         
+        // (OSクリップボード読み込み - 変更なし)
         let tsvString = "";
         try {
-          // ★ OSクリップボードからTSV文字列を非同期で読み込む
           tsvString = await navigator.clipboard.readText();
         } catch (err) {
           console.error('OSクリップボードの読み取りに失敗:', err);
@@ -652,47 +575,39 @@ export const useCalendarInteractions = (
 
         const currentAssignments = latestAssignmentsRef.current;
         
-        // ★ TSV文字列を解析
+        // (TSV解析 - 変更なし)
         const tsvRows = tsvString.split('\n').map(row => row.split('\t'));
         const rowCount = tsvRows.length;
         let colCount = 0;
         
         const newAssignmentsToPaste: Omit<IAssignment, 'id'>[] = [];
         const keysToOverwrite = new Set<string>(); 
-        const isPasteToWorkArea = isWorkAreaCell(activeCell.staffIndex, activeCell.dateIndex);
+        // ★★★ 修正: 作業領域の分岐を削除 ★★★
+        // const isPasteToWorkArea = false; 
 
         for (let r = 0; r < tsvRows.length; r++) {
           const tsvCols = tsvRows[r];
-          if (tsvCols.length > colCount) colCount = tsvCols.length; // 最大列数を更新
+          if (tsvCols.length > colCount) colCount = tsvCols.length; 
 
           for (let c = 0; c < tsvCols.length; c++) {
-            const patternId = tsvCols[c].trim(); // Excelからだと \r が入る場合があるのでtrim()
+            const patternId = tsvCols[c].trim(); 
             
             let targetStaffId: string | null = null;
             let targetDate: string | null = null;
-            let targetStaff: IStaff | undefined | null = null; // ★ unitId設定用にスタッフ情報も取得
+            let targetStaff: IStaff | undefined | null = null; 
 
-            if (isPasteToWorkArea) {
-              const staffIndex = activeCell.staffIndex + r;
-              const dateIndex = activeCell.dateIndex + c;
-              const staffRow = virtualWorkAreaRowsWithCoords[staffIndex - WORK_AREA_STAFF_INDEX_START]; 
-              const dateCol = virtualWorkAreaCols[dateIndex - WORK_AREA_DATE_INDEX_START];
-              if (!staffRow || !dateCol) continue; 
-              targetStaffId = staffRow.staffId;
-              targetDate = dateCol.date; 
-              // (作業領域への貼り付けでは unitId は不明なため null のまま)
-            } else {
-              const staffIndex = activeCell.staffIndex + r;
-              const dateIndex = activeCell.dateIndex + c;
-              if (staffIndex >= sortedStaffList.length || dateIndex >= monthDays.length) { 
-                continue; 
-              }
-              targetStaff = sortedStaffList[staffIndex];
-              const targetDay = monthDays[dateIndex]; 
-              if (!targetStaff || !targetDay) continue;
-              targetStaffId = targetStaff.staffId;
-              targetDate = targetDay.dateStr;
+            // ★★★ 修正: 作業領域の分岐を削除 ★★★
+            const staffIndex = activeCell.staffIndex + r;
+            const dateIndex = activeCell.dateIndex + c;
+            if (staffIndex >= sortedStaffList.length || dateIndex >= monthDays.length) { 
+              continue; 
             }
+            targetStaff = sortedStaffList[staffIndex];
+            const targetDay = monthDays[dateIndex]; 
+            if (!targetStaff || !targetDay) continue;
+            targetStaffId = targetStaff.staffId;
+            targetDate = targetDay.dateStr;
+            
 
             if (!targetStaffId || !targetDate) continue;
             const key = `${targetStaffId}_${targetDate}`;
@@ -700,21 +615,16 @@ export const useCalendarInteractions = (
 
             if (patternId) { 
               const pattern = patternMap.get(patternId);
-              // ★ patternMap に存在するかチェック
               if (pattern) {
-                // ★ TSV仕様: locked: true, unitId はロジックで決定
                 newAssignmentsToPaste.push({
                   date: targetDate, 
                   staffId: targetStaffId, 
                   patternId: pattern.patternId,
-                  // ★ 労働ならスタッフの所属ユニット、それ以外(公休/有給)なら null
                   unitId: (pattern.workType === 'Work' && targetStaff) ? targetStaff.unitId : null,
-                  locked: true // ★ ペーストは手動固定扱い
+                  locked: true 
                 });
               }
-              // (もしpatternIdがDBに存在しない文字列なら、無視して「アサインなし」扱いになる)
             }
-            // (patternId が "" や null の場合は「アサインなし」= 何も追加しない)
           }
         }
         
@@ -732,40 +642,31 @@ export const useCalendarInteractions = (
         const currentSyncId = Date.now();
         syncLockRef.current = currentSyncId;
         
-        // ★★★ Plan F: 順序入れ替え ★★★
+        // (Plan F: 順序入れ替え - 変更なし)
         dispatch(setAssignments(finalOptimisticState)); 
         dispatch(_setIsSyncing(true));
         
-        // ★ 貼り付け後の選択範囲更新 (TSVの行列数(rowCount, colCount)を使用)
+        // (貼り付け後の選択範囲更新 - ★★★ 修正: 作業領域の分岐を削除 ★★★)
         if (keysToOverwrite.size > 0 && activeCell) {
           const endStaffIndex = activeCell.staffIndex + rowCount - 1;
           const endDateIndex = activeCell.dateIndex + colCount - 1;
-          const maxStaffIndex = isPasteToWorkArea 
-            ? (WORK_AREA_STAFF_INDEX_START + workAreaRowCount - 1) 
-            : (sortedStaffList.length - 1);
-          const maxDateIndex = isPasteToWorkArea
-            ? (WORK_AREA_DATE_INDEX_START + workAreaColCount - 1)
-            : (monthDays.length - 1); 
+          const maxStaffIndex = sortedStaffList.length - 1;
+          const maxDateIndex = monthDays.length - 1; 
+
           const clampedEndStaffIndex = Math.min(endStaffIndex, maxStaffIndex);
           const clampedEndDateIndex = Math.min(endDateIndex, maxDateIndex);
           if (clampedEndStaffIndex >= activeCell.staffIndex && clampedEndDateIndex >= activeCell.dateIndex) {
             let endStaffId: string | null = null;
             let endDate: string | null = null;
-            if (isPasteToWorkArea) {
-              const staffRow = virtualWorkAreaRowsWithCoords[clampedEndStaffIndex - WORK_AREA_STAFF_INDEX_START]; 
-              const dateCol = virtualWorkAreaCols[clampedEndDateIndex - WORK_AREA_DATE_INDEX_START];
-              if (staffRow && dateCol) {
-                endStaffId = staffRow.staffId;
-                endDate = dateCol.date;
-              }
-            } else {
-              const endStaff = sortedStaffList[clampedEndStaffIndex];
-              const endDay = monthDays[clampedEndDateIndex]; 
-              if (endStaff && endDay) {
-                endStaffId = endStaff.staffId;
-                endDate = endDay.dateStr;
-              }
+            
+            // ★★★ 修正: 作業領域の分岐を削除 ★★★
+            const endStaff = sortedStaffList[clampedEndStaffIndex];
+            const endDay = monthDays[clampedEndDateIndex]; 
+            if (endStaff && endDay) {
+              endStaffId = endStaff.staffId;
+              endDate = endDay.dateStr;
             }
+
             if (endStaffId && endDate) {
               const newEndCell: CellCoords = {
                 staffId: endStaffId,
@@ -819,20 +720,19 @@ export const useCalendarInteractions = (
             }
           }
         })();
-        // ★★★ 修正ここまで ★★★
       }
     };
 
-    // (自動スクロール(MouseMove) - 変更なし)
+    // (自動スクロール(MouseMove) - ★★★ 修正: 作業領域の分岐を削除 ★★★)
     const handleWindowMouseMove = (e: MouseEvent) => {
       if (!isDragging || _clickMode !== 'select' || !activeCell) {
         stopAutoScroll();
         return;
       }
-      const isDragInWorkArea = isWorkAreaCell(activeCell.staffIndex, activeCell.dateIndex);
-      const container = isDragInWorkArea 
-        ? workAreaRef.current 
-        : mainCalendarScrollerRef.current; 
+      // ★★★ 修正: 作業領域の分岐を削除 ★★★
+      // const isDragInWorkArea = false;
+      const container = mainCalendarScrollerRef.current; 
+
       if (!container) {
         stopAutoScroll();
         return;
@@ -853,9 +753,8 @@ export const useCalendarInteractions = (
       if (scrollX !== 0 || scrollY !== 0) {
         if (!autoScrollIntervalRef.current) {
           autoScrollIntervalRef.current = setInterval(() => {
-            const currentContainer = isDragInWorkArea 
-              ? workAreaRef.current 
-              : mainCalendarScrollerRef.current;
+            // ★★★ 修正: 作業領域の分岐を削除 ★★★
+            const currentContainer = mainCalendarScrollerRef.current;
             if (currentContainer) {
               currentContainer.scrollTop += scrollY;
               currentContainer.scrollLeft += scrollX;
@@ -885,11 +784,12 @@ export const useCalendarInteractions = (
     toggleHoliday, 
     holidayPatternId, paidLeavePatternId,
     assignmentsMap,
-    patternMap, // ★ patternMap を依存配列に追加
-    virtualWorkAreaRowsWithCoords, virtualWorkAreaCols, isWorkAreaCell,
-    workAreaColCount, workAreaRowCount,
+    patternMap, 
+    // ★★★ 修正: 作業領域関連のフックを削除 ★★★
+    // virtualWorkAreaRowsWithCoords, virtualWorkAreaCols, isWorkAreaCell,
+    // workAreaColCount, workAreaRowCount,
     stopAutoScroll, 
-    workAreaRef, 
+    // ★★★ 修正: workAreaRef を削除 ★★★
     mainCalendarScrollerRef, 
     handleCellMouseUp,
     monthDays 

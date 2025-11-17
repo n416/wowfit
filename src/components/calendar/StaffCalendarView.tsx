@@ -1,11 +1,9 @@
-import React, { CSSProperties, useMemo, useCallback, useState, useRef, useEffect } from 'react';
+import React, { CSSProperties, useMemo, useCallback } from 'react';
 import { 
   IconButton, 
   Table, TableBody, TableCell, TableHead, TableRow,
   Box,
-  Collapse, 
-  FormControlLabel, 
-  Checkbox 
+  // ★★★ 修正: Collapse, FormControlLabel, Checkbox を削除
 } from '@mui/material';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../../store';
@@ -38,7 +36,8 @@ interface StaffCalendarViewProps {
   onCellMouseDown: (e: React.MouseEvent, date: string, staffId: string, staffIndex: number, dateIndex: number) => void;
   onCellMouseMove: (date: string, staffId: string, staffIndex: number, dateIndex: number) => void;
   onCellMouseUp: () => void;
-  workAreaRef: React.RefObject<HTMLDivElement | null>;
+  // ★★★ 修正: workAreaRef を Props から削除 ★★★
+  // workAreaRef: React.RefObject<HTMLDivElement | null>;
   mainCalendarScrollerRef: React.RefObject<HTMLElement | null>;
   monthDays: MonthDay[]; // ★ 追加
 }
@@ -109,15 +108,8 @@ const styles: { [key: string]: CSSProperties } = {
     border: '1px solid #9e9e9e',
     pointerEvents: 'none',
   },
-  workAreaCell: {
-    padding: '8px', 
-    border: '1px solid #e0e0e0',
-    verticalAlign: 'top',
-    userSelect: 'none',
-    minHeight: '60px', 
-    backgroundColor: '#fff',
-    boxSizing: 'border-box',
-  },
+  // ★★★ 修正: workAreaCell スタイルを削除 ★★★
+  // workAreaCell: { ... },
 };
 
 
@@ -135,7 +127,7 @@ export default function StaffCalendarView({
   onCellMouseDown,
   onCellMouseMove,
   onCellMouseUp,
-  workAreaRef,
+  // ★★★ 修正: workAreaRef を Props から削除 ★★★
   mainCalendarScrollerRef,
   monthDays // ★ 追加
 }: StaffCalendarViewProps) {
@@ -165,47 +157,8 @@ export default function StaffCalendarView({
     };
   }, [selectionRange]);
   
-  // (作業領域 state - 変更なし)
-  const [showWorkArea, setShowWorkArea] = useState(false);
-  const lastClickModeRef = useRef(clickMode);
-  useEffect(() => {
-    if (clickMode !== lastClickModeRef.current) {
-      if (clickMode === 'select') {
-        setShowWorkArea(true); 
-      } else {
-        setShowWorkArea(false); 
-      }
-      lastClickModeRef.current = clickMode;
-    }
-  }, [clickMode]);
+  // ★★★ 修正: 作業領域関連の state, ref, useEffect, フック (workAreaRowCount, workAreaColCount, virtualWorkAreaCols, virtualWorkAreaRows) をすべて削除 ★★★
   
-  // (作業領域 仮想セル定義 - 変更なし)
-  const workAreaRowCount = useMemo(() => {
-    const calculatedRows = Math.ceil(sortedStaffList.length * 1.5);
-    return Math.max(10, calculatedRows);
-  }, [sortedStaffList.length]);
-  
-  const workAreaColCount = useMemo(() => monthDays.length, [monthDays]);
-
-  const virtualWorkAreaCols = useMemo(() => {
-    return monthDays.map((dayInfo, index) => {
-      return {
-        date: `WA_DATE_${index}`,
-        dateIndex: 900 + index,
-        originalDateKey: dayInfo.dateStr, 
-        isWeekend: dayInfo.dayOfWeek === 0 || dayInfo.dayOfWeek === 6,
-      };
-    });
-  }, [monthDays]); 
-
-  const virtualWorkAreaRows = useMemo(() => {
-    return Array.from({ length: workAreaRowCount }, (_, index) => {
-      return {
-        staffId: `WA_STAFF_${index}`, 
-        staffIndex: 900 + index, 
-      };
-    });
-  }, [workAreaRowCount]);
   
   // (ヘッダー行 - 変更なし)
   const fixedHeaderContent = () => (
@@ -371,164 +324,32 @@ export default function StaffCalendarView({
   
   
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    // ★★★ 修正: Boxラッパーを削除し、TableVirtuoso を直接返す (または flex: 1 の Box のみ残す) ★★★
+    <Box sx={{ flex: 1, minHeight: 0 }}>
       
       {/* 1. メインのカレンダー (Virtuoso) */}
-      <Box sx={{ flex: 1, minHeight: 0 }}>
-        <TableVirtuoso
-          // (scrollerRef 修正済み)
-          scrollerRef={(ref) => { 
-            if (ref && !(ref instanceof Window)) {
-              mainCalendarScrollerRef.current = ref;
-            } else {
-              mainCalendarScrollerRef.current = null;
-            }
-          }}
-          style={{ height: '100%', border: '1px solid #e0e0e0', borderRadius: '4px' }}
-          data={sortedStaffList} 
-          fixedHeaderContent={fixedHeaderContent} // ★ monthDays に依存
-          itemContent={itemContent} // ★ monthDays に依存
-          components={{
-            Table: (props) => <Table {...props} style={{ borderCollapse: 'collapse', width: '100%', tableLayout: 'fixed' }} />,
-            TableHead: TableHead,
-            TableRow: TableRow,
-            TableBody: React.forwardRef((props, ref) => <TableBody {...props} ref={ref} />),
-          }}
-        />
-      </Box>
-      
-      {/* 2. チェックボックス (カレンダーの下) */}
-      <Box sx={{ 
-        // (変更なし)
-        p: '4px 16px', 
-        display: 'flex', 
-        justifyContent: 'flex-end', 
-        alignItems: 'center', 
-        flexShrink: 0, 
-        border: '1px solid #e0e0e0', 
-        borderTop: 'none', 
-        backgroundColor: '#fff' 
-      }}>
-        <FormControlLabel
-          control={
-            <Checkbox
-              checked={showWorkArea}
-              onChange={(e) => setShowWorkArea(e.target.checked)}
-              size="small"
-            />
+      <TableVirtuoso
+        // (scrollerRef 修正済み)
+        scrollerRef={(ref) => { 
+          if (ref && !(ref instanceof Window)) {
+            mainCalendarScrollerRef.current = ref;
+          } else {
+            mainCalendarScrollerRef.current = null;
           }
-          label={<span style={{ fontSize: '0.875rem' }}>作業用セルを表示する</span>}
-        />
-      </Box>
-
-      {/* 3. 作業用セル領域 (CSS Grid) */}
-      <Collapse in={showWorkArea} sx={{ flexShrink: 0, borderBottom: '1px solid #e0e0e0' }}>
-        {/* ★ スクロール用のコンテナ */}
-        <Box 
-          // (ref - 変更なし)
-          ref={workAreaRef} 
-          sx={{
-            height: '250px', 
-            overflow: 'auto', 
-            border: '1px solid #e0e0e0',
-            borderTop: 'none',
-            backgroundColor: '#f9f9f9', 
-          }}
-        >
-          {/* ★ CSS Grid 本体 */}
-          <Box sx={{
-            display: 'grid',
-            gridTemplateColumns: `repeat(${workAreaColCount}, minmax(80px, 1fr))`, // ★ monthDays に依存
-            gridTemplateRows: `repeat(${workAreaRowCount}, minmax(60px, auto))`, 
-          }}>
-            
-            {/* ★ 仮想の行 x 仮想の列 でセルを生成 */}
-            {virtualWorkAreaRows.map((row) => (
-              virtualWorkAreaCols.map((col) => { // ★ monthDays に依存
-                
-                const key = `${row.staffId}_${col.date}`;
-                const assignmentsForCell = assignmentsMap.get(key) || [];
-
-                // (スタイル計算 - 変更なし)
-                const isSelected = selectedRangeIndices && 
-                                  (row.staffIndex >= selectedRangeIndices.minStaff && 
-                                    row.staffIndex <= selectedRangeIndices.maxStaff &&
-                                    col.dateIndex >= selectedRangeIndices.minDate && 
-                                    col.dateIndex <= selectedRangeIndices.maxDate);
-                const isActive = activeCell && 
-                                  activeCell.staffId === row.staffId && 
-                                  activeCell.date === col.date;
-                
-                // (box-shadowロジック - 変更なし)
-                let selectionStyle: CSSProperties = {}; 
-                const shadowColor = '#1976d2'; 
-                const shadowWidth = '2px';
-                const shadows: string[] = [];
-                if (clickMode === 'select' && isSelected && selectedRangeIndices) {
-                  const { minStaff, maxStaff, minDate, maxDate } = selectedRangeIndices;
-                  if (row.staffIndex === minStaff) shadows.push(`inset 0 ${shadowWidth} 0 0 ${shadowColor}`);
-                  if (row.staffIndex === maxStaff) shadows.push(`inset 0 -${shadowWidth} 0 0 ${shadowColor}`);
-                  if (col.dateIndex === minDate) shadows.push(`inset ${shadowWidth} 0 0 0 ${shadowColor}`);
-                  if (col.dateIndex === maxDate) shadows.push(`inset -${shadowWidth} 0 0 0 ${shadowColor}`);
-                  if (shadows.length > 0) {
-                    selectionStyle.boxShadow = shadows.join(', ');
-                    selectionStyle.zIndex = 1; 
-                    selectionStyle.position = 'relative';
-                  }
-                }
-                if (isActive) {
-                  selectionStyle.outline = '2px dotted #0d47a1'; 
-                  selectionStyle.outlineOffset = '-2px'; 
-                  selectionStyle.zIndex = 2; 
-                  selectionStyle.position = 'relative'; 
-                }
-
-                return (
-                  <Box
-                    key={key}
-                    id={`cell-${row.staffId}-${col.date}`}
-                    style={{
-                      ...styles.workAreaCell, 
-                      cursor: (clickMode === 'select' ? styles.cellSelectable.cursor : styles.cellClickable.cursor),
-                      backgroundColor: col.isWeekend ? '#f5f5f5' : '#fff', // 週末背景
-                      ...(isSelected ? { backgroundColor: 'rgba(25, 118, 210, 0.1)' } : {}), // 選択背景
-                      ...selectionStyle, // ★ ここで適用
-                    }}
-                    // (イベントハンドラ - 変更なし)
-                    onClick={(e) => onCellClick(e, col.date, row.staffId, row.staffIndex, col.dateIndex)}
-                    onMouseDown={(e) => onCellMouseDown(e, col.date, row.staffId, row.staffIndex, col.dateIndex)}
-                    onMouseMove={() => onCellMouseMove(col.date, row.staffId, row.staffIndex, col.dateIndex)}
-                    onMouseUp={onCellMouseUp}
-                  >
-                    {/* (チップ描画ロジック - 変更なし) */}
-                    {assignmentsForCell.length === 0 ? (
-                      <span style={{ display: 'block', textAlign: 'center', color: '#888' }}>-</span>
-                    ) : (
-                      assignmentsForCell.map(assignment => {
-                        const pattern = assignment.patternId ? patternMap.get(assignment.patternId) : null;
-                        let bgColor = '#e0e0e0', textColor = 'rgba(0, 0, 0, 0.87)';
-                        if (pattern?.workType === 'StatutoryHoliday' || pattern?.workType === 'PaidLeave') {
-                          bgColor = '#ef9a9a';
-                        } else if (pattern?.isNightShift) {
-                          bgColor = '#bdbdbd';
-                        }
-                        return (
-                          <div 
-                            key={assignment.id}
-                            style={{ ...styles.assignmentChip, backgroundColor: bgColor, color: textColor }}
-                          >
-                            {pattern?.patternId || '??'}
-                          </div>
-                        );
-                      })
-                    )}
-                  </Box>
-                );
-              })
-            ))}
-          </Box>
-        </Box>
-      </Collapse>
+        }}
+        style={{ height: '100%', border: '1px solid #e0e0e0', borderRadius: '4px' }}
+        data={sortedStaffList} 
+        fixedHeaderContent={fixedHeaderContent} // ★ monthDays に依存
+        itemContent={itemContent} // ★ monthDays に依存
+        components={{
+          Table: (props) => <Table {...props} style={{ borderCollapse: 'collapse', width: '100%', tableLayout: 'fixed' }} />,
+          TableHead: TableHead,
+          TableRow: TableRow,
+          TableBody: React.forwardRef((props, ref) => <TableBody {...props} ref={ref} />),
+        }}
+      />
+      
+      {/* ★★★ 修正: チェックボックス (Box) と 作業用セル領域 (Collapse) をすべて削除 ★★★ */}
       
     </Box>
   );

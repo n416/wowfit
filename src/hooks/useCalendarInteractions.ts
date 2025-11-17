@@ -7,10 +7,6 @@ import { db } from '../db/dexie';
 import { setAssignments, _syncAssignments, _setIsSyncing } from '../store/assignmentSlice'; 
 // ★ 修正: 未使用の getMonthDays を削除
 
-// ★★★ プランF ★★★
-// (dispatch 順序を setAssignments -> _setIsSyncing に修正)
-// console.log("[VERSION] useCalendarInteractions.ts (Plan F) loaded. Dispatch order reversed (setAssignments -> _setIsSyncing).");
-// ★★★★★★★★★★★★★★★★★★★★★★★★★
 
 // ★ 修正: MonthDay 型をここで定義
 type MonthDay = {
@@ -27,12 +23,8 @@ export type CellCoords = {
   staffIndex: number;
   dateIndex: number;
 };
-type ClipboardData = {
-  assignments: (Omit<IAssignment, 'id' | 'staffId' | 'date'> | null)[];
-  rowCount: number;    
-  colCount: number;    
-  sourceType: 'MAIN' | 'WORK_AREA'; 
-};
+// ★★★ 修正: アプリ内クリップボードの型定義を削除 ★★★
+// type ClipboardData = { ... };
 
 // (作業領域の定義 - 変更なし)
 const WORK_AREA_STAFF_INDEX_START = 900;
@@ -64,7 +56,8 @@ export const useCalendarInteractions = (
   const [isDragging, setIsDragging] = useState(false);
   
   // (ref - 変更なし)
-  const clipboardRef = useRef<ClipboardData | null>(null);
+  // ★★★ 修正: アプリ内クリップボード（clipboardRef）を削除 ★★★
+  // const clipboardRef = useRef<ClipboardData | null>(null);
   const processingCellKeyRef = useRef<string | null>(null);
   const syncLockRef = useRef<number>(0);
   const autoScrollIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -80,6 +73,12 @@ export const useCalendarInteractions = (
   // (データ取得 - 変更なし)
   const { assignments } = useSelector((state: RootState) => state.assignment.present);
   const shiftPatterns = useSelector((state: RootState) => state.pattern.patterns);
+  
+  // ★★★ patternMap も useMemo で取得 (ペースト時に必要) ★★★
+  const patternMap = useMemo(() => 
+    new Map(shiftPatterns.map(p => [p.patternId, p])),
+  [shiftPatterns]);
+
   const assignmentsMap = useMemo(() => {
     const map = new Map<string, IAssignment[]>();
     for (const assignment of assignments) {
@@ -397,7 +396,8 @@ export const useCalendarInteractions = (
       }
     });
 
-    const handleKeyDown = (event: KeyboardEvent) => {
+    // ★★★ 修正: ペースト処理(Ctrl+V)が非同期になるため、handleKeyDown全体をasyncにする ★★★
+    const handleKeyDown = async (event: KeyboardEvent) => {
       // (入力中ガード - 変更なし)
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
         return;
@@ -524,19 +524,22 @@ export const useCalendarInteractions = (
       }
 
 
-      // (CUT - ★★★ Plan F: 順序入れ替え ★★★)
+      // ★★★ 修正: CUT (Ctrl+X) / COPY (Ctrl+C) - TSV形式でOSクリップボードへ ★★★
       if (ctrlKey && (event.key === 'c' || event.key === 'x')) {
         event.preventDefault();
         const currentAssignments = latestAssignmentsRef.current;
         
-        // (クリップボードへのコピー処理 - 変更なし)
+        // (TSV文字列の生成ロジック)
         const rangeIndices = getRangeIndices(selectionRange);
         if (!rangeIndices) return;
         const { minStaff, maxStaff, minDate, maxDate } = rangeIndices;
-        const assignmentsInSelection: (Omit<IAssignment, 'id' | 'staffId' | 'date'> | null)[] = [];
+
+        const tsvRows: string[][] = [];
         const keysToCut = new Set<string>();
         const isCopyFromWorkArea = isWorkAreaCell(minStaff, minDate);
+
         for (let sIdx = minStaff; sIdx <= maxStaff; sIdx++) {
+          const row: string[] = [];
           for (let dIdx = minDate; dIdx <= maxDate; dIdx++) {
             let key: string | null = null;
             if (isCopyFromWorkArea) {
@@ -552,44 +555,46 @@ export const useCalendarInteractions = (
                 key = `${staff.staffId}_${day.dateStr}`;
               }
             }
-            if (!key) continue;
+            if (!key) {
+              row.push(""); // 範囲外なら空セル
+              continue;
+            }
+
             if (event.key === 'x') {
               keysToCut.add(key);
             }
+
             const cellAssignments = assignmentsMap.get(key) || []; 
             const firstAssignment = cellAssignments[0]; 
             if (firstAssignment) {
-              assignmentsInSelection.push({ 
-                patternId: firstAssignment.patternId, 
-                unitId: firstAssignment.unitId, 
-                locked: firstAssignment.locked 
-              });
+              row.push(firstAssignment.patternId); // ★ patternId のみ
             } else {
-              assignmentsInSelection.push(null); // 空のセル
+              row.push(""); // 空のセル
             }
           }
+          tsvRows.push(row);
         }
-        clipboardRef.current = {
-          assignments: assignmentsInSelection,
-          rowCount: maxStaff - minStaff + 1,
-          colCount: maxDate - minDate + 1,
-          sourceType: isCopyFromWorkArea ? 'WORK_AREA' : 'MAIN',
-        };
         
+        // ★ TSV文字列を生成し、OSクリップボードに書き込む
+        const tsvString = tsvRows.map(row => row.join('\t')).join('\n');
+        try {
+          await navigator.clipboard.writeText(tsvString);
+        } catch (err) {
+          console.error('OSクリップボードへの書き込みに失敗:', err);
+          // (ここで処理を中断)
+          return;
+        }
+
+        // (CUT ('x') の場合のDB削除ロジック - 変更なし)
         if (event.key === 'x') {
-          // (CUT DBロジック)
           const newOptimisticAssignments = currentAssignments.filter(a => !keysToCut.has(`${a.staffId}_${a.date}`));
           
           const currentSyncId = Date.now();
           syncLockRef.current = currentSyncId;
           
-          // ★★★ Plan F: 順序入れ替え ★★★
           dispatch(setAssignments(newOptimisticAssignments)); 
-          // console.log(`★[LOCK] Cut ('x'): isSyncing = true (ID: ${currentSyncId})`);
-          // console.trace();
           dispatch(_setIsSyncing(true));
           
-          // (DB非同期操作 - 変更なし)
           (async () => {
             try {
               if (!monthDays || monthDays.length === 0) throw new Error("カレンダーの月情報がありません。");
@@ -613,44 +618,60 @@ export const useCalendarInteractions = (
               });
 
               if (syncLockRef.current === currentSyncId) {
-                  // console.log(`★[UNLOCK] Cut ('x'): isSyncing = false (ID: ${currentSyncId})`);
                   dispatch(_setIsSyncing(false)); 
               } else {
-                  // console.warn(`★[UNLOCK-STALE] Cut ('x'): Stale lock detected. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
                   if (syncLockRef.current === 0) { dispatch(_setIsSyncing(false)); }
               }
             } catch (e) {
               console.error("カット(DB削除)に失敗:", e);
               if (syncLockRef.current === currentSyncId) {
-                  // console.warn(`★[UNLOCK-FAIL] Cut ('x'): Reverting state (ID: ${currentSyncId})`);
                   db.assignments.toArray().then(dbAssignments => dispatch(_syncAssignments(dbAssignments))); 
               } else {
-                  // console.warn(`★[UNLOCK-FAIL-STALE] Cut ('x'): DB Error, but stale. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
                   if (syncLockRef.current === 0) { dispatch(_setIsSyncing(false)); }
               }
             }
           })(); 
-          // ★★★ 修正ここまで ★★★
         }
       } 
-      // (PASTE - ★★★ Plan F: 順序入れ替え ★★★)
+      // ★★★ 修正: PASTE (Ctrl+V) - OSクリップボードからTSVを読み込む ★★★
       else if (ctrlKey && event.key === 'v') {
         event.preventDefault();
-        const clipboard = clipboardRef.current; 
-        if (!clipboard || !activeCell) return;
+
+        if (!activeCell) return;
+        
+        let tsvString = "";
+        try {
+          // ★ OSクリップボードからTSV文字列を非同期で読み込む
+          tsvString = await navigator.clipboard.readText();
+        } catch (err) {
+          console.error('OSクリップボードの読み取りに失敗:', err);
+          return;
+        }
+        
+        if (!tsvString) return;
+
         const currentAssignments = latestAssignmentsRef.current;
         
-        // (貼り付け範囲の計算 - 変更なし)
-        const { assignments: clipboardAssignments, rowCount, colCount } = clipboard;
+        // ★ TSV文字列を解析
+        const tsvRows = tsvString.split('\n').map(row => row.split('\t'));
+        const rowCount = tsvRows.length;
+        let colCount = 0;
+        
         const newAssignmentsToPaste: Omit<IAssignment, 'id'>[] = [];
         const keysToOverwrite = new Set<string>(); 
         const isPasteToWorkArea = isWorkAreaCell(activeCell.staffIndex, activeCell.dateIndex);
-        for (let r = 0; r < rowCount; r++) {
-          for (let c = 0; c < colCount; c++) {
-            const clipboardItem = clipboardAssignments[r * colCount + c];
+
+        for (let r = 0; r < tsvRows.length; r++) {
+          const tsvCols = tsvRows[r];
+          if (tsvCols.length > colCount) colCount = tsvCols.length; // 最大列数を更新
+
+          for (let c = 0; c < tsvCols.length; c++) {
+            const patternId = tsvCols[c].trim(); // Excelからだと \r が入る場合があるのでtrim()
+            
             let targetStaffId: string | null = null;
             let targetDate: string | null = null;
-            let key: string | null = null;
+            let targetStaff: IStaff | undefined | null = null; // ★ unitId設定用にスタッフ情報も取得
+
             if (isPasteToWorkArea) {
               const staffIndex = activeCell.staffIndex + r;
               const dateIndex = activeCell.dateIndex + c;
@@ -659,30 +680,41 @@ export const useCalendarInteractions = (
               if (!staffRow || !dateCol) continue; 
               targetStaffId = staffRow.staffId;
               targetDate = dateCol.date; 
+              // (作業領域への貼り付けでは unitId は不明なため null のまま)
             } else {
               const staffIndex = activeCell.staffIndex + r;
               const dateIndex = activeCell.dateIndex + c;
               if (staffIndex >= sortedStaffList.length || dateIndex >= monthDays.length) { 
                 continue; 
               }
-              const targetStaff = sortedStaffList[staffIndex];
+              targetStaff = sortedStaffList[staffIndex];
               const targetDay = monthDays[dateIndex]; 
               if (!targetStaff || !targetDay) continue;
               targetStaffId = targetStaff.staffId;
               targetDate = targetDay.dateStr;
             }
+
             if (!targetStaffId || !targetDate) continue;
-            key = `${targetStaffId}_${targetDate}`;
+            const key = `${targetStaffId}_${targetDate}`;
             keysToOverwrite.add(key); 
-            if (clipboardItem) { 
-              newAssignmentsToPaste.push({
-                date: targetDate, 
-                staffId: targetStaffId, 
-                patternId: clipboardItem.patternId,
-                unitId: clipboardItem.unitId,
-                locked: clipboardItem.locked
-              });
+
+            if (patternId) { 
+              const pattern = patternMap.get(patternId);
+              // ★ patternMap に存在するかチェック
+              if (pattern) {
+                // ★ TSV仕様: locked: true, unitId はロジックで決定
+                newAssignmentsToPaste.push({
+                  date: targetDate, 
+                  staffId: targetStaffId, 
+                  patternId: pattern.patternId,
+                  // ★ 労働ならスタッフの所属ユニット、それ以外(公休/有給)なら null
+                  unitId: (pattern.workType === 'Work' && targetStaff) ? targetStaff.unitId : null,
+                  locked: true // ★ ペーストは手動固定扱い
+                });
+              }
+              // (もしpatternIdがDBに存在しない文字列なら、無視して「アサインなし」扱いになる)
             }
+            // (patternId が "" や null の場合は「アサインなし」= 何も追加しない)
           }
         }
         
@@ -702,11 +734,9 @@ export const useCalendarInteractions = (
         
         // ★★★ Plan F: 順序入れ替え ★★★
         dispatch(setAssignments(finalOptimisticState)); 
-        // console.log(`★[LOCK] Paste ('v'): isSyncing = true (ID: ${currentSyncId})`);
-        // console.trace(); 
         dispatch(_setIsSyncing(true));
         
-        // (貼り付け後の選択範囲更新 - 変更なし)
+        // ★ 貼り付け後の選択範囲更新 (TSVの行列数(rowCount, colCount)を使用)
         if (keysToOverwrite.size > 0 && activeCell) {
           const endStaffIndex = activeCell.staffIndex + rowCount - 1;
           const endDateIndex = activeCell.dateIndex + colCount - 1;
@@ -776,19 +806,15 @@ export const useCalendarInteractions = (
             });
             
             if (syncLockRef.current === currentSyncId) {
-              // console.log(`★[UNLOCK] Paste ('v'): isSyncing = false (ID: ${currentSyncId})`);
               dispatch(_setIsSyncing(false)); 
             } else {
-              // console.warn(`★[UNLOCK-STALE] Paste ('v'): Stale lock detected. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
               if (syncLockRef.current === 0) { dispatch(_setIsSyncing(false)); }
             }
           } catch (e) {
             console.error("ペースト(DB操作)に失敗:", e);
             if (syncLockRef.current === currentSyncId) {
-                // console.warn(`★[UNLOCK-FAIL] Paste ('v'): Reverting state (ID: ${currentSyncId})`);
                 db.assignments.toArray().then(dbAssignments => dispatch(_syncAssignments(dbAssignments))); 
             } else {
-                // console.warn(`★[UNLOCK-FAIL-STALE] Paste ('v'): DB Error, but stale. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
                 if (syncLockRef.current === 0) { dispatch(_setIsSyncing(false)); }
             }
           }
@@ -859,6 +885,7 @@ export const useCalendarInteractions = (
     toggleHoliday, 
     holidayPatternId, paidLeavePatternId,
     assignmentsMap,
+    patternMap, // ★ patternMap を依存配列に追加
     virtualWorkAreaRowsWithCoords, virtualWorkAreaCols, isWorkAreaCell,
     workAreaColCount, workAreaRowCount,
     stopAutoScroll, 

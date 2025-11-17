@@ -8,8 +8,10 @@ import {
   Divider
 } from '@mui/material';
 
-import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
-import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
+// ★★★ 修正: エラーの出るアイコンを代替アイコンに変更 ★★★
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'; // KeyboardArrowDown の代替
+import ExpandLessIcon from '@mui/icons-material/ExpandLess'; // KeyboardArrowUp の代替
+
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import FindInPageIcon from '@mui/icons-material/FindInPage'; 
 import CloseIcon from '@mui/icons-material/Close';
@@ -19,15 +21,14 @@ import BalanceIcon from '@mui/icons-material/Balance';
 interface AiSupportPaneProps {
   instruction: string;
   onInstructionChange: (value: string) => void;
-  isLoading: boolean;
+  isLoading: boolean; // ★ 草案作成(adjustment) / パッチ(patch) がローディング中か
   error: string | null;
   onClearError: () => void;
   
-  // ★★★ 修正: onExecute を2つに分離 ★★★
-  onExecuteDefault: () => void; // 「AIで草案を作成」用
-  onExecuteCustom: () => void;  // 「AI調整」(カスタム指示)用
+  onExecuteDefault: () => void; 
+  onExecuteCustom: () => void;  
   
-  isAnalysisLoading: boolean;
+  isAnalysisLoading: boolean; // ★ 分析(analysis) がローディング中か
   analysisResult: string | null;
   analysisError: string | null;
   onClearAnalysis: () => void;
@@ -35,35 +36,46 @@ interface AiSupportPaneProps {
 
   onFillRental: () => void;
   onForceAdjustHolidays: () => void;
+  
+  // ★★★ 修正: 全体を無効化するためのフラグを追加 ★★★
+  isOverallDisabled: boolean; 
 }
 
 export default function AiSupportPane({
   instruction, onInstructionChange, isLoading, error, onClearError,
-  onExecuteDefault, // ★ 修正
-  onExecuteCustom,  // ★ 修正
+  onExecuteDefault, 
+  onExecuteCustom,  
   isAnalysisLoading, analysisResult, analysisError, onClearAnalysis, onExecuteAnalysis,
-  onFillRental, onForceAdjustHolidays
+  onFillRental, onForceAdjustHolidays,
+  isOverallDisabled // ★★★ 修正: prop を受け取る ★★★
 }: AiSupportPaneProps) {
 
   const [isAiSupportOpen, setIsAiSupportOpen] = useState(true);
 
-  // ★★★ 修正: handleExecute は onExecuteCustom のみ呼ぶようにする ★★★
   const handleExecute = () => {
-    // (fixedInstruction は使われていなかったので削除)
     onExecuteCustom(); 
   };
   
-  const isAnyLoading = isLoading || isAnalysisLoading;
+  // ★★★ 修正: isAiLoading は「AI作業中」のみを監視する (アウトライン表示用) ★★★
+  const isAiLoading = isLoading || isAnalysisLoading;
+  
   const displayResult = analysisResult;
 
   return (
     <Paper 
-      variant="outlined" 
+      // ★★★ 修正: variant="outlined" とボーダー関連を削除 ★★★
+      // variant="outlined" 
+      elevation={2} // ★ 他のPaperと合わせる (ShiftCalendarPageのPaperはデフォルトelevation=1)
       sx={{ 
         width: '100%', 
         flexShrink: 0, 
-        borderColor: isAnyLoading ? 'primary.main' : 'divider',
-        borderWidth: isAnyLoading ? 2 : 1,
+        // borderColor: isAiLoading ? 'primary.main' : 'divider', // 削除
+        // borderWidth: isAiLoading ? 2 : 1, // 削除
+        
+        // ★★★ 修正: レイアウトシフトしない outline を使用 ★★★
+        outline: isAiLoading ? '2px solid #1976d2' : 'none', // primary.main の色
+        outlineOffset: '-2px', // 内側に表示
+        
         overflow: 'hidden' 
       }}
     >
@@ -73,7 +85,8 @@ export default function AiSupportPane({
       >
         <Typography variant="h6">AIサポート & 自動調整</Typography>
         <IconButton size="small">
-          {isAiSupportOpen ? <KeyboardArrowDownIcon /> : <KeyboardArrowUpIcon />}
+          {/* ★★★ 修正: 代替アイコンを使用 ★★★ */}
+          {isAiSupportOpen ? <ExpandLessIcon /> : <ExpandMoreIcon />}
         </IconButton>
       </Box>
       
@@ -136,13 +149,15 @@ export default function AiSupportPane({
                 <Button 
                   variant="contained" 
                   color="primary"
+                  // ★★★ 修正: isLoading は草案作成中フラグ ★★★
                   startIcon={isLoading ? <CircularProgress size={20} color="inherit" /> : <AutoFixHighIcon />}
-                  // ★★★ 修正: onExecuteDefault を呼ぶ ★★★
                   onClick={onExecuteDefault} 
-                  disabled={isAnyLoading} 
+                  // ★★★ 修正: isOverallDisabled を使用 ★★★
+                  disabled={isOverallDisabled} 
                   fullWidth
                   sx={{ py: 1.5 }}
                 >
+                  {/* ★★★ 修正: isLoading は草案作成中フラグ ★★★ */}
                   {isLoading ? '作成中...' : 'AIで草案を作成'}
                 </Button>
                 <Button 
@@ -150,7 +165,8 @@ export default function AiSupportPane({
                   color="success"
                   startIcon={<SupportAgentIcon />}
                   onClick={onFillRental}
-                  disabled={isAnyLoading} 
+                  // ★★★ 修正: isOverallDisabled を使用 ★★★
+                  disabled={isOverallDisabled} 
                   fullWidth
                   sx={{ py: 1.5 }}
                 >
@@ -172,7 +188,8 @@ export default function AiSupportPane({
                   color="warning"
                   startIcon={<BalanceIcon />}
                   onClick={onForceAdjustHolidays}
-                  disabled={isAnyLoading} 
+                  // ★★★ 修正: isOverallDisabled を使用 ★★★
+                  disabled={isOverallDisabled} 
                   fullWidth
                 >
                   公休数強制補正
@@ -180,11 +197,14 @@ export default function AiSupportPane({
                 <Button 
                   variant="outlined" 
                   color="secondary"
+                  // ★★★ 修正: isAnalysisLoading は分析中フラグ ★★★
                   startIcon={isAnalysisLoading ? <CircularProgress size={20} color="inherit" /> : <FindInPageIcon />}
                   onClick={() => onExecuteAnalysis()} 
-                  disabled={isAnyLoading} 
+                  // ★★★ 修正: isOverallDisabled を使用 ★★★
+                  disabled={isOverallDisabled} 
                   fullWidth
                 >
+                  {/* ★★★ 修正: isAnalysisLoading は分析中フラグ ★★★ */}
                   {isAnalysisLoading ? '分析中...' : 'AI現況分析'}
                 </Button>
               </Stack>
@@ -204,14 +224,16 @@ export default function AiSupportPane({
                   placeholder="例: Aさんの夜勤を減らして..."
                   value={instruction}
                   onChange={(e) => onInstructionChange(e.target.value)}
-                  disabled={isAnyLoading}
+                  // ★★★ 修正: isOverallDisabled を使用 ★★★
+                  disabled={isOverallDisabled}
                 />
                 <Button 
                   variant="contained" 
                   color="info"
                   // ★★★ 修正: 内部の handleExecute を呼ぶ (これが onExecuteCustom を呼ぶ) ★★★
                   onClick={() => handleExecute()} 
-                  disabled={isAnyLoading} 
+                  // ★★★ 修正: isOverallDisabled を使用 ★★★
+                  disabled={isOverallDisabled} 
                   sx={{ minWidth: '120px' }}
                 >
                   AI調整

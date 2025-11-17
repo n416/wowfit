@@ -302,7 +302,7 @@ function ShiftCalendarPage() {
     }
   };
 
-  // (isOverallLoading - 変更なし)
+  // ★★★ 修正: isOverallLoading は「全体無効化」フラグとして定義 ★★★
   const isOverallLoading = isSyncing || adjustmentLoading || patchLoading || isMonthLoading || analysisLoading || adviceLoading;
 
   // (月遷移ハンドラ - 変更なし)
@@ -492,19 +492,21 @@ function ShiftCalendarPage() {
       </Box> {/* 上部エリアここまで */}
 
 
-      {/* (AIサポートパネル - 変更なし) */}
+      {/* (AIサポートパネル) */}
       <AiSupportPane
         instruction={aiInstruction} 
         onInstructionChange={setAiInstruction} 
         
-        isLoading={isOverallLoading}
+        // ★★★ 修正: isLoading は「草案作成中」または「パッチ適用中」のみ ★★★
+        isLoading={adjustmentLoading || patchLoading}
         
         error={adjustmentError || patchError}
         onClearError={handleClearError} 
         onExecuteDefault={handleRunAiDefault}     
         onExecuteCustom={handleRunAiAdjustment}  
         
-        isAnalysisLoading={isOverallLoading}
+        // ★★★ 修正: isAnalysisLoading は「分析中」のみ ★★★
+        isAnalysisLoading={analysisLoading}
 
         analysisResult={analysisResult}
         analysisError={analysisError}
@@ -512,6 +514,9 @@ function ShiftCalendarPage() {
         onExecuteAnalysis={handleRunAiAnalysis} 
         onFillRental={handleFillRental} 
         onForceAdjustHolidays={handleRunAiHolidayPatch} 
+        
+        // ★★★ 修正: 全体のローディング状態を isOverallDisabled として渡す ★★★
+        isOverallDisabled={isOverallLoading}
       />
 
 

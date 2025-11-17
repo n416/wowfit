@@ -74,7 +74,7 @@ function ShiftCalendarPage() {
   
   // (assignment state)
   const { 
-    past, 
+    past, // ★★★ この past を利用します ★★★
     future,
     present: {
       assignments, 
@@ -180,10 +180,6 @@ function ShiftCalendarPage() {
 
 
   // ★ (Plan E) ローディング状態の集中監視ログ (削除)
-  // useEffect(() => {
-  //   console.log(`(Plan E) [StateWatch] Loading flags changed:`, { ... });
-  // }, [ ... ]);
-  // ★ ログ削除ここまで
 
 
   // ★ 4. ページ固有のロジック (データ読み込み - ★ 月遷移のロジックを修正)
@@ -309,13 +305,25 @@ function ShiftCalendarPage() {
   const CONFIRMATION_MESSAGE = "移動するとデータが固定されます。「元に戻す」動作が出来なくなりますが宜しいですか？";
 
   const handleGoToPrevMonth = () => {
-    if (window.confirm(CONFIRMATION_MESSAGE)) {
+    // ★ 修正: past.length > 0 の時だけ確認する
+    if (past.length > 0) {
+      if (window.confirm(CONFIRMATION_MESSAGE)) {
+        dispatch(goToPrevMonth());
+      }
+    } else {
+      // ★ 履歴がなければ確認しない
       dispatch(goToPrevMonth());
     }
   };
 
   const handleGoToNextMonth = () => {
-    if (window.confirm(CONFIRMATION_MESSAGE)) {
+    // ★ 修正: past.length > 0 の時だけ確認する
+    if (past.length > 0) {
+      if (window.confirm(CONFIRMATION_MESSAGE)) {
+        dispatch(goToNextMonth());
+      }
+    } else {
+      // ★ 履歴がなければ確認しない
       dispatch(goToNextMonth());
     }
   };

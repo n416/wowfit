@@ -4,8 +4,8 @@ import { useDispatch, useStore } from 'react-redux';
 import type { AppDispatch, RootState } from '../store';
 import { ActionCreators } from 'redux-undo';
 
-// ★ 2. バージョンを (Plan E) に更新
-console.log("[VERSION] useUndoRedoKeyboard.ts (Plan E + Logging) loaded. invalidateSyncLock calls removed.");
+// ★ 2. バージョンログ (削除)
+// console.log("[VERSION] useUndoRedoKeyboard.ts (Plan E + Logging) loaded. invalidateSyncLock calls removed.");
 
 /**
  * UNDO (Ctrl+Z) / REDO (Ctrl+Y) のキーボードショートカットをグローバルに設定するフック
@@ -30,58 +30,33 @@ export const useUndoRedoKeyboard = (invalidateSyncLock: () => void) => {
       if (ctrlKey && event.key === 'z') {
         event.preventDefault();
         
-        // ★★★ (Plan E) UNDO ログ START ★★★
-        console.log("===== (Plan E) [UNDO] KeyDown: Ctrl+Z pressed. =====");
-        try {
-          const stateBeforeUndo = store.getState();
-          const present = stateBeforeUndo.assignment.present;
-          console.log("[UNDO] State BEFORE dispatch:", {
-            isSyncing: present.isSyncing,
-            adjLoading: present.adjustmentLoading,
-            patchLoading: present.patchLoading,
-            analysisLoading: present.analysisLoading,
-            adviceLoading: present.adviceLoading,
-            isMonthLoading: stateBeforeUndo.calendar.isMonthLoading,
-            pastCount: stateBeforeUndo.assignment.past.length,
-          });
-        } catch (e) {
-          console.error("[UNDO] Error getting state before undo:", e);
-        }
+        // ★★★ (Plan E) UNDO ログ (削除) ★★★
+        // console.log("===== (Plan E) [UNDO] KeyDown: Ctrl+Z pressed. =====");
+        // try { ... } catch (e) { ... }
         
         dispatch(ActionCreators.undo());
         
-        console.log("[UNDO] Dispatched ActionCreators.undo(). State will update shortly.");
-        // ★★★ (Plan E) UNDO ログ END ★★★
+        // console.log("[UNDO] Dispatched ActionCreators.undo(). State will update shortly.");
+        // ★★★ ログ削除ここまで ★★★
         
       } else if (ctrlKey && event.key === 'y') {
         event.preventDefault();
 
-        // ★★★ (Plan E) REDO ログ START ★★★
-        console.log("===== (Plan E) [REDO] KeyDown: Ctrl+Y pressed. =====");
-        try {
-          const stateBeforeRedo = store.getState();
-          const present = stateBeforeRedo.assignment.present;
-          console.log("[REDO] State BEFORE dispatch:", {
-            isSyncing: present.isSyncing,
-            adjLoading: present.adjustmentLoading,
-            patchLoading: present.patchLoading,
-            futureCount: stateBeforeRedo.assignment.future.length,
-          });
-        } catch (e) {
-          console.error("[REDO] Error getting state before redo:", e);
-        }
+        // ★★★ (Plan E) REDO ログ (削除) ★★★
+        // console.log("===== (Plan E) [REDO] KeyDown: Ctrl+Y pressed. =====");
+        // try { ... } catch (e) { ... }
         
         dispatch(ActionCreators.redo());
 
-        console.log("[REDO] Dispatched ActionCreators.redo(). State will update shortly.");
-        // ★★★ (Plan E) REDO ログ END ★★★
+        // console.log("[REDO] Dispatched ActionCreators.redo(). State will update shortly.");
+        // ★★★ ログ削除ここまで ★★★
         
       } else if (isMac && ctrlKey && event.shiftKey && event.key === 'z') {
         event.preventDefault();
         // (Mac の REDO も同様)
-        console.log("===== (Plan E) [REDO-Mac] KeyDown: Cmd+Shift+Z pressed. =====");
+        // console.log("===== (Plan E) [REDO-Mac] KeyDown: Cmd+Shift+Z pressed. =====");
         dispatch(ActionCreators.redo());
-        console.log("[REDO-Mac] Dispatched ActionCreators.redo(). State will update shortly.");
+        // console.log("[REDO-Mac] Dispatched ActionCreators.redo(). State will update shortly.");
       }
     };
 

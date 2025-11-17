@@ -461,7 +461,7 @@ export const {
 const undoableAssignmentReducer = undoable(assignmentSlice.reducer, {
   
   // ★ カスタム filter 関数
-  filter: (action, currentState, previousState) => {
+  filter: (action) => {
     // 除外したいアクションのリスト
     const excludedTypes = [
       _syncAssignments.type,

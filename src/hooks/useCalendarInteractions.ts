@@ -9,7 +9,7 @@ import { setAssignments, _syncAssignments, _setIsSyncing } from '../store/assign
 
 // ★★★ プランF ★★★
 // (dispatch 順序を setAssignments -> _setIsSyncing に修正)
-console.log("[VERSION] useCalendarInteractions.ts (Plan F) loaded. Dispatch order reversed (setAssignments -> _setIsSyncing).");
+// console.log("[VERSION] useCalendarInteractions.ts (Plan F) loaded. Dispatch order reversed (setAssignments -> _setIsSyncing).");
 // ★★★★★★★★★★★★★★★★★★★★★★★★★
 
 // ★ 修正: MonthDay 型をここで定義
@@ -172,7 +172,7 @@ export const useCalendarInteractions = (
                                state.assignment.present.patchLoading ||
                                state.calendar.isMonthLoading;
     if (isCurrentlyLoading) {
-      console.warn("[Guard] AI/月読込ローディング中のため toggleHoliday をブロック");
+      // console.warn("[Guard] AI/月読込ローディング中のため toggleHoliday をブロック");
       return;
     }
 
@@ -210,8 +210,8 @@ export const useCalendarInteractions = (
     dispatch(setAssignments(newOptimisticAssignments)); 
     
     // 2. 次に 同期開始を通知 (履歴から除外)
-    console.log(`★[LOCK] toggleHoliday: isSyncing = true (ID: ${currentSyncId})`);
-    console.trace(); 
+    // console.log(`★[LOCK] toggleHoliday: isSyncing = true (ID: ${currentSyncId})`);
+    // console.trace(); 
     dispatch(_setIsSyncing(true)); 
     
     // ★★★ 順序入れ替えここまで ★★★
@@ -244,20 +244,20 @@ export const useCalendarInteractions = (
         
         // (DB操作成功時 - 変更なし)
         if (syncLockRef.current === currentSyncId) {
-            console.log(`★[UNLOCK] toggleHoliday: isSyncing = false (ID: ${currentSyncId})`);
+            // console.log(`★[UNLOCK] toggleHoliday: isSyncing = false (ID: ${currentSyncId})`);
             dispatch(_setIsSyncing(false));
         } else {
-            console.warn(`★[UNLOCK-STALE] toggleHoliday: Stale lock detected. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
+            // console.warn(`★[UNLOCK-STALE] toggleHoliday: Stale lock detected. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
         }
         
       } catch (e) {
         // (DB操作失敗時 - 変更なし)
         console.error("アサインの即時更新（DB反映）に失敗:", e);
         if (syncLockRef.current === currentSyncId) {
-            console.warn(`★[UNLOCK-FAIL] toggleHoliday: Reverting state (ID: ${currentSyncId})`);
+            // console.warn(`★[UNLOCK-FAIL] toggleHoliday: Reverting state (ID: ${currentSyncId})`);
             db.assignments.toArray().then(dbAssignments => dispatch(_syncAssignments(dbAssignments))); 
         } else {
-            console.warn(`★[UNLOCK-FAIL-STALE] toggleHoliday: DB Error, but stale. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
+            // console.warn(`★[UNLOCK-FAIL-STALE] toggleHoliday: DB Error, but stale. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
             if (syncLockRef.current === 0) {
               dispatch(_setIsSyncing(false)); 
             }
@@ -288,7 +288,7 @@ export const useCalendarInteractions = (
                                state.assignment.present.patchLoading ||
                                state.calendar.isMonthLoading;
     if (isCurrentlyLoading) {
-      console.warn("[Guard] ローディング中のため handleCellClick をブロック");
+      // console.warn("[Guard] ローディング中のため handleCellClick をブロック");
       return;
     }
     // ★★★ 修正ここまで ★★★
@@ -347,7 +347,7 @@ export const useCalendarInteractions = (
                                state.assignment.present.patchLoading ||
                                state.calendar.isMonthLoading;
     if (isCurrentlyLoading) {
-      console.warn("[Guard] ローディング中のため handleCellMouseDown をブロック");
+      // console.warn("[Guard] ローディング中のため handleCellMouseDown をブロック");
       return;
     }
     // ★★★ 修正ここまで ★★★
@@ -413,7 +413,7 @@ export const useCalendarInteractions = (
       const ctrlKey = isMac ? event.metaKey : event.ctrlKey;
       if (isOverallLoading) {
         if (ctrlKey && (event.key === 'c' || event.key === 'x' || event.key === 'v')) {
-           console.warn("[Guard] ローディング中のためキー操作をブロック:", event.key);
+           // console.warn("[Guard] ローディング中のためキー操作をブロック:", event.key);
            event.preventDefault();
            return;
         }
@@ -585,8 +585,8 @@ export const useCalendarInteractions = (
           
           // ★★★ Plan F: 順序入れ替え ★★★
           dispatch(setAssignments(newOptimisticAssignments)); 
-          console.log(`★[LOCK] Cut ('x'): isSyncing = true (ID: ${currentSyncId})`);
-          console.trace();
+          // console.log(`★[LOCK] Cut ('x'): isSyncing = true (ID: ${currentSyncId})`);
+          // console.trace();
           dispatch(_setIsSyncing(true));
           
           // (DB非同期操作 - 変更なし)
@@ -613,19 +613,19 @@ export const useCalendarInteractions = (
               });
 
               if (syncLockRef.current === currentSyncId) {
-                  console.log(`★[UNLOCK] Cut ('x'): isSyncing = false (ID: ${currentSyncId})`);
+                  // console.log(`★[UNLOCK] Cut ('x'): isSyncing = false (ID: ${currentSyncId})`);
                   dispatch(_setIsSyncing(false)); 
               } else {
-                  console.warn(`★[UNLOCK-STALE] Cut ('x'): Stale lock detected. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
+                  // console.warn(`★[UNLOCK-STALE] Cut ('x'): Stale lock detected. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
                   if (syncLockRef.current === 0) { dispatch(_setIsSyncing(false)); }
               }
             } catch (e) {
               console.error("カット(DB削除)に失敗:", e);
               if (syncLockRef.current === currentSyncId) {
-                  console.warn(`★[UNLOCK-FAIL] Cut ('x'): Reverting state (ID: ${currentSyncId})`);
+                  // console.warn(`★[UNLOCK-FAIL] Cut ('x'): Reverting state (ID: ${currentSyncId})`);
                   db.assignments.toArray().then(dbAssignments => dispatch(_syncAssignments(dbAssignments))); 
               } else {
-                  console.warn(`★[UNLOCK-FAIL-STALE] Cut ('x'): DB Error, but stale. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
+                  // console.warn(`★[UNLOCK-FAIL-STALE] Cut ('x'): DB Error, but stale. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
                   if (syncLockRef.current === 0) { dispatch(_setIsSyncing(false)); }
               }
             }
@@ -702,8 +702,8 @@ export const useCalendarInteractions = (
         
         // ★★★ Plan F: 順序入れ替え ★★★
         dispatch(setAssignments(finalOptimisticState)); 
-        console.log(`★[LOCK] Paste ('v'): isSyncing = true (ID: ${currentSyncId})`);
-        console.trace(); 
+        // console.log(`★[LOCK] Paste ('v'): isSyncing = true (ID: ${currentSyncId})`);
+        // console.trace(); 
         dispatch(_setIsSyncing(true));
         
         // (貼り付け後の選択範囲更新 - 変更なし)
@@ -776,19 +776,19 @@ export const useCalendarInteractions = (
             });
             
             if (syncLockRef.current === currentSyncId) {
-              console.log(`★[UNLOCK] Paste ('v'): isSyncing = false (ID: ${currentSyncId})`);
+              // console.log(`★[UNLOCK] Paste ('v'): isSyncing = false (ID: ${currentSyncId})`);
               dispatch(_setIsSyncing(false)); 
             } else {
-              console.warn(`★[UNLOCK-STALE] Paste ('v'): Stale lock detected. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
+              // console.warn(`★[UNLOCK-STALE] Paste ('v'): Stale lock detected. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
               if (syncLockRef.current === 0) { dispatch(_setIsSyncing(false)); }
             }
           } catch (e) {
             console.error("ペースト(DB操作)に失敗:", e);
             if (syncLockRef.current === currentSyncId) {
-                console.warn(`★[UNLOCK-FAIL] Paste ('v'): Reverting state (ID: ${currentSyncId})`);
+                // console.warn(`★[UNLOCK-FAIL] Paste ('v'): Reverting state (ID: ${currentSyncId})`);
                 db.assignments.toArray().then(dbAssignments => dispatch(_syncAssignments(dbAssignments))); 
             } else {
-                console.warn(`★[UNLOCK-FAIL-STALE] Paste ('v'): DB Error, but stale. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
+                // console.warn(`★[UNLOCK-FAIL-STALE] Paste ('v'): DB Error, but stale. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
                 if (syncLockRef.current === 0) { dispatch(_setIsSyncing(false)); }
             }
           }

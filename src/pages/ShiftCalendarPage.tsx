@@ -179,23 +179,11 @@ function ShiftCalendarPage() {
   useUndoRedoKeyboard(invalidateSyncLock); // ★ 修正済みフックを呼び出す
 
 
-  // ★ (Plan E) ローディング状態の集中監視ログ
-  useEffect(() => {
-    // このログは、いずれかのローディングフラグが変更されるたびに（UNDO/REDOを含む）実行されます
-    console.log(`(Plan E) [StateWatch] Loading flags changed:`, {
-      // assignmentSlice
-      isSyncing,
-      adjustmentLoading,
-      patchLoading,
-      analysisLoading,
-      adviceLoading,
-      // calendarSlice
-      isMonthLoading,
-      // 総合判断
-      isOverallLoading: isSyncing || adjustmentLoading || patchLoading || isMonthLoading || analysisLoading || adviceLoading,
-    });
-  }, [isSyncing, adjustmentLoading, patchLoading, isMonthLoading, analysisLoading, adviceLoading]);
-  // ★ (Plan E) ログここまで
+  // ★ (Plan E) ローディング状態の集中監視ログ (削除)
+  // useEffect(() => {
+  //   console.log(`(Plan E) [StateWatch] Loading flags changed:`, { ... });
+  // }, [ ... ]);
+  // ★ ログ削除ここまで
 
 
   // ★ 4. ページ固有のロジック (データ読み込み - ★ 月遷移のロジックを修正)
@@ -317,6 +305,23 @@ function ShiftCalendarPage() {
   // ★ (Plan E) isOverallLoading の定義を StateWatch と完全に一致
   const isOverallLoading = isSyncing || adjustmentLoading || patchLoading || isMonthLoading || analysisLoading || adviceLoading;
 
+  // ★★★ 要件1: 月遷移時の確認ダイアログ ★★★
+  const CONFIRMATION_MESSAGE = "移動するとデータが固定されます。「元に戻す」動作が出来なくなりますが宜しいですか？";
+
+  const handleGoToPrevMonth = () => {
+    if (window.confirm(CONFIRMATION_MESSAGE)) {
+      dispatch(goToPrevMonth());
+    }
+  };
+
+  const handleGoToNextMonth = () => {
+    if (window.confirm(CONFIRMATION_MESSAGE)) {
+      dispatch(goToNextMonth());
+    }
+  };
+  // ★★★ 修正ここまで ★★★
+
+
   return (
     <Box sx={{ 
       display: 'flex', 
@@ -361,16 +366,16 @@ function ShiftCalendarPage() {
             
             {/* 中央: 月選択 */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, position: 'absolute', left: '50%', transform: 'translateX(-50%)' }}>
-              {/* ★ isOverallLoading で無効化 */}
-              <IconButton onClick={() => dispatch(goToPrevMonth())} size="small" disabled={isOverallLoading}>
+              {/* ★ isOverallLoading で無効化 + ハンドラ変更 */}
+              <IconButton onClick={handleGoToPrevMonth} size="small" disabled={isOverallLoading}>
                 <ChevronLeftIcon />
               </IconButton>
               <Typography variant="h6" component="div" sx={{ minWidth: '150px', textAlign: 'center' }}>
                 {/* ★ NaNガード */}
                 {isNaN(currentYear) || isNaN(currentMonth) ? '...' : `${currentYear}年 ${currentMonth}月`}
               </Typography>
-              {/* ★ isOverallLoading で無効化 */}
-              <IconButton onClick={() => dispatch(goToNextMonth())} size="small" disabled={isOverallLoading}>
+              {/* ★ isOverallLoading で無効化 + ハンドラ変更 */}
+              <IconButton onClick={handleGoToNextMonth} size="small" disabled={isOverallLoading}>
                 <ChevronRightIcon />
               </IconButton>
             </Box>

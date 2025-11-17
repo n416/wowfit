@@ -10,34 +10,45 @@ import {
   fetchAiHolidayPatch
 } from '../store/assignmentSlice';
 import { db } from '../db/dexie';
-import { MONTH_DAYS } from '../utils/dateUtils';
+// ★ 修正: MONTH_DAYS のインポートを削除
+// import { MONTH_DAYS } from '../utils/dateUtils';
 import { allocateWork } from '../lib/placement/workAllocator';
 import { useDemandMap } from './useDemandMap'; // 穴埋めロジック用にDemandMapが必要
 import { useStaffBurdenData } from './useStaffBurdenData'; // AI実行用に公休数が必要
 
+// ★ 修正: 動的な monthDays の型を定義
+type MonthDay = {
+  dateStr: string;
+  weekday: string;
+  dayOfWeek: number;
+};
+
 /**
  * AIサポートパネルや自動化ボタンに関連する
  * 実行ロジック（Thunk呼び出しなど）を管理するフック
+ * ★ 修正: 引数を追加
  */
-export const useShiftCalendarLogic = () => {
+export const useShiftCalendarLogic = (
+  currentYear: number,
+  currentMonth: number,
+  monthDays: MonthDay[]
+) => {
   const dispatch: AppDispatch = useDispatch();
   
-  // 1. AIへの指示テキスト
+  // 1. AIへの指示テキスト (変更なし)
   const [aiInstruction, setAiInstruction] = useState("夜勤さんXの夜勤を月4回程度に減らせてください。");
 
   // 2. 実行に必要な各種データをストアから取得
   
-  // ★★★ 修正: state.assignment.present から assignments を取得 ★★★
-  // (useShiftCalendarLogic.ts:38)
   const { assignments } = useSelector((state: RootState) => state.assignment.present);
   
-  // (allStaffFromStore は useStaffBurdenData が取得するため不要)
   const { patterns: shiftPatterns } = useSelector((state: RootState) => state.pattern);
   const { units: unitList } = useSelector((state: RootState) => state.unit);
   
   // 3. 他のフックから必要なデータを取得
-  const { staffList: activeStaffList, staffHolidayRequirements } = useStaffBurdenData();
-  const demandMap = useDemandMap();
+  // ★ 修正: 引数を渡す
+  const { staffList: activeStaffList, staffHolidayRequirements } = useStaffBurdenData(currentYear, currentMonth, monthDays);
+  const demandMap = useDemandMap(monthDays);
 
   // AIに渡す用のスタッフリスト (アクティブかつRental以外)
   const staffForAi = useMemo(() => 
@@ -58,6 +69,7 @@ export const useShiftCalendarLogic = () => {
    * [実行] 応援スタッフで穴埋め (ロジック)
    */
   const handleFillRental = useCallback(async () => {
+    // ★ 修正: monthDays を渡す
     await allocateWork({
       assignments,
       staffList: staffForRentalFill, // アクティブなRentalスタッフ
@@ -65,9 +77,11 @@ export const useShiftCalendarLogic = () => {
       patternMap,
       shiftPatterns, 
       dispatch,
-      demandMap 
+      demandMap,
+      monthDays // ★ 追加
     });
-  }, [assignments, staffForRentalFill, unitList, patternMap, shiftPatterns, dispatch, demandMap]);
+  // ★ 修正: 依存配列に monthDays を追加
+  }, [assignments, staffForRentalFill, unitList, patternMap, shiftPatterns, dispatch, demandMap, monthDays]);
 
   /**
    * [実行] AIで草案を作成 (カスタム指示)
@@ -84,10 +98,12 @@ export const useShiftCalendarLogic = () => {
       allPatterns: shiftPatterns,
       allUnits: unitList,
       allAssignments: assignments, 
-      monthInfo: { year: 2025, month: 11, days: MONTH_DAYS },
+      // ★ 修正: monthInfo を動的に
+      monthInfo: { year: currentYear, month: currentMonth, days: monthDays },
       staffHolidayRequirements: staffHolidayRequirements 
     }));
-  }, [aiInstruction, dispatch, staffForAi, shiftPatterns, unitList, assignments, staffHolidayRequirements]);
+  // ★ 修正: 依存配列に月情報を追加
+  }, [aiInstruction, dispatch, staffForAi, shiftPatterns, unitList, assignments, staffHolidayRequirements, currentYear, currentMonth, monthDays]);
 
   /**
    * [実行] AIで草案を作成 (デフォルト指示)
@@ -103,10 +119,12 @@ export const useShiftCalendarLogic = () => {
       allPatterns: shiftPatterns,
       allUnits: unitList,
       allAssignments: assignments, 
-      monthInfo: { year: 2025, month: 11, days: MONTH_DAYS },
+      // ★ 修正: monthInfo を動的に
+      monthInfo: { year: currentYear, month: currentMonth, days: monthDays },
       staffHolidayRequirements: staffHolidayRequirements 
     }));
-  }, [dispatch, staffForAi, shiftPatterns, unitList, assignments, staffHolidayRequirements]);
+  // ★ 修正: 依存配列に月情報を追加
+  }, [dispatch, staffForAi, shiftPatterns, unitList, assignments, staffHolidayRequirements, currentYear, currentMonth, monthDays]);
 
 
   /**
@@ -118,10 +136,12 @@ export const useShiftCalendarLogic = () => {
       allPatterns: shiftPatterns,
       allUnits: unitList,
       allAssignments: assignments, 
-      monthInfo: { year: 2025, month: 11, days: MONTH_DAYS },
+      // ★ 修正: monthInfo を動的に
+      monthInfo: { year: currentYear, month: currentMonth, days: monthDays },
       staffHolidayRequirements: staffHolidayRequirements
     }));
-  }, [dispatch, staffForAi, shiftPatterns, unitList, assignments, staffHolidayRequirements]);
+  // ★ 修正: 依存配列に月情報を追加
+  }, [dispatch, staffForAi, shiftPatterns, unitList, assignments, staffHolidayRequirements, currentYear, currentMonth, monthDays]);
 
   /**
    * [実行] AI公休数強制補正 (差分パッチ)
@@ -136,34 +156,54 @@ export const useShiftCalendarLogic = () => {
       allPatterns: shiftPatterns,
       allUnits: unitList,
       allAssignments: assignments, 
-      monthInfo: { year: 2025, month: 11, days: MONTH_DAYS },
+      // ★ 修正: monthInfo を動的に
+      monthInfo: { year: currentYear, month: currentMonth, days: monthDays },
       staffHolidayRequirements: staffHolidayRequirements
     }));
-  }, [dispatch, staffForAi, shiftPatterns, unitList, assignments, staffHolidayRequirements]);
+  // ★ 修正: 依存配列に月情報を追加
+  }, [dispatch, staffForAi, shiftPatterns, unitList, assignments, staffHolidayRequirements, currentYear, currentMonth, monthDays]);
 
   /**
    * [実行] アサインを全リセット
    */
   const handleResetClick = useCallback(async () => {
-    if (window.confirm("「公休」も含め、すべてのアサイン結果をリセットしますか？")) {
+    // ★ 修正: 当月分のみをリセットするように変更
+    if (window.confirm(`${currentYear}年${currentMonth}月の「公休」も含め、すべてのアサイン結果をリセットしますか？`)) {
+      if (!monthDays || monthDays.length === 0) return;
+
+      const firstDay = monthDays[0].dateStr;
+      const lastDay = monthDays[monthDays.length - 1].dateStr;
+      
       try {
-        await db.assignments.clear();
+        // ★ 当月分のアサインのIDを取得
+        const assignmentsToRemove = await db.assignments
+          .where('date')
+          .between(firstDay, lastDay, true, true)
+          .primaryKeys(); // IDのみ取得
+
+        if (assignmentsToRemove.length > 0) {
+          await db.assignments.bulkDelete(assignmentsToRemove);
+        }
+        
+        // ★ UI (Redux) からも削除 (空配列をセット)
         dispatch(setAssignments([]));
+
       } catch (e) {
         console.error("Reset failed:", e);
       }
     }
-  }, [dispatch]);
+  // ★ 修正: 依存配列に月情報を追加
+  }, [dispatch, currentYear, currentMonth, monthDays]);
 
   /**
-   * [UI] エラーをクリア
+   * [UI] エラーをクリア (変更なし)
    */
   const handleClearError = useCallback(() => {
     dispatch(clearAdjustmentError());
   }, [dispatch]);
 
   /**
-   * [UI] 分析結果をクリア
+   * [UI] 分析結果をクリア (変更なし)
    */
   const handleClearAnalysis = useCallback(() => {
     dispatch(clearAnalysis());

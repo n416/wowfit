@@ -1,24 +1,30 @@
 import React, { useMemo, CSSProperties } from 'react';
 import { 
-  // ★★★ v5.71 修正: 未使用の Typography を削除 ★★★
-  // ★★★ Button を削除 ★★★
+  // ★ Button を削除
   Table, TableBody, TableCell, TableHead, TableRow,
   Box
 } from '@mui/material';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../../store';
 import { IStaff, IShiftPattern, IAssignment, IUnit } from '../../db/dexie';
-import { MONTH_DAYS, /* getPrevDateStr */ } from '../../utils/dateUtils'; // ★ getPrevDateStr は未使用
+// ★ 修正: MONTH_DAYS のインポートを削除
+// import { MONTH_DAYS, /* getPrevDateStr */ } from '../../utils/dateUtils'; 
 import { TableVirtuoso } from 'react-virtuoso';
 
+// ★ 修正: 動的な monthDays の型を定義
+type MonthDay = {
+  dateStr: string;
+  weekday: string;
+  dayOfWeek: number;
+};
 
 interface WorkSlotCalendarViewProps {
   onCellClick: (date: string, unitId: string | null) => void;
-  // onResetClick: () => void; // ★★★ 削除 ★★★
-  demandMap: Map<string, { required: number; actual: number }>; // ★★★ v5.101 の変更を元に戻す ★★★
+  demandMap: Map<string, { required: number; actual: number }>; 
+  monthDays: MonthDay[]; // ★ 追加
 }
 
-// ★★★ v5.68 修正: CLS対策 ＋ 日付列の幅を '1em' に変更 ★★★
+// (styles 定義 - 変更なし)
 const styles: { [key: string]: CSSProperties } = {
   th: {
     border: '1px solid #e0e0e0',
@@ -44,9 +50,9 @@ const styles: { [key: string]: CSSProperties } = {
     position: 'sticky',
     left: 0,
     zIndex: 2,
-    minWidth: '1em', // ★ 修正
-    width: '1em', // ★ 修正
-    padding: '6px', // ★ v5.67のthに合わせてpadding調整
+    minWidth: '1em', 
+    width: '1em', 
+    padding: '6px', 
   },
   unitHeaderCell: {
     minWidth: '150px',
@@ -79,25 +85,23 @@ const styles: { [key: string]: CSSProperties } = {
 
 export default function WorkSlotCalendarView({
   onCellClick,
-  // onResetClick, // ★★★ 削除 ★★★
-  demandMap // ★★★ v5.101 の変更を元に戻す ★★★
+  demandMap, 
+  monthDays // ★ 追加
 }: WorkSlotCalendarViewProps) {
   const { staff: staffList } = useSelector((state: RootState) => state.staff);
   const unitList = useSelector((state: RootState) => state.unit.units);
   
-  // ★★★ 変更点: state.assignment.present から assignments を取得 ★★★
   const { assignments } = useSelector((state: RootState) => state.assignment.present);
   
   const { patterns: shiftPatterns } = useSelector((state: RootState) => state.pattern);
 
+  // (useMemo フック - 変更なし)
   const staffMap = useMemo(() => new Map(staffList.map((s: IStaff) => [s.staffId, s])), [staffList]);
   const patternMap = useMemo(() => new Map(shiftPatterns.map((p: IShiftPattern) => [p.patternId, p])), [shiftPatterns]);
   
-  // ★★★ v5.101 で追加した demandMap の useMemo を削除 ★★★
-  
   const assignmentsMap = useMemo(() => {
     const map = new Map<string, IAssignment[]>(); 
-    for (const assignment of assignments) { // ★ これで `assignments` が配列として扱われる
+    for (const assignment of assignments) { 
       if (assignment.unitId) {
         const key = `${assignment.date}_${assignment.unitId}`;
         if (!map.has(key)) map.set(key, []);
@@ -107,9 +111,9 @@ export default function WorkSlotCalendarView({
     return map;
   }, [assignments]);
 
+  // (fixedHeaderContent - 変更なし)
   const fixedHeaderContent = () => (
     <TableRow>
-      {/* ★★★ v5.68 修正: ヘッダーのスタイルも dateCell に準拠 ★★★ */}
       <TableCell style={{ ...styles.th, ...styles.dateCell, zIndex: 3, top: 0 }}>日付</TableCell>
       {unitList.map((unit: IUnit) => (
         <TableCell key={unit.unitId} style={{ ...styles.th, ...styles.unitHeaderCell }}>
@@ -119,10 +123,11 @@ export default function WorkSlotCalendarView({
     </TableRow>
   );
 
-  const itemContent = (_: number, dayInfo: typeof MONTH_DAYS[0]) => {
+  // ★★★ itemContent (monthDays に依存) ★★★
+  const itemContent = (_: number, dayInfo: MonthDay) => { // ★ 修正: 型を変更
     return (
       <>
-        {/* ★★★ v5.68 修正: 改行 <br /> を追加 ★★★ */}
+        {/* ★ 修正: 改行 <br /> を追加 */}
         <TableCell style={{ ...styles.td, ...styles.dateCell }}>
           {dayInfo.dateStr.split('-')[2]}日
           <br />
@@ -143,7 +148,7 @@ export default function WorkSlotCalendarView({
               <div style={styles.barContainer}>
                 {Array.from({ length: 24 }).map((_, hour) => {
                   const demandKey = `${dayInfo.dateStr}_${unit.unitId}_${hour}`;
-                  const demandData = demandMap.get(demandKey); // ★ props の demandMap を参照
+                  const demandData = demandMap.get(demandKey); 
                   let bgColor = 'transparent', title = `${hour}:00 Need:0`;
                   if (demandData && demandData.required > 0) {
                     if (demandData.actual < demandData.required) {
@@ -162,7 +167,6 @@ export default function WorkSlotCalendarView({
                 const staff = staffMap.get(assignment.staffId);
                 const pattern = patternMap.get(assignment.patternId);
                 const isNight = pattern?.isNightShift;
-                // ★ 休職中のスタッフはグレーアウト（または非表示）
                 if (staff?.status === 'OnLeave') {
                   return (
                     <div key={assignment.id} style={{ ...styles.chip, backgroundColor: '#fafafa', color: '#bdbdbd', textDecoration: 'line-through' }}>
@@ -185,16 +189,14 @@ export default function WorkSlotCalendarView({
 
 
   return (
-    // ★★★ v5.70 修正: ルートを Box (flex-column) に変更 ★★★
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* ★★★ リセットボタンの div を削除 ★★★ */}
+      {/* (リセットボタンは削除済み) */}
 
-      {/* ★★★ v5.70 修正: 仮想化テーブルをBoxでラップし、flex: 1 で伸縮させる ★★★ */}
-      {/* ★★★ ボタン削除に伴いマージン調整 (mt: 2 を削除) ★★★ */}
       <Box sx={{ flex: 1, minHeight: 0 }}>
         <TableVirtuoso
           style={{ height: '100%', border: '1px solid #e0e0e0', borderRadius: '4px' }}
-          data={MONTH_DAYS}
+          // ★ 修正: MONTH_DAYS -> monthDays
+          data={monthDays}
           fixedHeaderContent={fixedHeaderContent}
           itemContent={itemContent}
           components={{

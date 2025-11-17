@@ -4,19 +4,24 @@ import type { RootState, AppDispatch } from '../store';
 import { IStaff, IAssignment } from '../db/dexie';
 import { db } from '../db/dexie';
 import { setAssignments, _syncAssignments } from '../store/assignmentSlice'; 
-import { MONTH_DAYS } from '../utils/dateUtils'; 
+// ★ 修正: MONTH_DAYS のインポートを削除
+// import { MONTH_DAYS } from '../utils/dateUtils'; 
 
-// --- 型定義 ---
+// ★ 修正: 動的な monthDays の型を定義
+type MonthDay = {
+  dateStr: string;
+  weekday: string;
+  dayOfWeek: number;
+};
 
+// --- 型定義 (変更なし) ---
 export type ClickMode = 'normal' | 'holiday' | 'paid_leave' | 'select';
-
 export type CellCoords = {
   staffId: string;
   date: string;
   staffIndex: number;
   dateIndex: number;
 };
-
 type ClipboardData = {
   assignments: (Omit<IAssignment, 'id' | 'staffId' | 'date'> | null)[];
   rowCount: number;    
@@ -35,11 +40,13 @@ const WORK_AREA_DATE_PREFIX = "WA_DATE_";
  * @param sortedStaffList StaffCalendarView に表示されている順序のスタッフリスト
  * @param workAreaRef 作業領域のスクロールコンテナDOMへの参照
  * @param mainCalendarScrollerRef メインカレンダー(Virtuoso)のスクローラDOMへの参照
+ * ★ 修正: 引数を追加
  */
 export const useCalendarInteractions = (
   sortedStaffList: IStaff[], 
   workAreaRef: React.RefObject<HTMLDivElement | null>, 
-  mainCalendarScrollerRef: React.RefObject<HTMLElement | null> 
+  mainCalendarScrollerRef: React.RefObject<HTMLElement | null>,
+  monthDays: MonthDay[] // ★ 追加
 ) => {
   const dispatch: AppDispatch = useDispatch();
   const store = useStore<RootState>(); 
@@ -96,24 +103,28 @@ export const useCalendarInteractions = (
       maxDate: Math.max(range.start.dateIndex, range.end.dateIndex),
     };
   }, []);
+
+  // ★ 修正: monthDays に依存
   const workAreaRowCount = useMemo(() => {
     const calculatedRows = Math.ceil(sortedStaffList.length * 1.5);
     return Math.max(10, calculatedRows);
   }, [sortedStaffList.length]);
-  const workAreaColCount = useMemo(() => MONTH_DAYS.length, []);
 
-  // ★ 仮想の列情報 (日付の代わり)
+  // ★ 修正: monthDays に依存
+  const workAreaColCount = useMemo(() => monthDays.length, [monthDays]);
+
+  // ★ 修正: monthDays に依存
   const virtualWorkAreaCols = useMemo(() => {
-    return MONTH_DAYS.map((dayInfo, index) => {
+    return monthDays.map((dayInfo, index) => {
       return {
         date: `${WORK_AREA_DATE_PREFIX}${index}`,
         dateIndex: WORK_AREA_DATE_INDEX_START + index,
         originalDateKey: dayInfo.dateStr, 
       };
     });
-  }, []); // MONTH_DAYSは不変
+  }, [monthDays]); 
 
-  // ★ 仮想の行情報 (スタッフの代わり)
+  // ★ 修正: virtualWorkAreaCols に依存
   const virtualWorkAreaRowsWithCoords = useMemo(() => {
     return Array.from({ length: workAreaRowCount }, (_, index) => {
       const staffIndex = WORK_AREA_STAFF_INDEX_START + index;
@@ -226,11 +237,9 @@ export const useCalendarInteractions = (
   }, [dispatch, store]); 
 
 
-  // --- セルクリック / マウスドラッグイベント ---
-
-  // ★★★ 修正: handleCellClick (SHIFT+クリック対応) ★★★
+  // (セルクリック - 変更なし)
   const handleCellClick = useCallback((
-    e: React.MouseEvent, // ★ イベント(e)を受け取る
+    e: React.MouseEvent, 
     date: string, 
     staffId: string, 
     staffIndex: number, 
@@ -246,25 +255,19 @@ export const useCalendarInteractions = (
 
     switch (_clickMode) { 
       case 'select':
-        // ★ SHIFTキーが押されていて、基点(activeCell)がある場合
         if (e.shiftKey && activeCell) {
-          // 領域をまたぐ選択は許可しない
           const isDragStartedInWorkArea = isWorkAreaCell(activeCell.staffIndex, activeCell.dateIndex);
           const isMouseCurrentlyInWorkArea = isWorkAreaCell(staffIndex, dateIndex);
           
           if (isDragStartedInWorkArea === isMouseCurrentlyInWorkArea) {
-            // 基点(activeCell)は変えずに、終点(end)だけをクリックしたセルに更新
             setSelectionRange({ start: activeCell, end: cell });
           }
         } else {
-          // ★ 通常のクリック (SHIFTなし、または基点なし)
           setActiveCell(cell); 
           setSelectionRange({ start: cell, end: cell }); 
         }
         setIsDragging(false); 
         break;
-      
-      // (ポチポチモード - 変更なし)
       case 'holiday':
         if (staff) {
           toggleHoliday(date, staff, holidayPatternId); 
@@ -282,17 +285,15 @@ export const useCalendarInteractions = (
       _clickMode, sortedStaffList, 
       toggleHoliday, 
       holidayPatternId, paidLeavePatternId,
-      activeCell, // ★ activeCell を依存配列に追加
-      isWorkAreaCell // ★ isWorkAreaCell を依存配列に追加
+      activeCell, 
+      isWorkAreaCell 
   ]); 
-  // ★★★ 修正ここまで ★★★
 
   // (マウスダウン - 変更なし)
   const handleCellMouseDown = useCallback((e: React.MouseEvent, date: string, staffId: string, staffIndex: number, dateIndex: number) => {
     if (_clickMode !== 'select') return; 
     e.preventDefault(); 
     const cell: CellCoords = { date, staffId, staffIndex, dateIndex };
-    // ★ SHIFTキーが押されている場合は、基点(activeCell)を変更しない
     if (e.shiftKey && activeCell) {
       setSelectionRange({ start: activeCell, end: cell });
     } else {
@@ -300,7 +301,7 @@ export const useCalendarInteractions = (
       setSelectionRange({ start: cell, end: cell }); 
     }
     setIsDragging(true);
-  }, [_clickMode, activeCell]); // ★ activeCell を依存配列に追加
+  }, [_clickMode, activeCell]); 
 
   // (マウスムーブ (セル上) - 変更なし)
   const handleCellMouseMove = useCallback((date: string, staffId: string, staffIndex: number, dateIndex: number) => {
@@ -345,14 +346,14 @@ export const useCalendarInteractions = (
       const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
       const ctrlKey = isMac ? event.metaKey : event.ctrlKey;
       
-      // ★★★ ここから修正 (矢印キー単体) ★★★
+      // ★ 修正: monthDays を参照
       if (!event.shiftKey && !ctrlKey && !event.metaKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
         event.preventDefault();
 
-        // アクティブセルがなければ、(0, 0) を選択
         if (!activeCell) {
           const staff = sortedStaffList[0];
-          const day = MONTH_DAYS[0];
+          // ★ 修正: MONTH_DAYS -> monthDays
+          const day = monthDays[0]; 
           if (staff && day) {
             const newCell: CellCoords = { staffId: staff.staffId, date: day.dateStr, staffIndex: 0, dateIndex: 0 };
             setActiveCell(newCell);
@@ -361,16 +362,15 @@ export const useCalendarInteractions = (
           return;
         }
 
-        // 現在のアクティブセルを基点に移動
         let { staffIndex, dateIndex } = activeCell;
 
-        // --- 座標の計算 ---
         const isCurrentCellInWorkArea = isWorkAreaCell(staffIndex, dateIndex);
         
         const minStaffIndex = isCurrentCellInWorkArea ? WORK_AREA_STAFF_INDEX_START : 0;
         const maxStaffIndex = isCurrentCellInWorkArea ? (WORK_AREA_STAFF_INDEX_START + workAreaRowCount - 1) : (sortedStaffList.length - 1);
         const minDateIndex = isCurrentCellInWorkArea ? WORK_AREA_DATE_INDEX_START : 0;
-        const maxDateIndex = isCurrentCellInWorkArea ? (WORK_AREA_DATE_INDEX_START + workAreaColCount - 1) : (MONTH_DAYS.length - 1);
+        // ★ 修正: MONTH_DAYS -> monthDays
+        const maxDateIndex = isCurrentCellInWorkArea ? (WORK_AREA_DATE_INDEX_START + workAreaColCount - 1) : (monthDays.length - 1); 
 
         switch (event.key) {
           case 'ArrowUp':
@@ -387,41 +387,39 @@ export const useCalendarInteractions = (
             break;
         }
 
-        // --- 新しいセルの座標情報 (staffId, date) を取得 ---
         let newActiveCell: CellCoords | null = null;
         if (isCurrentCellInWorkArea) {
           newActiveCell = virtualWorkAreaRowsWithCoords[staffIndex - WORK_AREA_STAFF_INDEX_START]?.getCellCoords(dateIndex) || null;
         } else {
           const staff = sortedStaffList[staffIndex];
-          const day = MONTH_DAYS[dateIndex];
+          // ★ 修正: MONTH_DAYS -> monthDays
+          const day = monthDays[dateIndex]; 
           if (staff && day) {
             newActiveCell = { staffId: staff.staffId, date: day.dateStr, staffIndex, dateIndex };
           }
         }
         
-        // 新しい座標が見つかれば、activeCell と selectionRange の両方を更新
         if (newActiveCell) {
           setActiveCell(newActiveCell);
           setSelectionRange({ start: newActiveCell, end: newActiveCell });
         }
-        return; // 矢印キー操作はここで終了
+        return; 
       }
       
-      // ★★★ SHIFT + 矢印キー (修正) ★★★
+      // ★ 修正: monthDays を参照
       if (event.shiftKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
         event.preventDefault();
         
-        // ★ 修正: selectionRange.end (終点) が基点
         if (!activeCell || !selectionRange) return;
         let { staffIndex, dateIndex } = selectionRange.end;
 
-        // --- 座標の計算 ---
         const isCurrentCellInWorkArea = isWorkAreaCell(staffIndex, dateIndex);
         
         const minStaffIndex = isCurrentCellInWorkArea ? WORK_AREA_STAFF_INDEX_START : 0;
         const maxStaffIndex = isCurrentCellInWorkArea ? (WORK_AREA_STAFF_INDEX_START + workAreaRowCount - 1) : (sortedStaffList.length - 1);
         const minDateIndex = isCurrentCellInWorkArea ? WORK_AREA_DATE_INDEX_START : 0;
-        const maxDateIndex = isCurrentCellInWorkArea ? (WORK_AREA_DATE_INDEX_START + workAreaColCount - 1) : (MONTH_DAYS.length - 1);
+        // ★ 修正: MONTH_DAYS -> monthDays
+        const maxDateIndex = isCurrentCellInWorkArea ? (WORK_AREA_DATE_INDEX_START + workAreaColCount - 1) : (monthDays.length - 1); 
 
         switch (event.key) {
           case 'ArrowUp':
@@ -438,28 +436,26 @@ export const useCalendarInteractions = (
             break;
         }
 
-        // --- 新しいセルの座標情報 (staffId, date) を取得 ---
         let newEndCell: CellCoords | null = null;
         if (isCurrentCellInWorkArea) {
           newEndCell = virtualWorkAreaRowsWithCoords[staffIndex - WORK_AREA_STAFF_INDEX_START]?.getCellCoords(dateIndex) || null;
         } else {
           const staff = sortedStaffList[staffIndex];
-          const day = MONTH_DAYS[dateIndex];
+          // ★ 修正: MONTH_DAYS -> monthDays
+          const day = monthDays[dateIndex]; 
           if (staff && day) {
             newEndCell = { staffId: staff.staffId, date: day.dateStr, staffIndex, dateIndex };
           }
         }
         
         if (newEndCell) {
-          // activeCell (基点) はそのまま、end (終点) だけを更新
           setSelectionRange({ start: activeCell, end: newEndCell });
         }
         return; 
       }
-      // ★★★ 修正ここまで ★★★
 
 
-      // (Ctrl+C / Ctrl+X のロジック - 変更なし)
+      // ★ 修正: monthDays を参照
       if (ctrlKey && (event.key === 'c' || event.key === 'x')) {
         event.preventDefault();
         const currentAssignments = latestAssignmentsRef.current;
@@ -480,7 +476,8 @@ export const useCalendarInteractions = (
               }
             } else {
               const staff = sortedStaffList[sIdx];
-              const day = MONTH_DAYS[dIdx];
+              // ★ 修正: MONTH_DAYS -> monthDays
+              const day = monthDays[dIdx]; 
               if (staff && day) {
                 key = `${staff.staffId}_${day.dateStr}`;
               }
@@ -509,6 +506,7 @@ export const useCalendarInteractions = (
           sourceType: isCopyFromWorkArea ? 'WORK_AREA' : 'MAIN',
         };
         if (event.key === 'x') {
+          // (CUT DBロジック - 変更なし)
           const assignmentsToRemove = currentAssignments.filter(a => keysToCut.has(`${a.staffId}_${a.date}`));
           const newOptimisticAssignments = currentAssignments.filter(a => !keysToCut.has(`${a.staffId}_${a.date}`));
           const currentSyncId = Date.now();
@@ -561,7 +559,7 @@ export const useCalendarInteractions = (
           }
         }
       } 
-      // (Ctrl+V のロジック - 変更なし)
+      // ★ 修正: monthDays を参照
       else if (ctrlKey && event.key === 'v') {
         event.preventDefault();
         const clipboard = clipboardRef.current; 
@@ -592,11 +590,13 @@ export const useCalendarInteractions = (
             } else {
               const staffIndex = activeCell.staffIndex + r;
               const dateIndex = activeCell.dateIndex + c;
-              if (staffIndex >= sortedStaffList.length || dateIndex >= MONTH_DAYS.length) {
+              // ★ 修正: MONTH_DAYS -> monthDays
+              if (staffIndex >= sortedStaffList.length || dateIndex >= monthDays.length) { 
                 continue; 
               }
               const targetStaff = sortedStaffList[staffIndex];
-              const targetDay = MONTH_DAYS[dateIndex];
+              // ★ 修正: MONTH_DAYS -> monthDays
+              const targetDay = monthDays[dateIndex]; 
               if (!targetStaff || !targetDay) continue;
               targetStaffId = targetStaff.staffId;
               if (clipboard.sourceType === 'MAIN') {
@@ -637,9 +637,10 @@ export const useCalendarInteractions = (
           const maxStaffIndex = isPasteToWorkArea 
             ? (WORK_AREA_STAFF_INDEX_START + workAreaRowCount - 1) 
             : (sortedStaffList.length - 1);
+          // ★ 修正: MONTH_DAYS -> monthDays
           const maxDateIndex = isPasteToWorkArea
             ? (WORK_AREA_DATE_INDEX_START + workAreaColCount - 1)
-            : (MONTH_DAYS.length - 1);
+            : (monthDays.length - 1); 
           const clampedEndStaffIndex = Math.min(endStaffIndex, maxStaffIndex);
           const clampedEndDateIndex = Math.min(endDateIndex, maxDateIndex);
           if (clampedEndStaffIndex >= activeCell.staffIndex && clampedEndDateIndex >= activeCell.dateIndex) {
@@ -654,7 +655,8 @@ export const useCalendarInteractions = (
               }
             } else {
               const endStaff = sortedStaffList[clampedEndStaffIndex];
-              const endDay = MONTH_DAYS[clampedEndDateIndex];
+              // ★ 修正: MONTH_DAYS -> monthDays
+              const endDay = monthDays[clampedEndDateIndex]; 
               if (endStaff && endDay) {
                 endStaffId = endStaff.staffId;
                 endDate = endDay.dateStr;
@@ -675,6 +677,7 @@ export const useCalendarInteractions = (
             setSelectionRange({ start: activeCell, end: activeCell });
           }
         }
+        // (PASTE DBロジック - 変更なし)
         (async () => {
           let updatedAssignments: IAssignment[] = [];
           try {
@@ -774,7 +777,7 @@ export const useCalendarInteractions = (
       unsubscribe(); 
       stopAutoScroll(); 
     };
-  }, [ 
+  }, [ // ★★★ 依存配列の修正 ★★★
     _clickMode, isDragging, selectionRange, activeCell, 
     sortedStaffList, 
     dispatch, store,
@@ -789,19 +792,19 @@ export const useCalendarInteractions = (
     stopAutoScroll, 
     workAreaRef, 
     mainCalendarScrollerRef, 
-    handleCellMouseUp
+    handleCellMouseUp,
+    monthDays // ★ 修正: monthDays を追加
   ]);
 
   // ★★★ 自動スクロール (SHIFT+矢印キー / 矢印キー単体) ★★★
   useEffect(() => {
-    // SHIFT+矢印キー または 矢印キー単体 で selectionRange が変更された時
-    // (isDragging = false)
-    if (selectionRange && !isDragging) {
-      
-      const { end: endCell } = selectionRange;
-      
+    // 変更されたのが selectionRange.end であっても、
+    // キーボード操作の場合は activeCell も追従させる
+    const targetCell = (selectionRange && !isDragging) ? selectionRange.end : (activeCell && !isDragging ? activeCell : null);
+
+    if (targetCell) {
       // 終点のセルIDを特定
-      const cellId = `cell-${endCell.staffId}-${endCell.date}`;
+      const cellId = `cell-${targetCell.staffId}-${targetCell.date}`;
       const element = document.getElementById(cellId);
 
       // 対応するDOM要素が見つかれば、そこまでスクロールする
@@ -813,7 +816,8 @@ export const useCalendarInteractions = (
         });
       }
     }
-  }, [selectionRange, isDragging]); // ★ selectionRange か isDragging が変わるたびに実行
+    // ★ 修正: activeCell にも依存
+  }, [selectionRange, activeCell, isDragging]); 
 
 
   return {

@@ -1,5 +1,6 @@
+// ★★★ 修正: getMonthDays をエクスポートする ★★★
 // (カレンダーの日付データを生成するヘルパー)
-const getMonthDays = (year: number, month: number) => {
+export const getMonthDays = (year: number, month: number) => {
   const date = new Date(year, month - 1, 1);
   const days = [];
   // (曜日の日本語配列)
@@ -19,16 +20,16 @@ const getMonthDays = (year: number, month: number) => {
   return days;
 };
 
-// (※仮に2025年11月を対象とする)
-export const MONTH_DAYS = getMonthDays(2025, 11);
+// ★★★ 削除: ハードコードされた MONTH_DAYS を削除 ★★★
+// (※削除) export const MONTH_DAYS = getMonthDays(2025, 11);
 
-// ★★★ v5.18 追加: 「今月の土日祝日の数」を計算 (祝日は未対応) ★★★
-export const getDefaultRequiredHolidays = (): number => {
+// ★★★ 修正: 引数として動的な monthDays を受け取るように変更 ★★★
+export const getDefaultRequiredHolidays = (monthDays: { dayOfWeek: number }[]): number => {
   // (※注: 現状は祝日を考慮できず、土日の数だけをカウントしています)
-  return MONTH_DAYS.filter(d => d.dayOfWeek === 0 || d.dayOfWeek === 6).length;
+  return monthDays.filter(d => d.dayOfWeek === 0 || d.dayOfWeek === 6).length;
 };
 
-// ★★★ v5.18.1 追加: 前日の日付文字列 (YYYY-MM-DD) をローカルタイムで取得 ★★★
+// ★★★ 変更なし (元から動的) ★★★
 export const getPrevDateStr = (dateStr: string) => {
   const d = new Date(dateStr.replace(/-/g, '/')); // JSTで日付オブジェクトを作成
   d.setDate(d.getDate() - 1); // 1日引く

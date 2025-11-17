@@ -1,19 +1,17 @@
 import { configureStore } from '@reduxjs/toolkit';
 import staffReducer from './staffSlice';
 import patternReducer from './patternSlice';
-// ★ 修正: デフォルトエクスポートされた undoableAssignmentReducer をインポート
-import assignmentReducer from './assignmentSlice';
-// ★★★ (v5) timeSlotRuleSlice を削除 ★★★
-// import timeSlotRuleReducer from './timeSlotRuleSlice'; 
+import assignmentReducer from './assignmentSlice'; 
 import unitReducer from './unitSlice';
+import calendarReducer from './calendarSlice'; // ★ 1. インポート
 
 export const store = configureStore({
   reducer: {
     staff: staffReducer,
     pattern: patternReducer,
-    assignment: assignmentReducer, // ★ ここは変更なし (インポート元が変わっただけ)
-    // ★★★ (v5) timeSlotRuleReducer を削除 ★★★
+    assignment: assignmentReducer, 
     unit: unitReducer,
+    calendar: calendarReducer, // ★ 2. 登録
   },
 });
 

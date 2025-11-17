@@ -3,7 +3,8 @@ import {
   Box, Paper, Tabs, Tab, 
   Button,
   ToggleButton, ToggleButtonGroup,
-  IconButton
+  IconButton,
+  Typography 
 } from '@mui/material';
 import { useSelector, useDispatch } from 'react-redux';
 import { ActionCreators as UndoActionCreators } from 'redux-undo';
@@ -16,7 +17,11 @@ import { setUnits } from '../store/unitSlice';
 import { 
   setAssignments,
 } from '../store/assignmentSlice'; 
+import { goToNextMonth, goToPrevMonth } from '../store/calendarSlice'; 
 import type { AppDispatch, RootState } from '../store';
+
+// ★ 1. getMonthDays をインポート
+import { getMonthDays } from '../utils/dateUtils'; 
 
 // コンポーネント
 import StaffCalendarView from '../components/calendar/StaffCalendarView';
@@ -46,8 +51,9 @@ import PaidLeaveIcon from '@mui/icons-material/FlightTakeoff';
 import UndoIcon from '@mui/icons-material/Undo'; 
 import RedoIcon from '@mui/icons-material/Redo'; 
 import SelectAllIcon from '@mui/icons-material/SelectAll';
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'; 
+import ChevronRightIcon from '@mui/icons-material/ChevronRight'; 
 
-// (TabPanel 定義は削除済み)
 
 // --- メインコンポーネント ---
 function ShiftCalendarPage() {
@@ -56,11 +62,12 @@ function ShiftCalendarPage() {
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   
-  // (ref定義 - 変更なし)
   const workAreaRef = useRef<HTMLDivElement | null>(null);
   const mainCalendarScrollerRef = useRef<HTMLElement | null>(null);
 
-  // (グローバル状態の取得 - 変更なし)
+  // --- 1. グローバル状態の取得 ---
+  
+  // (assignment state - 変更なし)
   const { 
     past, 
     future,
@@ -72,17 +79,29 @@ function ShiftCalendarPage() {
     }
   } = useSelector((state: RootState) => state.assignment);
   
+  // (他のスライス - 変更なし)
   const { patterns: shiftPatterns } = useSelector((state: RootState) => state.pattern);
   const { units: unitList } = useSelector((state: RootState) => state.unit);
   
-  // (計算フック - 変更なし)
+  // (calendar state - 変更なし)
+  const { currentYear, currentMonth } = useSelector((state: RootState) => state.calendar);
+
+  // ★ 2. 動的に monthDays を計算
+  const monthDays = useMemo(() => {
+    return getMonthDays(currentYear, currentMonth);
+  }, [currentYear, currentMonth]);
+
+  
+  // --- 2. カスタムフックによるロジックの分離 ---
+
+  // ★ 3. 各フックに動的なデータを渡す (※この時点では型エラー)
   const {
     staffList: activeStaffList,
     staffBurdenData,
     staffHolidayRequirements,
     handleHolidayIncrement,
     handleHolidayDecrement
-  } = useStaffBurdenData(); 
+  } = useStaffBurdenData(currentYear, currentMonth, monthDays); 
   
   const sortedStaffList = useMemo(() => {
     return [...activeStaffList].sort((a, b) => {
@@ -95,9 +114,8 @@ function ShiftCalendarPage() {
     });
   }, [activeStaffList]);
   
-  const demandMap = useDemandMap(); 
+  const demandMap = useDemandMap(monthDays); 
 
-  // (インタラクションフック - 変更なし)
   const {
     clickMode,
     setClickMode, 
@@ -108,9 +126,8 @@ function ShiftCalendarPage() {
     handleCellMouseMove,
     handleCellMouseUp,
     invalidateSyncLock,
-  } = useCalendarInteractions(sortedStaffList, workAreaRef, mainCalendarScrollerRef); 
+  } = useCalendarInteractions(sortedStaffList, workAreaRef, mainCalendarScrollerRef, monthDays); 
 
-  // (モーダルフック - 変更なし)
   const {
     editingTarget,
     showingGanttTarget,
@@ -122,9 +139,8 @@ function ShiftCalendarPage() {
     handleClearStaffAssignments,
   } = useShiftCalendarModals();
   
-  const unitGroups = useUnitGroups(showingGanttTarget);
+  const unitGroups = useUnitGroups(showingGanttTarget, monthDays);
 
-  // (AI・自動化ロジックフック - 変更なし)
   const {
     aiInstruction,
     setAiInstruction,
@@ -136,21 +152,23 @@ function ShiftCalendarPage() {
     handleResetClick,
     handleClearError,
     handleClearAnalysis
-  } = useShiftCalendarLogic();
+  } = useShiftCalendarLogic(currentYear, currentMonth, monthDays);
 
   // (キーボードショートカットフック - 変更なし)
   useUndoRedoKeyboard(invalidateSyncLock); 
 
 
-  // (DB初期化ロジック - 変更なし)
+  // --- 3. ページ固有のロジック ---
+
+  // ★ 4. データ読み込み (ステップ5)
   useEffect(() => {
-    const loadData = async () => {
+    // マスタデータ（スタッフ、パターン、ユニット）を読み込む（初回のみ）
+    const loadMasterData = async () => {
       try {
-        const [units, patterns, staff, assignmentsDB] = await Promise.all([
+        const [units, patterns, staff] = await Promise.all([
           db.units.toArray(),
           db.shiftPatterns.toArray(),
-          db.staffList.toArray(),
-          db.assignments.toArray() 
+          db.staffList.toArray()
         ]);
         
         if (patterns.length === 0) {
@@ -173,14 +191,41 @@ function ShiftCalendarPage() {
         } else {
            dispatch(setStaffList(staff));
         }
-        
-        dispatch(setAssignments(assignmentsDB));
       } catch (e) {
-        console.error("DB init failed:", e);
+        console.error("DBマスタデータの読み込み/初期化に失敗:", e);
       }
     };
-    loadData();
-  }, [dispatch]);
+    
+    // アサインデータ（月依存）を読み込む
+    const loadAssignments = async () => {
+      if (!monthDays || monthDays.length === 0) return;
+
+      // 当月の最初の日と最後の日を取得
+      const firstDay = monthDays[0].dateStr;
+      const lastDay = monthDays[monthDays.length - 1].dateStr;
+
+      try {
+        // ★ 当月分のアサインのみをDBからフィルタして読み込む
+        const assignmentsDB = await db.assignments
+          .where('date')
+          .between(firstDay, lastDay, true, true) // 境界を含む
+          .toArray();
+        
+        dispatch(setAssignments(assignmentsDB));
+
+      } catch (e) {
+        console.error(`${currentYear}年${currentMonth}月のアサイン読み込みに失敗:`, e);
+      }
+    };
+
+    // マスタデータは初回のみ実行
+    if (unitList.length === 0 || shiftPatterns.length === 0 || activeStaffList.length === 0) {
+      loadMasterData();
+    }
+    // アサインデータは月が変わるたびに実行
+    loadAssignments();
+
+  }, [dispatch, currentYear, currentMonth, monthDays, unitList.length, shiftPatterns.length, activeStaffList.length]); // ★ 依存配列に月を追加
 
   // (タブ切り替え - 変更なし)
   const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
@@ -188,7 +233,7 @@ function ShiftCalendarPage() {
     setClickMode('normal'); 
   };
 
-  // (handleCellClick - 変更なし)
+  // (セルクリック振り分け - 変更なし)
   const handleCellClick = (
     e: React.MouseEvent, 
     date: string, 
@@ -196,13 +241,10 @@ function ShiftCalendarPage() {
     staffIndex?: number, 
     dateIndex?: number
   ) => {
-    // 勤務枠ビュー (tabValue === 1)
     if (tabValue === 1) {
       openGanttModal(date, staffIdOrUnitId);
       return;
     }
-
-    // スタッフビュー (tabValue === 0)
     if (staffIdOrUnitId && staffIndex !== undefined && dateIndex !== undefined) {
       if (clickMode === 'normal' && !staffIdOrUnitId.startsWith('WA_STAFF_')) {
         openAssignModal(date, staffIdOrUnitId);
@@ -237,7 +279,8 @@ function ShiftCalendarPage() {
           minWidth: 0, 
           minHeight: 0,
         }}>
-          {/* (タブヘッダーとリセット/UNDOボタン - 変更なし) */}
+          
+          {/* (タブヘッダーと月選択UI - 変更なし) */}
           <Box sx={{ 
             display: 'flex', 
             justifyContent: 'space-between', 
@@ -246,6 +289,7 @@ function ShiftCalendarPage() {
             borderColor: 'divider',
             pl: 2
           }}>
+            {/* 左側: タブ */}
             <Box sx={{ flexGrow: 1 }}>
               <Tabs value={tabValue} onChange={handleTabChange}>
                 <Tab label="スタッフビュー" />
@@ -253,7 +297,21 @@ function ShiftCalendarPage() {
               </Tabs>
             </Box>
             
-            <Box sx={{ flexShrink: 0, pr: 2, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            {/* 中央: 月選択 */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <IconButton onClick={() => dispatch(goToPrevMonth())} size="small">
+                <ChevronLeftIcon />
+              </IconButton>
+              <Typography variant="h6" component="div" sx={{ minWidth: '150px', textAlign: 'center' }}>
+                {`${currentYear}年 ${currentMonth}月`}
+              </Typography>
+              <IconButton onClick={() => dispatch(goToNextMonth())} size="small">
+                <ChevronRightIcon />
+              </IconButton>
+            </Box>
+
+            {/* 右側: Undo/Redo/リセット */}
+            <Box sx={{ flexShrink: 0, pr: 2, display: 'flex', alignItems: 'center', gap: 0.5, justifyContent: 'flex-end', flexGrow: 1 }}>
               <IconButton 
                 title="元に戻す (Ctrl+Z)"
                 onClick={() => {
@@ -294,7 +352,6 @@ function ShiftCalendarPage() {
               <h6 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 500 }}>
                 スタッフビュー（カレンダー）
               </h6>
-              
               <ToggleButtonGroup
                 value={clickMode}
                 exclusive
@@ -320,7 +377,7 @@ function ShiftCalendarPage() {
               </ToggleButtonGroup>
             </Box>
             
-            {/* (StaffCalendarView - 変更なし) */}
+            {/* ★ 5. コンポーネントに動的な monthDays を渡す (※この時点では型エラー) */}
             <StaffCalendarView 
               sortedStaffList={sortedStaffList} 
               onCellClick={handleCellClick} 
@@ -336,17 +393,17 @@ function ShiftCalendarPage() {
               onCellMouseUp={handleCellMouseUp}
               workAreaRef={workAreaRef} 
               mainCalendarScrollerRef={mainCalendarScrollerRef}
+              monthDays={monthDays} 
             />
           </TabPanel>
           
           <TabPanel value={tabValue} index={1}>
             <Box sx={{ p: 3, height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
+              {/* ★ 5. コンポーネントに動的な monthDays を渡す (※この時点では型エラー) */}
               <WorkSlotCalendarView 
-                // ★★★ ここが修正点です ★★★
-                // new MouseEvent('click') -> { shiftKey: false } as React.MouseEvent
                 onCellClick={(date, unitId) => handleCellClick({ shiftKey: false } as React.MouseEvent, date, unitId)}
-                // ★★★ 修正ここまで ★★★
                 demandMap={demandMap} 
+                monthDays={monthDays}
               />
             </Box>
           </TabPanel>

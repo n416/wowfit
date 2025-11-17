@@ -4,7 +4,14 @@ import type { RootState } from '../store';
 import { IStaff, IShiftPattern, IUnit, IAssignment } from '../db/dexie';
 import { getPrevDateStr } from '../utils/dateUtils';
 
-// ★ unitGroups の型定義 (dataCalculators.ts から移動)
+// ★ 修正: 動的な monthDays の型を定義
+type MonthDay = {
+  dateStr: string;
+  weekday: string;
+  dayOfWeek: number;
+};
+
+// (unitGroups の型定義 - 変更なし)
 export type UnitGroupData = {
   unit: IUnit;
   rows: { 
@@ -18,7 +25,8 @@ export type UnitGroupData = {
   }[];
 };
 
-// ★ unitGroups の計算ロジック (dataCalculators.ts から移動)
+// (calculateUnitGroups - 変更なし)
+// (この関数は特定の日付(target)のアサインのみを見るため、monthDays には依存しない)
 const calculateUnitGroups = (
   showingGanttTarget: { date: string; unitId: string; } | null,
   unitList: IUnit[],
@@ -35,7 +43,6 @@ const calculateUnitGroups = (
   unitList.forEach(currentUnit => {
     const rows: any[] = [];
 
-    // ★ `assignments` は .present から渡されるため、正常な配列 (IAssignment[])
     assignments.forEach(assignment => {
       if (!assignment.id) return; 
       if (assignment.date !== date && assignment.date !== prevDateStr) return;
@@ -110,20 +117,20 @@ const calculateUnitGroups = (
 /**
  * ガントチャートモーダル用のグループデータを計算するカスタムフック
  * @param showingGanttTarget モーダルが表示対象としている日付とユニットID
+ * ★ 修正: 引数を追加
  */
 export const useUnitGroups = (
-  showingGanttTarget: { date: string; unitId: string; } | null
+  showingGanttTarget: { date: string; unitId: string; } | null,
+  monthDays: MonthDay[] // ★ 追加 (ただし内部では現在未使用)
 ) => {
   // 1. 必要なデータを Redux から取得
   const { staff: allStaff } = useSelector((state: RootState) => state.staff);
   const { patterns: shiftPatterns } = useSelector((state: RootState) => state.pattern);
   const { units: unitList } = useSelector((state: RootState) => state.unit);
   
-  // ★★★ 修正: state.assignment.present から assignments を取得 ★★★
   const { assignments } = useSelector((state: RootState) => state.assignment.present);
 
-  // 2. 計算に必要なマップを作成
-  // ★★★ 変更点 1: `useSelector` で `new Map` を作らない ★★★
+  // 2. 計算に必要なマップを作成 (変更なし)
   const staffMap = useMemo(() => new Map(allStaff.map((s: IStaff) => [s.staffId, s])), [allStaff]);
   const patternMap = useMemo(() => new Map(shiftPatterns.map((p: IShiftPattern) => [p.patternId, p])), [shiftPatterns]);
 
@@ -136,7 +143,8 @@ export const useUnitGroups = (
       patternMap,
       staffMap
     );
-  }, [showingGanttTarget, assignments, patternMap, staffMap, unitList]);
+  // ★ 修正: 依存配列に monthDays を追加 (将来的なロジック変更に備える)
+  }, [showingGanttTarget, assignments, patternMap, staffMap, unitList, monthDays]);
 
   return unitGroups;
 };

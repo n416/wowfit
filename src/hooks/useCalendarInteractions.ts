@@ -3,11 +3,16 @@ import { useSelector, useDispatch, useStore } from 'react-redux';
 import type { RootState, AppDispatch } from '../store';
 import { IStaff, IAssignment } from '../db/dexie';
 import { db } from '../db/dexie';
-import { setAssignments, _syncAssignments } from '../store/assignmentSlice'; 
-// ★ 修正: MONTH_DAYS のインポートを削除
-// import { MONTH_DAYS } from '../utils/dateUtils'; 
+// ★ _setIsSyncing をインポート
+import { setAssignments, _syncAssignments, _setIsSyncing } from '../store/assignmentSlice'; 
+// ★ 修正: 未使用の getMonthDays を削除
 
-// ★ 修正: 動的な monthDays の型を定義
+// ★★★ プランF ★★★
+// (dispatch 順序を setAssignments -> _setIsSyncing に修正)
+console.log("[VERSION] useCalendarInteractions.ts (Plan F) loaded. Dispatch order reversed (setAssignments -> _setIsSyncing).");
+// ★★★★★★★★★★★★★★★★★★★★★★★★★
+
+// ★ 修正: MonthDay 型をここで定義
 type MonthDay = {
   dateStr: string;
   weekday: string;
@@ -40,13 +45,12 @@ const WORK_AREA_DATE_PREFIX = "WA_DATE_";
  * @param sortedStaffList StaffCalendarView に表示されている順序のスタッフリスト
  * @param workAreaRef 作業領域のスクロールコンテナDOMへの参照
  * @param mainCalendarScrollerRef メインカレンダー(Virtuoso)のスクローラDOMへの参照
- * ★ 修正: 引数を追加
  */
 export const useCalendarInteractions = (
   sortedStaffList: IStaff[], 
   workAreaRef: React.RefObject<HTMLDivElement | null>, 
   mainCalendarScrollerRef: React.RefObject<HTMLElement | null>,
-  monthDays: MonthDay[] // ★ 追加
+  monthDays: MonthDay[]
 ) => {
   const dispatch: AppDispatch = useDispatch();
   const store = useStore<RootState>(); 
@@ -54,7 +58,9 @@ export const useCalendarInteractions = (
   // (state - 変更なし)
   const [_clickMode, _setClickMode] = useState<ClickMode>('normal');
   const [activeCell, setActiveCell] = useState<CellCoords | null>(null);
+  
   const [selectionRange, setSelectionRange] = useState<{ start: CellCoords, end: CellCoords } | null>(null);
+  
   const [isDragging, setIsDragging] = useState(false);
   
   // (ref - 変更なし)
@@ -94,6 +100,7 @@ export const useCalendarInteractions = (
 
   
   // --- 内部ヘルパー (作業領域定義) ---
+  // (getRangeIndices - 変更なし)
   const getRangeIndices = useCallback((range: { start: CellCoords, end: CellCoords } | null) => {
     if (!range) return null;
     return {
@@ -103,17 +110,17 @@ export const useCalendarInteractions = (
       maxDate: Math.max(range.start.dateIndex, range.end.dateIndex),
     };
   }, []);
-
-  // ★ 修正: monthDays に依存
+  
+  // (workAreaRowCount - 変更なし)
   const workAreaRowCount = useMemo(() => {
     const calculatedRows = Math.ceil(sortedStaffList.length * 1.5);
     return Math.max(10, calculatedRows);
   }, [sortedStaffList.length]);
 
-  // ★ 修正: monthDays に依存
+  // (workAreaColCount - 変更なし)
   const workAreaColCount = useMemo(() => monthDays.length, [monthDays]);
 
-  // ★ 修正: monthDays に依存
+  // (virtualWorkAreaCols - 変更なし)
   const virtualWorkAreaCols = useMemo(() => {
     return monthDays.map((dayInfo, index) => {
       return {
@@ -124,7 +131,7 @@ export const useCalendarInteractions = (
     });
   }, [monthDays]); 
 
-  // ★ 修正: virtualWorkAreaCols に依存
+  // (virtualWorkAreaRowsWithCoords - 変更なし)
   const virtualWorkAreaRowsWithCoords = useMemo(() => {
     return Array.from({ length: workAreaRowCount }, (_, index) => {
       const staffIndex = WORK_AREA_STAFF_INDEX_START + index;
@@ -140,6 +147,7 @@ export const useCalendarInteractions = (
     });
   }, [workAreaRowCount, virtualWorkAreaCols]);
 
+  // (isWorkAreaCell - 変更なし)
   const isWorkAreaCell = useCallback((staffIndex: number, dateIndex: number) => {
     return staffIndex >= WORK_AREA_STAFF_INDEX_START && dateIndex >= WORK_AREA_DATE_INDEX_START;
   }, []);
@@ -152,35 +160,28 @@ export const useCalendarInteractions = (
     setIsDragging(false);
   }, []); 
 
-  // (invalidateSyncLock - 変更なし)
-  const invalidateSyncLock = useCallback(() => { 
-    syncLockRef.current = 0; 
-    const assignmentsInUI = store.getState().assignment.present.assignments;
-    console.log("[DEBUG] Forcing DB sync to current UI state due to Undo/Redo.");
-    (async () => {
-      try {
-        await db.transaction('rw', db.assignments, async () => {
-          await db.assignments.clear();
-          const assignmentsToPut = assignmentsInUI.map(({ id, ...rest }) => rest);
-          await db.assignments.bulkPut(assignmentsToPut);
-        });
-        const allAssignmentsFromDB = await db.assignments.toArray();
-        dispatch(_syncAssignments(allAssignmentsFromDB));
-      } catch (e) {
-        console.error("アンドゥ/リドゥ後のDB強制同期に失敗:", e);
-        const allAssignmentsFromDB = await db.assignments.toArray();
-        dispatch(_syncAssignments(allAssignmentsFromDB));
-      }
-    })();
-  }, [dispatch, store]); 
+  // (invalidateSyncLock - 削除済み)
 
 
-  // (ポチポチモード - 変更なし)
+  // (ポチポチモード - ★★★ Plan F: dispatch 順序入れ替え ★★★)
   const toggleHoliday = useCallback((date: string, staff: IStaff, targetPatternId: string) => {
+    
+    // (Plan D のローディングガード)
+    const state = store.getState();
+    const isCurrentlyLoading = state.assignment.present.adjustmentLoading ||
+                               state.assignment.present.patchLoading ||
+                               state.calendar.isMonthLoading;
+    if (isCurrentlyLoading) {
+      console.warn("[Guard] AI/月読込ローディング中のため toggleHoliday をブロック");
+      return;
+    }
+
     if (staff.staffId.startsWith(WORK_AREA_STAFF_ID_PREFIX)) { return; }
     const cellKey = `${staff.staffId}_${date}`;
     if (processingCellKeyRef.current === cellKey) { return; }
     processingCellKeyRef.current = cellKey; 
+    
+    // (楽観的更新の準備 - 変更なし)
     const currentAssignments = store.getState().assignment.present.assignments;
     const existing = currentAssignments.filter((a: IAssignment) => a.date === date && a.staffId === staff.staffId);
     const existingIsTarget = existing.length === 1 && existing[0].patternId === targetPatternId;
@@ -198,34 +199,68 @@ export const useCalendarInteractions = (
       const otherAssignments = currentAssignments.filter((a: IAssignment) => !(a.date === date && a.staffId === staff.staffId));
       newOptimisticAssignments = [...otherAssignments, { ...newAssignmentBase, id: tempId }]; 
     }
+    
     const currentSyncId = Date.now();
     syncLockRef.current = currentSyncId;
+    
+    // ★★★ Plan F: 順序入れ替え ★★★
+    
+    // 1. 先に UIを楽観的更新 (履歴に積む)
+    // (この時点では isSyncing: false のため、クリーンな状態が past に保存される)
     dispatch(setAssignments(newOptimisticAssignments)); 
+    
+    // 2. 次に 同期開始を通知 (履歴から除外)
+    console.log(`★[LOCK] toggleHoliday: isSyncing = true (ID: ${currentSyncId})`);
+    console.trace(); 
+    dispatch(_setIsSyncing(true)); 
+    
+    // ★★★ 順序入れ替えここまで ★★★
+
+    // (非同期DB操作 - 変更なし)
     (async () => {
-      let updatedAssignments: IAssignment[] = [];
       try {
-        updatedAssignments = await db.transaction('rw', db.assignments, async () => {
-          const existingInDB = await db.assignments.where('[date+staffId]').equals([date, staff.staffId]).toArray();
-          if (existingInDB.length > 0) {
-            await db.assignments.bulkDelete(existingInDB.map(a => a.id!));
-          }
-          if (newAssignmentBase) { 
-            await db.assignments.add(newAssignmentBase);
-          }
-          return db.assignments.toArray();
-        }); 
-        if (syncLockRef.current === currentSyncId) {
-            dispatch(_syncAssignments(updatedAssignments));
-        } else {
-            console.warn(`[DEBUG] Stale _syncAssignments call detected (Pochi). SKIPPING SYNC. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
+        // (DBロジック - 変更なし)
+        if (!monthDays || monthDays.length === 0) {
+            throw new Error("カレンダーの月情報がありません。");
         }
+        const firstDay = monthDays[0].dateStr;
+        const lastDay = monthDays[monthDays.length - 1].dateStr;
+
+        await db.transaction('rw', db.assignments, async () => {
+          const assignmentsToRemove = await db.assignments
+            .where('date')
+            .between(firstDay, lastDay, true, true)
+            .primaryKeys();
+          if (assignmentsToRemove.length > 0) {
+            await db.assignments.bulkDelete(assignmentsToRemove);
+          }
+          const assignmentsToSave = newOptimisticAssignments
+            .filter(a => a.date >= firstDay && a.date <= lastDay) 
+            .map(({ id, ...rest }) => rest); 
+          if (assignmentsToSave.length > 0) {
+            await db.assignments.bulkAdd(assignmentsToSave);
+          }
+        }); 
+        
+        // (DB操作成功時 - 変更なし)
+        if (syncLockRef.current === currentSyncId) {
+            console.log(`★[UNLOCK] toggleHoliday: isSyncing = false (ID: ${currentSyncId})`);
+            dispatch(_setIsSyncing(false));
+        } else {
+            console.warn(`★[UNLOCK-STALE] toggleHoliday: Stale lock detected. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
+        }
+        
       } catch (e) {
+        // (DB操作失敗時 - 変更なし)
         console.error("アサインの即時更新（DB反映）に失敗:", e);
         if (syncLockRef.current === currentSyncId) {
-            console.warn("[DEBUG] DB Pochi failed. Reverting optimistic update.");
-            db.assignments.toArray().then(dbAssignments => dispatch(_syncAssignments(dbAssignments)));
+            console.warn(`★[UNLOCK-FAIL] toggleHoliday: Reverting state (ID: ${currentSyncId})`);
+            db.assignments.toArray().then(dbAssignments => dispatch(_syncAssignments(dbAssignments))); 
         } else {
-            console.warn(`[DEBUG] DB Pochi failed, but state is already stale. SKIPPING SYNC. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
+            console.warn(`★[UNLOCK-FAIL-STALE] toggleHoliday: DB Error, but stale. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
+            if (syncLockRef.current === 0) {
+              dispatch(_setIsSyncing(false)); 
+            }
         }
       } finally {
         if (processingCellKeyRef.current === cellKey) {
@@ -234,10 +269,10 @@ export const useCalendarInteractions = (
       }
     })(); 
 
-  }, [dispatch, store]); 
+  }, [dispatch, store, monthDays, holidayPatternId, paidLeavePatternId]); 
 
 
-  // (セルクリック - 変更なし)
+  // (セルクリック - ★★★ Plan D: ローディングガード ★★★)
   const handleCellClick = useCallback((
     e: React.MouseEvent, 
     date: string, 
@@ -245,6 +280,18 @@ export const useCalendarInteractions = (
     staffIndex: number, 
     dateIndex: number
   ) => {
+
+    // ★★★ Plan D: ローディングガード ★★★
+    const state = store.getState();
+    const isCurrentlyLoading = state.assignment.present.isSyncing || // (isSyncing も含める)
+                               state.assignment.present.adjustmentLoading ||
+                               state.assignment.present.patchLoading ||
+                               state.calendar.isMonthLoading;
+    if (isCurrentlyLoading) {
+      console.warn("[Guard] ローディング中のため handleCellClick をブロック");
+      return;
+    }
+    // ★★★ 修正ここまで ★★★
     
     const staff = sortedStaffList.find(s => s.staffId === staffId); 
     const cell: CellCoords = { date, staffId, staffIndex, dateIndex };
@@ -286,11 +333,25 @@ export const useCalendarInteractions = (
       toggleHoliday, 
       holidayPatternId, paidLeavePatternId,
       activeCell, 
-      isWorkAreaCell 
+      isWorkAreaCell,
+      store // ★ store を依存配列に追加
   ]); 
 
-  // (マウスダウン - 変更なし)
+  // (マウスダウン - ★★★ Plan D: ローディングガード ★★★)
   const handleCellMouseDown = useCallback((e: React.MouseEvent, date: string, staffId: string, staffIndex: number, dateIndex: number) => {
+    
+    // ★★★ Plan D: ローディングガード ★★★
+    const state = store.getState();
+    const isCurrentlyLoading = state.assignment.present.isSyncing || // (isSyncing も含める)
+                               state.assignment.present.adjustmentLoading ||
+                               state.assignment.present.patchLoading ||
+                               state.calendar.isMonthLoading;
+    if (isCurrentlyLoading) {
+      console.warn("[Guard] ローディング中のため handleCellMouseDown をブロック");
+      return;
+    }
+    // ★★★ 修正ここまで ★★★
+    
     if (_clickMode !== 'select') return; 
     e.preventDefault(); 
     const cell: CellCoords = { date, staffId, staffIndex, dateIndex };
@@ -301,7 +362,7 @@ export const useCalendarInteractions = (
       setSelectionRange({ start: cell, end: cell }); 
     }
     setIsDragging(true);
-  }, [_clickMode, activeCell]); 
+  }, [_clickMode, activeCell, store]); // ★ store を依存配列に追加
 
   // (マウスムーブ (セル上) - 変更なし)
   const handleCellMouseMove = useCallback((date: string, staffId: string, staffIndex: number, dateIndex: number) => {
@@ -337,22 +398,35 @@ export const useCalendarInteractions = (
     });
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      // (入力中ガード - 変更なし)
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
         return;
       }
       
-      processingCellKeyRef.current = null;
-      
+      // (Plan D ローディングガード - 変更なし)
+      const state = store.getState();
+      const isOverallLoading = state.assignment.present.isSyncing || 
+                               state.assignment.present.adjustmentLoading ||
+                               state.assignment.present.patchLoading ||
+                               state.calendar.isMonthLoading;
       const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
       const ctrlKey = isMac ? event.metaKey : event.ctrlKey;
+      if (isOverallLoading) {
+        if (ctrlKey && (event.key === 'c' || event.key === 'x' || event.key === 'v')) {
+           console.warn("[Guard] ローディング中のためキー操作をブロック:", event.key);
+           event.preventDefault();
+           return;
+        }
+      }
+
+      processingCellKeyRef.current = null;
       
-      // ★ 修正: monthDays を参照
+      // (矢印キー移動 - 変更なし)
       if (!event.shiftKey && !ctrlKey && !event.metaKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
         event.preventDefault();
 
         if (!activeCell) {
           const staff = sortedStaffList[0];
-          // ★ 修正: MONTH_DAYS -> monthDays
           const day = monthDays[0]; 
           if (staff && day) {
             const newCell: CellCoords = { staffId: staff.staffId, date: day.dateStr, staffIndex: 0, dateIndex: 0 };
@@ -363,13 +437,11 @@ export const useCalendarInteractions = (
         }
 
         let { staffIndex, dateIndex } = activeCell;
-
         const isCurrentCellInWorkArea = isWorkAreaCell(staffIndex, dateIndex);
         
         const minStaffIndex = isCurrentCellInWorkArea ? WORK_AREA_STAFF_INDEX_START : 0;
         const maxStaffIndex = isCurrentCellInWorkArea ? (WORK_AREA_STAFF_INDEX_START + workAreaRowCount - 1) : (sortedStaffList.length - 1);
         const minDateIndex = isCurrentCellInWorkArea ? WORK_AREA_DATE_INDEX_START : 0;
-        // ★ 修正: MONTH_DAYS -> monthDays
         const maxDateIndex = isCurrentCellInWorkArea ? (WORK_AREA_DATE_INDEX_START + workAreaColCount - 1) : (monthDays.length - 1); 
 
         switch (event.key) {
@@ -392,7 +464,6 @@ export const useCalendarInteractions = (
           newActiveCell = virtualWorkAreaRowsWithCoords[staffIndex - WORK_AREA_STAFF_INDEX_START]?.getCellCoords(dateIndex) || null;
         } else {
           const staff = sortedStaffList[staffIndex];
-          // ★ 修正: MONTH_DAYS -> monthDays
           const day = monthDays[dateIndex]; 
           if (staff && day) {
             newActiveCell = { staffId: staff.staffId, date: day.dateStr, staffIndex, dateIndex };
@@ -406,7 +477,7 @@ export const useCalendarInteractions = (
         return; 
       }
       
-      // ★ 修正: monthDays を参照
+      // (Shift + 矢印キー移動 - 変更なし)
       if (event.shiftKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
         event.preventDefault();
         
@@ -418,7 +489,6 @@ export const useCalendarInteractions = (
         const minStaffIndex = isCurrentCellInWorkArea ? WORK_AREA_STAFF_INDEX_START : 0;
         const maxStaffIndex = isCurrentCellInWorkArea ? (WORK_AREA_STAFF_INDEX_START + workAreaRowCount - 1) : (sortedStaffList.length - 1);
         const minDateIndex = isCurrentCellInWorkArea ? WORK_AREA_DATE_INDEX_START : 0;
-        // ★ 修正: MONTH_DAYS -> monthDays
         const maxDateIndex = isCurrentCellInWorkArea ? (WORK_AREA_DATE_INDEX_START + workAreaColCount - 1) : (monthDays.length - 1); 
 
         switch (event.key) {
@@ -441,7 +511,6 @@ export const useCalendarInteractions = (
           newEndCell = virtualWorkAreaRowsWithCoords[staffIndex - WORK_AREA_STAFF_INDEX_START]?.getCellCoords(dateIndex) || null;
         } else {
           const staff = sortedStaffList[staffIndex];
-          // ★ 修正: MONTH_DAYS -> monthDays
           const day = monthDays[dateIndex]; 
           if (staff && day) {
             newEndCell = { staffId: staff.staffId, date: day.dateStr, staffIndex, dateIndex };
@@ -455,10 +524,12 @@ export const useCalendarInteractions = (
       }
 
 
-      // ★ 修正: monthDays を参照
+      // (CUT - ★★★ Plan F: 順序入れ替え ★★★)
       if (ctrlKey && (event.key === 'c' || event.key === 'x')) {
         event.preventDefault();
         const currentAssignments = latestAssignmentsRef.current;
+        
+        // (クリップボードへのコピー処理 - 変更なし)
         const rangeIndices = getRangeIndices(selectionRange);
         if (!rangeIndices) return;
         const { minStaff, maxStaff, minDate, maxDate } = rangeIndices;
@@ -476,7 +547,6 @@ export const useCalendarInteractions = (
               }
             } else {
               const staff = sortedStaffList[sIdx];
-              // ★ 修正: MONTH_DAYS -> monthDays
               const day = monthDays[dIdx]; 
               if (staff && day) {
                 key = `${staff.staffId}_${day.dateStr}`;
@@ -505,66 +575,72 @@ export const useCalendarInteractions = (
           colCount: maxDate - minDate + 1,
           sourceType: isCopyFromWorkArea ? 'WORK_AREA' : 'MAIN',
         };
+        
         if (event.key === 'x') {
-          // (CUT DBロジック - 変更なし)
-          const assignmentsToRemove = currentAssignments.filter(a => keysToCut.has(`${a.staffId}_${a.date}`));
+          // (CUT DBロジック)
           const newOptimisticAssignments = currentAssignments.filter(a => !keysToCut.has(`${a.staffId}_${a.date}`));
+          
           const currentSyncId = Date.now();
           syncLockRef.current = currentSyncId;
+          
+          // ★★★ Plan F: 順序入れ替え ★★★
           dispatch(setAssignments(newOptimisticAssignments)); 
-          if (assignmentsToRemove.length > 0) {
-            (async () => {
-              let updatedAssignments: IAssignment[] = [];
-              try {
-                updatedAssignments = await db.transaction('rw', db.assignments, async () => {
-                  const allAssignmentsInDB = await db.assignments.toArray();
-                  const finalOptimisticState = newOptimisticAssignments;
-                  const assignmentsToRemoveDB = allAssignmentsInDB.filter(dbAssignment => {
-                    const existsInOptimistic = finalOptimisticState.some(optimistic => 
-                      (dbAssignment.id && optimistic.id === dbAssignment.id) ||
-                      (optimistic.staffId === dbAssignment.staffId && optimistic.date === dbAssignment.date)
-                    );
-                    return !existsInOptimistic;
-                  });
-                  const assignmentsToAddDB = finalOptimisticState.filter(optimistic => {
-                      const existsInDB = allAssignmentsInDB.some(dbAssignment => 
-                          (dbAssignment.id && optimistic.id === dbAssignment.id) ||
-                          (optimistic.staffId === dbAssignment.staffId && optimistic.date === dbAssignment.date)
-                      );
-                      return !existsInDB;
-                  }).map(({ id, ...rest }) => rest);
-                  if (assignmentsToRemoveDB.length > 0) {
-                      await db.assignments.bulkDelete(assignmentsToRemoveDB.map(a => a.id!));
-                  }
-                  if (assignmentsToAddDB.length > 0) {
-                      await db.assignments.bulkAdd(assignmentsToAddDB);
-                  }
-                  return db.assignments.toArray();
-                });
-                if (syncLockRef.current === currentSyncId) {
-                    dispatch(_syncAssignments(updatedAssignments));
-                } else {
-                    console.warn(`[DEBUG] Stale _syncAssignments call detected (Cut). SKIPPING SYNC. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
+          console.log(`★[LOCK] Cut ('x'): isSyncing = true (ID: ${currentSyncId})`);
+          console.trace();
+          dispatch(_setIsSyncing(true));
+          
+          // (DB非同期操作 - 変更なし)
+          (async () => {
+            try {
+              if (!monthDays || monthDays.length === 0) throw new Error("カレンダーの月情報がありません。");
+              const firstDay = monthDays[0].dateStr;
+              const lastDay = monthDays[monthDays.length - 1].dateStr;
+              
+              await db.transaction('rw', db.assignments, async () => {
+                const assignmentsToRemoveDB = await db.assignments
+                  .where('date')
+                  .between(firstDay, lastDay, true, true)
+                  .primaryKeys();
+                if (assignmentsToRemoveDB.length > 0) {
+                  await db.assignments.bulkDelete(assignmentsToRemoveDB);
                 }
-              } catch (e) {
-                console.error("カット(DB削除)に失敗:", e);
-                if (syncLockRef.current === currentSyncId) {
-                    console.warn("[DEBUG] DB Cut failed. Reverting optimistic update.");
-                    db.assignments.toArray().then(dbAssignments => dispatch(_syncAssignments(dbAssignments)));
-                } else {
-                    console.warn(`[DEBUG] DB Cut failed, but state is already stale. SKIPPING SYNC. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
+                const assignmentsToSave = newOptimisticAssignments
+                  .filter(a => a.date >= firstDay && a.date <= lastDay) 
+                  .map(({ id, ...rest }) => rest);
+                if (assignmentsToSave.length > 0) {
+                  await db.assignments.bulkAdd(assignmentsToSave);
                 }
+              });
+
+              if (syncLockRef.current === currentSyncId) {
+                  console.log(`★[UNLOCK] Cut ('x'): isSyncing = false (ID: ${currentSyncId})`);
+                  dispatch(_setIsSyncing(false)); 
+              } else {
+                  console.warn(`★[UNLOCK-STALE] Cut ('x'): Stale lock detected. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
+                  if (syncLockRef.current === 0) { dispatch(_setIsSyncing(false)); }
               }
-            })(); 
-          }
+            } catch (e) {
+              console.error("カット(DB削除)に失敗:", e);
+              if (syncLockRef.current === currentSyncId) {
+                  console.warn(`★[UNLOCK-FAIL] Cut ('x'): Reverting state (ID: ${currentSyncId})`);
+                  db.assignments.toArray().then(dbAssignments => dispatch(_syncAssignments(dbAssignments))); 
+              } else {
+                  console.warn(`★[UNLOCK-FAIL-STALE] Cut ('x'): DB Error, but stale. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
+                  if (syncLockRef.current === 0) { dispatch(_setIsSyncing(false)); }
+              }
+            }
+          })(); 
+          // ★★★ 修正ここまで ★★★
         }
       } 
-      // ★ 修正: monthDays を参照
+      // (PASTE - ★★★ Plan F: 順序入れ替え ★★★)
       else if (ctrlKey && event.key === 'v') {
         event.preventDefault();
         const clipboard = clipboardRef.current; 
         if (!clipboard || !activeCell) return;
         const currentAssignments = latestAssignmentsRef.current;
+        
+        // (貼り付け範囲の計算 - 変更なし)
         const { assignments: clipboardAssignments, rowCount, colCount } = clipboard;
         const newAssignmentsToPaste: Omit<IAssignment, 'id'>[] = [];
         const keysToOverwrite = new Set<string>(); 
@@ -582,28 +658,18 @@ export const useCalendarInteractions = (
               const dateCol = virtualWorkAreaCols[dateIndex - WORK_AREA_DATE_INDEX_START];
               if (!staffRow || !dateCol) continue; 
               targetStaffId = staffRow.staffId;
-              if (clipboard.sourceType === 'MAIN') {
-                targetDate = dateCol.date; 
-              } else {
-                targetDate = dateCol.date; 
-              }
+              targetDate = dateCol.date; 
             } else {
               const staffIndex = activeCell.staffIndex + r;
               const dateIndex = activeCell.dateIndex + c;
-              // ★ 修正: MONTH_DAYS -> monthDays
               if (staffIndex >= sortedStaffList.length || dateIndex >= monthDays.length) { 
                 continue; 
               }
               const targetStaff = sortedStaffList[staffIndex];
-              // ★ 修正: MONTH_DAYS -> monthDays
               const targetDay = monthDays[dateIndex]; 
               if (!targetStaff || !targetDay) continue;
               targetStaffId = targetStaff.staffId;
-              if (clipboard.sourceType === 'MAIN') {
-                targetDate = targetDay.dateStr; 
-              } else {
-                targetDate = targetDay.dateStr;
-              }
+              targetDate = targetDay.dateStr;
             }
             if (!targetStaffId || !targetDate) continue;
             key = `${targetStaffId}_${targetDate}`;
@@ -619,6 +685,8 @@ export const useCalendarInteractions = (
             }
           }
         }
+        
+        // (楽観的更新 - 変更なし)
         const assignmentsBeforePaste = currentAssignments.filter(a => { 
           const key = `${a.staffId}_${a.date}`;
           return !keysToOverwrite.has(key); 
@@ -628,16 +696,23 @@ export const useCalendarInteractions = (
           id: Date.now() + i 
         }));
         const finalOptimisticState = [...assignmentsBeforePaste, ...tempAssignments];
+        
         const currentSyncId = Date.now();
         syncLockRef.current = currentSyncId;
+        
+        // ★★★ Plan F: 順序入れ替え ★★★
         dispatch(setAssignments(finalOptimisticState)); 
+        console.log(`★[LOCK] Paste ('v'): isSyncing = true (ID: ${currentSyncId})`);
+        console.trace(); 
+        dispatch(_setIsSyncing(true));
+        
+        // (貼り付け後の選択範囲更新 - 変更なし)
         if (keysToOverwrite.size > 0 && activeCell) {
           const endStaffIndex = activeCell.staffIndex + rowCount - 1;
           const endDateIndex = activeCell.dateIndex + colCount - 1;
           const maxStaffIndex = isPasteToWorkArea 
             ? (WORK_AREA_STAFF_INDEX_START + workAreaRowCount - 1) 
             : (sortedStaffList.length - 1);
-          // ★ 修正: MONTH_DAYS -> monthDays
           const maxDateIndex = isPasteToWorkArea
             ? (WORK_AREA_DATE_INDEX_START + workAreaColCount - 1)
             : (monthDays.length - 1); 
@@ -655,7 +730,6 @@ export const useCalendarInteractions = (
               }
             } else {
               const endStaff = sortedStaffList[clampedEndStaffIndex];
-              // ★ 修正: MONTH_DAYS -> monthDays
               const endDay = monthDays[clampedEndDateIndex]; 
               if (endStaff && endDay) {
                 endStaffId = endStaff.staffId;
@@ -677,49 +751,49 @@ export const useCalendarInteractions = (
             setSelectionRange({ start: activeCell, end: activeCell });
           }
         }
+        
         // (PASTE DBロジック - 変更なし)
         (async () => {
-          let updatedAssignments: IAssignment[] = [];
           try {
-            updatedAssignments = await db.transaction('rw', db.assignments, async () => {
-                const allAssignmentsInDB = await db.assignments.toArray();
-                const assignmentsToRemove = allAssignmentsInDB.filter(dbAssignment => {
-                  const existsInOptimistic = finalOptimisticState.some(optimistic => 
-                    (dbAssignment.id && optimistic.id === dbAssignment.id) ||
-                    (optimistic.staffId === dbAssignment.staffId && optimistic.date === dbAssignment.date)
-                  );
-                  return !existsInOptimistic;
-                });
-                const assignmentsToAdd = finalOptimisticState.filter(optimistic => {
-                    const existsInDB = allAssignmentsInDB.some(dbAssignment => 
-                        (dbAssignment.id && optimistic.id === dbAssignment.id) ||
-                        (optimistic.staffId === dbAssignment.staffId && optimistic.date === dbAssignment.date)
-                    );
-                    return !existsInDB;
-                }).map(({ id, ...rest }) => rest); 
-                if (assignmentsToRemove.length > 0) {
-                    await db.assignments.bulkDelete(assignmentsToRemove.map(a => a.id!));
+            if (!monthDays || monthDays.length === 0) throw new Error("カレンダーの月情報がありません。");
+            const firstDay = monthDays[0].dateStr;
+            const lastDay = monthDays[monthDays.length - 1].dateStr;
+
+            await db.transaction('rw', db.assignments, async () => {
+                const assignmentsToRemoveDB = await db.assignments
+                  .where('date')
+                  .between(firstDay, lastDay, true, true)
+                  .primaryKeys();
+                if (assignmentsToRemoveDB.length > 0) {
+                    await db.assignments.bulkDelete(assignmentsToRemoveDB);
                 }
-                if (assignmentsToAdd.length > 0) {
-                    await db.assignments.bulkAdd(assignmentsToAdd);
+                const assignmentsToSave = finalOptimisticState
+                  .filter(a => a.date >= firstDay && a.date <= lastDay) 
+                  .map(({ id, ...rest }) => rest); 
+                if (assignmentsToSave.length > 0) {
+                    await db.assignments.bulkAdd(assignmentsToSave);
                 }
-                return db.assignments.toArray();
             });
+            
             if (syncLockRef.current === currentSyncId) {
-              dispatch(_syncAssignments(updatedAssignments)); 
+              console.log(`★[UNLOCK] Paste ('v'): isSyncing = false (ID: ${currentSyncId})`);
+              dispatch(_setIsSyncing(false)); 
             } else {
-              console.warn(`[DEBUG] Stale _syncAssignments call detected. SKIPPING SYNC. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
+              console.warn(`★[UNLOCK-STALE] Paste ('v'): Stale lock detected. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
+              if (syncLockRef.current === 0) { dispatch(_setIsSyncing(false)); }
             }
           } catch (e) {
             console.error("ペースト(DB操作)に失敗:", e);
             if (syncLockRef.current === currentSyncId) {
-                console.warn("[DEBUG] DB Paste failed. Reverting optimistic update.");
-                db.assignments.toArray().then(dbAssignments => dispatch(_syncAssignments(dbAssignments)));
+                console.warn(`★[UNLOCK-FAIL] Paste ('v'): Reverting state (ID: ${currentSyncId})`);
+                db.assignments.toArray().then(dbAssignments => dispatch(_syncAssignments(dbAssignments))); 
             } else {
-                console.warn(`[DEBUG] DB Paste failed, but state is already stale. SKIPPING SYNC. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
+                console.warn(`★[UNLOCK-FAIL-STALE] Paste ('v'): DB Error, but stale. (MyID: ${currentSyncId}, CurrentLock: ${syncLockRef.current})`);
+                if (syncLockRef.current === 0) { dispatch(_setIsSyncing(false)); }
             }
           }
         })();
+        // ★★★ 修正ここまで ★★★
       }
     };
 
@@ -777,15 +851,13 @@ export const useCalendarInteractions = (
       unsubscribe(); 
       stopAutoScroll(); 
     };
-  }, [ // ★★★ 依存配列の修正 ★★★
+  }, [ // (依存配列)
     _clickMode, isDragging, selectionRange, activeCell, 
     sortedStaffList, 
     dispatch, store,
     getRangeIndices, setClickMode, 
     toggleHoliday, 
-    holidayPatternId, 
-    paidLeavePatternId,
-    invalidateSyncLock,
+    holidayPatternId, paidLeavePatternId,
     assignmentsMap,
     virtualWorkAreaRowsWithCoords, virtualWorkAreaCols, isWorkAreaCell,
     workAreaColCount, workAreaRowCount,
@@ -793,21 +865,17 @@ export const useCalendarInteractions = (
     workAreaRef, 
     mainCalendarScrollerRef, 
     handleCellMouseUp,
-    monthDays // ★ 修正: monthDays を追加
+    monthDays 
   ]);
 
-  // ★★★ 自動スクロール (SHIFT+矢印キー / 矢印キー単体) ★★★
+  // (自動スクロール (SHIFT+矢印キー / 矢印キー単体) - 変更なし)
   useEffect(() => {
-    // 変更されたのが selectionRange.end であっても、
-    // キーボード操作の場合は activeCell も追従させる
     const targetCell = (selectionRange && !isDragging) ? selectionRange.end : (activeCell && !isDragging ? activeCell : null);
 
     if (targetCell) {
-      // 終点のセルIDを特定
       const cellId = `cell-${targetCell.staffId}-${targetCell.date}`;
       const element = document.getElementById(cellId);
 
-      // 対応するDOM要素が見つかれば、そこまでスクロールする
       if (element) {
         element.scrollIntoView({
           behavior: 'smooth', 
@@ -816,7 +884,6 @@ export const useCalendarInteractions = (
         });
       }
     }
-    // ★ 修正: activeCell にも依存
   }, [selectionRange, activeCell, isDragging]); 
 
 
@@ -825,13 +892,13 @@ export const useCalendarInteractions = (
     setClickMode,      
     activeCell,
     selectionRange,
-    toggleHoliday,
+    toggleHoliday, 
     holidayPatternId,
     paidLeavePatternId,
     handleCellClick,
     handleCellMouseDown,
     handleCellMouseMove,
     handleCellMouseUp, 
-    invalidateSyncLock,
+    invalidateSyncLock: () => {}, // ★ 外部用にダミー関数を渡す
   };
 };

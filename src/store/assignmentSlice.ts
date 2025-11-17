@@ -1,6 +1,6 @@
 import { createSlice, PayloadAction, createAsyncThunk } from '@reduxjs/toolkit';
-// ★ 1. redux-undo と ActionTypes をインポート
-import undoable, { excludeAction } from 'redux-undo';
+// ★ 1. ActionTypes をインポート (excludeAction は不要)
+import undoable, { ActionTypes } from 'redux-undo';
 import { IStaff, IShiftPattern, db, IAssignment, IUnit } from '../db/dexie'; 
 import { GeminiApiClient } from '../api/geminiApiClient'; 
 import { extractJson } from '../utils/jsonExtractor'; 
@@ -77,7 +77,7 @@ export const fetchAiAdjustment = createAsyncThunk(
     if (!gemini.isAvailable) {
       return rejectWithValue('Gemini APIが設定されていません。');
     }
-    const defaultHolidayCount = getDefaultRequiredHolidays();
+    const defaultHolidayCount = getDefaultRequiredHolidays(monthInfo.days);
     const staffWithHolidayReq = allStaff.map(staff => ({
       ...staff,
       requiredHolidays: staffHolidayRequirements.get(staff.staffId) || defaultHolidayCount 
@@ -144,10 +144,13 @@ ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
       if (!Array.isArray(newAssignments) || newAssignments.length === 0 || !newAssignments[0].date || !newAssignments[0].staffId) {
         throw new Error("AIが不正な形式のJSONを返しました。");
       }
+      
       await db.assignments.clear();
       await db.assignments.bulkPut(newAssignments);
+      
       const allAssignmentsFromDB = await db.assignments.toArray();
       return allAssignmentsFromDB;
+      
     } catch (e: any) {
       console.error("★ AI草案作成: APIリクエストまたはJSON解析でエラー発生", e);
       return rejectWithValue(e.message);
@@ -175,7 +178,7 @@ export const fetchAiHolidayPatch = createAsyncThunk(
     if (!gemini.isAvailable) {
       return rejectWithValue('Gemini APIが設定されていません。');
     }
-    const defaultHolidayCount = getDefaultRequiredHolidays();
+    const defaultHolidayCount = getDefaultRequiredHolidays(monthInfo.days);
     const staffWithHolidayReq = allStaff.map(staff => ({
       ...staff,
       requiredHolidays: staffHolidayRequirements.get(staff.staffId) || defaultHolidayCount 
@@ -225,18 +228,26 @@ ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
       }
       if (patchAssignments.length === 0) {
         alert("AIによる公休数の診断が完了しました。\n（全員の公休数が既に一致しているため、変更はありませんでした）");
-        return allAssignments; // 変更がないため、現在のアサインをそのまま返す
+        return allAssignments; 
       }
-      // ★ 差分（パッチ）を適用 ★
+      
       const patchKeys = new Set(patchAssignments.map(p => `${p.date}_${p.staffId}`));
-      // ★★★ 修正: `p.staffId` を `a.staffId` に変更 ★★★
       const assignmentsToDelete = allAssignments.filter(a => patchKeys.has(`${a.date}_${a.staffId}`));
+      
       await db.assignments.bulkDelete(assignmentsToDelete.map(a => a.id!));
       const assignmentsToAdd = patchAssignments.map(({ id, ...rest }) => rest);
       await db.assignments.bulkAdd(assignmentsToAdd);
-      const allAssignmentsFromDB = await db.assignments.toArray();
+      
+      const firstDay = monthInfo.days[0].dateStr;
+      const lastDay = monthInfo.days[monthInfo.days.length - 1].dateStr;
+      const allAssignmentsFromDB = await db.assignments
+        .where('date')
+        .between(firstDay, lastDay, true, true)
+        .toArray();
+        
       alert(`AIによる公休数の強制補正が完了しました。（${patchAssignments.length}件の変更）`);
       return allAssignmentsFromDB;
+      
     } catch (e: any) {
       console.error("★ AI公休補正: APIリクエストまたはJSON解析でエラー発生", e);
       return rejectWithValue(e.message);
@@ -245,7 +256,7 @@ ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
 );
 
 
-// (FetchAiAnalysisArgs, fetchAiAnalysis は変更なし)
+// (fetchAiAnalysis は変更なし)
 interface FetchAiAnalysisArgs {
   allStaff: IStaff[];
   allPatterns: IShiftPattern[];
@@ -257,6 +268,7 @@ interface FetchAiAnalysisArgs {
 export const fetchAiAnalysis = createAsyncThunk(
   'assignment/fetchAiAnalysis',
   async (args: FetchAiAnalysisArgs, { rejectWithValue }) => {
+    console.log("★[LOCK-AI] fetchAiAnalysis: Thunkが呼び出されました。 (analysisLoading = true になります)");
     // ... (プロンプト生成・API呼び出し) ...
     const { allStaff, allPatterns, allUnits, allAssignments, monthInfo, staffHolidayRequirements } = args;
     const gemini = new GeminiApiClient();
@@ -265,9 +277,9 @@ export const fetchAiAnalysis = createAsyncThunk(
     }
     const staffWithHolidayReq = allStaff.map((staff: IStaff) => ({
       ...staff,
-      requiredHolidays: staffHolidayRequirements.get(staff.staffId) || getDefaultRequiredHolidays()
+      requiredHolidays: staffHolidayRequirements.get(staff.staffId) || getDefaultRequiredHolidays(monthInfo.days)
     }));
-    const defaultHolidayCount = getDefaultRequiredHolidays();
+    const defaultHolidayCount = getDefaultRequiredHolidays(monthInfo.days);
     const lockedAssignments = allAssignments.filter((a: IAssignment) => a.locked);
     const prompt = `あなたは勤務表システムのデータ診断医です。
 以下の「マスタデータ（スタッフ設定、デマンド設定）」と「固定されたアサイン（管理者による確定事項）」を診断し、**論理的な矛盾**や**物理的な達成不可能性**を指摘してください。
@@ -310,10 +322,10 @@ ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
 );
 
 
-// ★ 2. State の定義を `redux-undo` に合わせて簡素化
+// ... (State 定義, initialState は変更なし) ...
 interface AssignmentState {
-  assignments: IAssignment[]; // (現在)
-  
+  assignments: IAssignment[];
+  isSyncing: boolean; 
   adviceLoading: boolean;
   adviceError: string | null;
   adviceResult: string | null;
@@ -325,9 +337,9 @@ interface AssignmentState {
   patchLoading: boolean;
   patchError: string | null;
 }
-
 const initialState: AssignmentState = {
   assignments: [],
+  isSyncing: false, 
   adviceLoading: false,
   adviceError: null,
   adviceResult: null,
@@ -340,40 +352,21 @@ const initialState: AssignmentState = {
   patchError: null,
 };
 
-// ★★★ 変更点 1: SyncOptimisticPayload の型定義を削除 ★★★
-// interface SyncOptimisticPayload {
-//   tempId: number;
-//   newAssignment: IAssignment;
-// }
-
-// ★ 3. スライス本体を作成 (まだ undoable でラップしない)
+// ★ スライス本体 (ログ削除)
 const assignmentSlice = createSlice({
   name: 'assignment',
   initialState,
   reducers: {
     setAssignments: (state, action: PayloadAction<IAssignment[]>) => {
-      // ★ 履歴管理は redux-undo に任せる (これが履歴に積まれる)
       state.assignments = action.payload;
     },
-    
-    // ★★★ 修正: `_syncAssignments` を追加 ★★★
-    // (履歴に影響を与えない、DB同期専用のアクション)
     _syncAssignments: (state, action: PayloadAction<IAssignment[]>) => {
-      // ★ state.past も state.future も触らない
       state.assignments = action.payload;
+      state.isSyncing = false; 
     },
-    
-    // ★★★ 変更点 2: _syncOptimisticAssignment を削除 ★★★
-    // _syncOptimisticAssignment: (state, action: PayloadAction<SyncOptimisticPayload>) => {
-    //   const { tempId, newAssignment } = action.payload;
-    //   const index = state.assignments.findIndex(a => a.id === tempId);
-    //   if (index !== -1) {
-    //     state.assignments[index] = newAssignment;
-    //   }
-    // },
-    
-    // (undo/redo は削除済み)
-
+    _setIsSyncing: (state, action: PayloadAction<boolean>) => {
+      state.isSyncing = action.payload;
+    },
     clearAdvice: (state) => {
       state.adviceLoading = false;
       state.adviceError = null;
@@ -392,6 +385,7 @@ const assignmentSlice = createSlice({
     }
   },
   extraReducers: (builder) => {
+    // ★ (ログ削除)
     builder
       // (fetchAssignmentAdvice)
       .addCase(fetchAssignmentAdvice.pending, (state) => {
@@ -414,7 +408,6 @@ const assignmentSlice = createSlice({
         state.adjustmentError = null;
       })
       .addCase(fetchAiAdjustment.fulfilled, (state, action: PayloadAction<IAssignment[]>) => {
-        // ★ `setAssignments` と同じロジック (履歴に積まれる)
         state.assignments = action.payload;
         state.adjustmentLoading = false;
       })
@@ -429,8 +422,7 @@ const assignmentSlice = createSlice({
         state.patchError = null;
       })
       .addCase(fetchAiHolidayPatch.fulfilled, (state, action: PayloadAction<IAssignment[]>) => {
-        // ★ `setAssignments` と同じロジック (履歴に積まれる)
-        state.assignments = action.payload; // (DBから読み直した最新のアサイン)
+        state.assignments = action.payload;
         state.patchLoading = false;
       })
       .addCase(fetchAiHolidayPatch.rejected, (state, action) => {
@@ -457,22 +449,47 @@ const assignmentSlice = createSlice({
 
 export const { 
   setAssignments, 
-  _syncAssignments, // ★★★ 修正: `_syncAssignments` をエクスポート
-  // ★★★ 変更点 3: _syncOptimisticAssignment をエクスポートから削除 ★★★
-  // _syncOptimisticAssignment, 
+  _syncAssignments, 
+  _setIsSyncing, 
   clearAdvice, 
   clearAdjustmentError, 
   clearAnalysis 
 } = assignmentSlice.actions;
 
-// ★ 4. `redux-undo` で Reducer をラップ
+// ★★★ 修正版 (Plan H - ログ削除) ★★★
+// (ts2353 エラーを修正し、月またぎバグを修正します)
 const undoableAssignmentReducer = undoable(assignmentSlice.reducer, {
-  // ★ 履歴に含めないアクション（楽観的更新、DB同期）を指定
-  filter: excludeAction([
-    // ★★★ 変更点 4: _syncOptimisticAssignment を除外フィルタから削除 ★★★
-    // _syncOptimisticAssignment.type,
-    _syncAssignments.type // ★★★ 修正: `_syncAssignments` も除外
-  ]),
+  
+  // ★ カスタム filter 関数
+  filter: (action, currentState, previousState) => {
+    // 除外したいアクションのリスト
+    const excludedTypes = [
+      _syncAssignments.type,
+      _setIsSyncing.type,
+      fetchAiAdjustment.pending.type,
+      fetchAiHolidayPatch.pending.type,
+      fetchAiAnalysis.pending.type,
+      fetchAssignmentAdvice.pending.type
+    ];
+
+    // 1. UNDO/REDO 自体はスキップ
+    if (action.type === ActionTypes.UNDO || action.type === ActionTypes.REDO) {
+      return false; 
+    }
+
+    // 2. 除外リストに含まれているかチェック
+    if (excludedTypes.includes(action.type)) {
+      return false; // 履歴に記録しない
+    }
+
+    // 3. アクションタイプが 'assignment/' で始まらないものはすべて除外
+    if (!action.type.startsWith('assignment/')) {
+      return false; // 履歴に記録しない
+    }
+    
+    // 4. それ以外のアクション (setAssignments など)
+    return true; // 履歴に記録する
+  },
 });
 
-export default undoableAssignmentReducer; // ★ ラップした Reducer をエクスポート
+export default undoableAssignmentReducer;

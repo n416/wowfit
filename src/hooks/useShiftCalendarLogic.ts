@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback } from 'react';
-import { useSelector, useDispatch } from 'react-redux';
+// ★ 1. useStore をインポート
+import { useSelector, useDispatch, useStore } from 'react-redux';
 import type { RootState, AppDispatch } from '../store';
 import { 
   setAssignments,
@@ -34,6 +35,8 @@ export const useShiftCalendarLogic = (
   monthDays: MonthDay[]
 ) => {
   const dispatch: AppDispatch = useDispatch();
+  // ★ 2. store への参照を取得
+  const store = useStore<RootState>();
   
   // 1. AIへの指示テキスト (変更なし)
   const [aiInstruction, setAiInstruction] = useState("夜勤さんXの夜勤を月4回程度に減らせてください。");
@@ -186,14 +189,22 @@ export const useShiftCalendarLogic = (
         }
         
         // ★ UI (Redux) からも削除 (空配列をセット)
-        dispatch(setAssignments([]));
+        // dispatch(setAssignments([])); // <-- バグの原因: これだと履歴に [] が積まれる
+        
+        // ★ 修正: 現状の Redux state から「当月分以外」をフィルタして残す
+        const currentState = store.getState().assignment.present;
+        const assignmentsToKeep = currentState.assignments.filter(a => {
+          return a.date < firstDay || a.date > lastDay;
+        });
+        // (「当月分以外」を保持した state をセットすることで、当月分のみがクリアされる)
+        dispatch(setAssignments(assignmentsToKeep));
 
       } catch (e) {
         console.error("Reset failed:", e);
       }
     }
-  // ★ 修正: 依存配列に月情報を追加
-  }, [dispatch, currentYear, currentMonth, monthDays]);
+  // ★ 3. 依存配列に store を追加
+  }, [dispatch, currentYear, currentMonth, monthDays, store]);
 
   /**
    * [UI] エラーをクリア (変更なし)

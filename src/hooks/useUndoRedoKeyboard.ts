@@ -1,19 +1,22 @@
 import { useEffect } from 'react';
-import { useDispatch } from 'react-redux';
-import type { AppDispatch } from '../store';
-// ★ 1. redux-undo の ActionCreators をインポート
+// ★ 1. useStore と RootState をインポート
+import { useDispatch, useStore } from 'react-redux';
+import type { AppDispatch, RootState } from '../store';
 import { ActionCreators } from 'redux-undo';
+
+// ★ 2. バージョンを (Plan E) に更新
+console.log("[VERSION] useUndoRedoKeyboard.ts (Plan E + Logging) loaded. invalidateSyncLock calls removed.");
 
 /**
  * UNDO (Ctrl+Z) / REDO (Ctrl+Y) のキーボードショートカットをグローバルに設定するフック
- * ★★★ 変更点 1: invalidateSyncLock を引数で受け取る ★★★
  */
 export const useUndoRedoKeyboard = (invalidateSyncLock: () => void) => {
   const dispatch: AppDispatch = useDispatch();
+  // ★ 3. store への参照を取得
+  const store = useStore<RootState>();
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      // テキスト入力中はキーボードショートカットを無効にする
       if (
         event.target instanceof HTMLInputElement ||
         event.target instanceof HTMLTextAreaElement
@@ -26,23 +29,59 @@ export const useUndoRedoKeyboard = (invalidateSyncLock: () => void) => {
 
       if (ctrlKey && event.key === 'z') {
         event.preventDefault();
-        // ★ 2. undoAssignments() の代わりに ActionCreators.undo() を dispatch
+        
+        // ★★★ (Plan E) UNDO ログ START ★★★
+        console.log("===== (Plan E) [UNDO] KeyDown: Ctrl+Z pressed. =====");
+        try {
+          const stateBeforeUndo = store.getState();
+          const present = stateBeforeUndo.assignment.present;
+          console.log("[UNDO] State BEFORE dispatch:", {
+            isSyncing: present.isSyncing,
+            adjLoading: present.adjustmentLoading,
+            patchLoading: present.patchLoading,
+            analysisLoading: present.analysisLoading,
+            adviceLoading: present.adviceLoading,
+            isMonthLoading: stateBeforeUndo.calendar.isMonthLoading,
+            pastCount: stateBeforeUndo.assignment.past.length,
+          });
+        } catch (e) {
+          console.error("[UNDO] Error getting state before undo:", e);
+        }
+        
         dispatch(ActionCreators.undo());
-        // ★★★ 変更点 2: ロックを無効化 ★★★
-        invalidateSyncLock();
+        
+        console.log("[UNDO] Dispatched ActionCreators.undo(). State will update shortly.");
+        // ★★★ (Plan E) UNDO ログ END ★★★
+        
       } else if (ctrlKey && event.key === 'y') {
         event.preventDefault();
-        // ★ 3. redoAssignments() の代わりに ActionCreators.redo() を dispatch
+
+        // ★★★ (Plan E) REDO ログ START ★★★
+        console.log("===== (Plan E) [REDO] KeyDown: Ctrl+Y pressed. =====");
+        try {
+          const stateBeforeRedo = store.getState();
+          const present = stateBeforeRedo.assignment.present;
+          console.log("[REDO] State BEFORE dispatch:", {
+            isSyncing: present.isSyncing,
+            adjLoading: present.adjustmentLoading,
+            patchLoading: present.patchLoading,
+            futureCount: stateBeforeRedo.assignment.future.length,
+          });
+        } catch (e) {
+          console.error("[REDO] Error getting state before redo:", e);
+        }
+        
         dispatch(ActionCreators.redo());
-        // ★★★ 変更点 3: ロックを無効化 ★★★
-        invalidateSyncLock();
+
+        console.log("[REDO] Dispatched ActionCreators.redo(). State will update shortly.");
+        // ★★★ (Plan E) REDO ログ END ★★★
+        
       } else if (isMac && ctrlKey && event.shiftKey && event.key === 'z') {
-        // Mac の REDO (Cmd+Shift+Z)
         event.preventDefault();
-        // ★ 4. ActionCreators.redo() を dispatch
+        // (Mac の REDO も同様)
+        console.log("===== (Plan E) [REDO-Mac] KeyDown: Cmd+Shift+Z pressed. =====");
         dispatch(ActionCreators.redo());
-        // ★★★ 変更点 4: ロックを無効化 ★★★
-        invalidateSyncLock();
+        console.log("[REDO-Mac] Dispatched ActionCreators.redo(). State will update shortly.");
       }
     };
 
@@ -50,8 +89,5 @@ export const useUndoRedoKeyboard = (invalidateSyncLock: () => void) => {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-    // ★★★ 変更点 5: 依存配列に invalidateSyncLock を追加 ★★★
-  }, [dispatch, invalidateSyncLock]); 
-
-  // このフックはUIを持たないため、何も返さない
+  }, [dispatch, invalidateSyncLock, store]); // ★ 4. store を依存配列に追加
 };

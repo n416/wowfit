@@ -6,7 +6,7 @@ import {
   IconButton,
   Typography 
 } from '@mui/material';
-import { useSelector, useDispatch } from 'react-redux';
+import { useSelector, useDispatch, useStore } from 'react-redux';
 import { ActionCreators as UndoActionCreators } from 'redux-undo';
 import { 
   db, 
@@ -15,12 +15,17 @@ import { setStaffList } from '../store/staffSlice';
 import { setPatterns } from '../store/patternSlice';
 import { setUnits } from '../store/unitSlice';
 import { 
-  setAssignments,
+  // ★ 修正: setAssignments を削除
+  _syncAssignments
 } from '../store/assignmentSlice'; 
-import { goToNextMonth, goToPrevMonth } from '../store/calendarSlice'; 
+import { 
+  goToNextMonth, 
+  goToPrevMonth, 
+  // ★ 修正: setCurrentMonth を削除
+  _setIsMonthLoading // ★ インポート
+} from '../store/calendarSlice'; 
 import type { AppDispatch, RootState } from '../store';
 
-// ★ 1. getMonthDays をインポート
 import { getMonthDays } from '../utils/dateUtils'; 
 
 // コンポーネント
@@ -67,34 +72,50 @@ function ShiftCalendarPage() {
 
   // --- 1. グローバル状態の取得 ---
   
-  // (assignment state - 変更なし)
+  // (assignment state)
   const { 
     past, 
     future,
     present: {
       assignments, 
-      adjustmentLoading, adjustmentError,
-      analysisLoading, analysisResult, analysisError,
-      patchLoading, patchError
+      isSyncing, // DB書き込み中
+      adjustmentLoading, // ★ 取得
+      adjustmentError,
+      analysisLoading, // ★ 取得
+      analysisResult, 
+      analysisError,
+      patchLoading, // ★ 取得
+      patchError,
+      adviceLoading // ★ (Plan E) adviceLoading も取得
     }
   } = useSelector((state: RootState) => state.assignment);
   
-  // (他のスライス - 変更なし)
+  // (他のスライス)
   const { patterns: shiftPatterns } = useSelector((state: RootState) => state.pattern);
   const { units: unitList } = useSelector((state: RootState) => state.unit);
+  const { staff: staffList } = useSelector((state: RootState) => state.staff); 
   
-  // (calendar state - 変更なし)
-  const { currentYear, currentMonth } = useSelector((state: RootState) => state.calendar);
+  // (calendar state)
+  const { 
+    currentYear, 
+    currentMonth, 
+    isMonthLoading // ★ 月読み込み中フラグを取得
+  } = useSelector((state: RootState) => state.calendar);
 
-  // ★ 2. 動的に monthDays を計算
+  // (動的に monthDays を計算)
   const monthDays = useMemo(() => {
+    // ★ NaNガードを追加
+    if (isNaN(currentYear) || isNaN(currentMonth)) {
+      // (もしNaNなら、クラッシュを防ぐためデフォルトの月を返す)
+      const defaultDate = new Date();
+      return getMonthDays(defaultDate.getFullYear(), defaultDate.getMonth() + 1);
+    }
     return getMonthDays(currentYear, currentMonth);
   }, [currentYear, currentMonth]);
 
   
   // --- 2. カスタムフックによるロジックの分離 ---
 
-  // ★ 3. 各フックに動的なデータを渡す (※この時点では型エラー)
   const {
     staffList: activeStaffList,
     staffBurdenData,
@@ -125,7 +146,7 @@ function ShiftCalendarPage() {
     handleCellMouseDown,
     handleCellMouseMove,
     handleCellMouseUp,
-    invalidateSyncLock,
+    invalidateSyncLock, // ★★★ 修正: useCalendarInteractions がダミー関数を返す
   } = useCalendarInteractions(sortedStaffList, workAreaRef, mainCalendarScrollerRef, monthDays); 
 
   const {
@@ -154,15 +175,34 @@ function ShiftCalendarPage() {
     handleClearAnalysis
   } = useShiftCalendarLogic(currentYear, currentMonth, monthDays);
 
-  // (キーボードショートカットフック - 変更なし)
-  useUndoRedoKeyboard(invalidateSyncLock); 
+  // (キーボードショートカットフック)
+  useUndoRedoKeyboard(invalidateSyncLock); // ★ 修正済みフックを呼び出す
 
 
-  // --- 3. ページ固有のロジック ---
-
-  // ★ 4. データ読み込み (ステップ5)
+  // ★ (Plan E) ローディング状態の集中監視ログ
   useEffect(() => {
-    // マスタデータ（スタッフ、パターン、ユニット）を読み込む（初回のみ）
+    // このログは、いずれかのローディングフラグが変更されるたびに（UNDO/REDOを含む）実行されます
+    console.log(`(Plan E) [StateWatch] Loading flags changed:`, {
+      // assignmentSlice
+      isSyncing,
+      adjustmentLoading,
+      patchLoading,
+      analysisLoading,
+      adviceLoading,
+      // calendarSlice
+      isMonthLoading,
+      // 総合判断
+      isOverallLoading: isSyncing || adjustmentLoading || patchLoading || isMonthLoading || analysisLoading || adviceLoading,
+    });
+  }, [isSyncing, adjustmentLoading, patchLoading, isMonthLoading, analysisLoading, adviceLoading]);
+  // ★ (Plan E) ログここまで
+
+
+  // ★ 4. ページ固有のロジック (データ読み込み - ★ 月遷移のロジックを修正)
+  const store = useStore<RootState>(); // (isMonthLoading の最新状態チェック用)
+  
+  useEffect(() => {
+    // (loadMasterData)
     const loadMasterData = async () => {
       try {
         const [units, patterns, staff] = await Promise.all([
@@ -196,44 +236,64 @@ function ShiftCalendarPage() {
       }
     };
     
-    // アサインデータ（月依存）を読み込む
+    // (loadAssignments)
     const loadAssignments = async () => {
-      if (!monthDays || monthDays.length === 0) return;
-
-      // 当月の最初の日と最後の日を取得
-      const firstDay = monthDays[0].dateStr;
-      const lastDay = monthDays[monthDays.length - 1].dateStr;
-
+      // ★ 月データが空か、既に読み込み中なら何もしない
+      // (※ store.getState() で最新の isMonthLoading をチェック)
+      if (!monthDays || monthDays.length === 0 || store.getState().calendar.isMonthLoading) {
+        return;
+      }
+      
       try {
-        // ★ 当月分のアサインのみをDBからフィルタして読み込む
+        // ★ 読み込み開始を通知
+        dispatch(_setIsMonthLoading(true)); 
+
+        const firstDay = monthDays[0].dateStr;
+        const lastDay = monthDays[monthDays.length - 1].dateStr;
+
         const assignmentsDB = await db.assignments
           .where('date')
-          .between(firstDay, lastDay, true, true) // 境界を含む
+          .between(firstDay, lastDay, true, true)
           .toArray();
         
-        dispatch(setAssignments(assignmentsDB));
+        // (初回ロードか、月遷移かを staffList.length で判定)
+        if (staffList.length === 0) {
+          // (初回ロード時は履歴に残さない)
+          dispatch(_syncAssignments(assignmentsDB));
+        } else {
+          // ★★★ 修正: 月遷移時も履歴に登録しない ★★★
+          dispatch(_syncAssignments(assignmentsDB));
+          
+          // ★★★ バグ修正 ★★★
+          // 月をまたいだ場合、UNDO履歴が混在すると危険なため、履歴をクリアする
+          // (これにより、11月の履歴が12月に影響しなくなる)
+          dispatch(UndoActionCreators.clearHistory());
+          // ★★★ 修正ここまで ★★★
+        }
 
       } catch (e) {
         console.error(`${currentYear}年${currentMonth}月のアサイン読み込みに失敗:`, e);
+      } finally {
+        // ★ 成功・失敗に関わらず、読み込み完了を通知
+        dispatch(_setIsMonthLoading(false));
       }
     };
 
-    // マスタデータは初回のみ実行
-    if (unitList.length === 0 || shiftPatterns.length === 0 || activeStaffList.length === 0) {
+    if (unitList.length === 0 || shiftPatterns.length === 0 || staffList.length === 0) {
       loadMasterData();
     }
-    // アサインデータは月が変わるたびに実行
     loadAssignments();
 
-  }, [dispatch, currentYear, currentMonth, monthDays, unitList.length, shiftPatterns.length, activeStaffList.length]); // ★ 依存配列に月を追加
+  }, [dispatch, currentYear, currentMonth, monthDays, unitList.length, shiftPatterns.length, staffList.length, store]); // ★ store を依存配列に追加
 
-  // (タブ切り替え - 変更なし)
+
+  // (タブ切り替え)
   const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
     setClickMode('normal'); 
   };
 
-  // (セルクリック振り分け - 変更なし)
+  // (セルクリック振り分け)
   const handleCellClick = (
     e: React.MouseEvent, 
     date: string, 
@@ -254,6 +314,8 @@ function ShiftCalendarPage() {
     }
   };
 
+  // ★ (Plan E) isOverallLoading の定義を StateWatch と完全に一致
+  const isOverallLoading = isSyncing || adjustmentLoading || patchLoading || isMonthLoading || analysisLoading || adviceLoading;
 
   return (
     <Box sx={{ 
@@ -264,7 +326,7 @@ function ShiftCalendarPage() {
       gap: 2 
     }}>
       
-      {/* (上部エリア - 変更なし) */}
+      {/* (上部エリア) */}
       <Box sx={{
         display: 'flex',
         flexGrow: 1, 
@@ -280,7 +342,7 @@ function ShiftCalendarPage() {
           minHeight: 0,
         }}>
           
-          {/* (タブヘッダーと月選択UI - 変更なし) */}
+          {/* (タブヘッダーと月選択UI) */}
           <Box sx={{ 
             display: 'flex', 
             justifyContent: 'space-between', 
@@ -298,14 +360,17 @@ function ShiftCalendarPage() {
             </Box>
             
             {/* 中央: 月選択 */}
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <IconButton onClick={() => dispatch(goToPrevMonth())} size="small">
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, position: 'absolute', left: '50%', transform: 'translateX(-50%)' }}>
+              {/* ★ isOverallLoading で無効化 */}
+              <IconButton onClick={() => dispatch(goToPrevMonth())} size="small" disabled={isOverallLoading}>
                 <ChevronLeftIcon />
               </IconButton>
               <Typography variant="h6" component="div" sx={{ minWidth: '150px', textAlign: 'center' }}>
-                {`${currentYear}年 ${currentMonth}月`}
+                {/* ★ NaNガード */}
+                {isNaN(currentYear) || isNaN(currentMonth) ? '...' : `${currentYear}年 ${currentMonth}月`}
               </Typography>
-              <IconButton onClick={() => dispatch(goToNextMonth())} size="small">
+              {/* ★ isOverallLoading で無効化 */}
+              <IconButton onClick={() => dispatch(goToNextMonth())} size="small" disabled={isOverallLoading}>
                 <ChevronRightIcon />
               </IconButton>
             </Box>
@@ -316,9 +381,9 @@ function ShiftCalendarPage() {
                 title="元に戻す (Ctrl+Z)"
                 onClick={() => {
                   dispatch(UndoActionCreators.undo());
-                  invalidateSyncLock();
+                  // invalidateSyncLock(); // ★ 呼び出しは削除済み
                 }} 
-                disabled={past.length === 0}
+                disabled={past.length === 0 || isOverallLoading} // ★ 無効化
               >
                 <UndoIcon />
               </IconButton>
@@ -326,9 +391,9 @@ function ShiftCalendarPage() {
                 title="やり直す (Ctrl+Y)"
                 onClick={() => {
                   dispatch(UndoActionCreators.redo());
-                  invalidateSyncLock();
+                  // invalidateSyncLock(); // ★ 呼び出しは削除済み
                 }} 
-                disabled={future.length === 0}
+                disabled={future.length === 0 || isOverallLoading} // ★ 無効化
               >
                 <RedoIcon />
               </IconButton>
@@ -339,6 +404,7 @@ function ShiftCalendarPage() {
                 onClick={handleResetClick} 
                 size="small"
                 sx={{ ml: 1 }}
+                disabled={isOverallLoading} // ★ 無効化
               >
                 アサインをリセット
               </Button>
@@ -347,7 +413,7 @@ function ShiftCalendarPage() {
           
           {/* タブパネル */}
           <TabPanel value={tabValue} index={0}>
-            {/* (ToggleButtonGroup - 変更なし) */}
+            {/* (ToggleButtonGroup) */}
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: '0 24px 16px 24px' }}>
               <h6 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 500 }}>
                 スタッフビュー（カレンダー）
@@ -361,6 +427,7 @@ function ShiftCalendarPage() {
                   }
                 }}
                 size="small"
+                disabled={isOverallLoading} // ★ ローディング中はモード変更不可
               >
                 <ToggleButton value="normal" title="通常モード（詳細編集）">
                   <EditIcon />
@@ -377,7 +444,7 @@ function ShiftCalendarPage() {
               </ToggleButtonGroup>
             </Box>
             
-            {/* ★ 5. コンポーネントに動的な monthDays を渡す (※この時点では型エラー) */}
+            {/* (StaffCalendarView) */}
             <StaffCalendarView 
               sortedStaffList={sortedStaffList} 
               onCellClick={handleCellClick} 
@@ -399,7 +466,7 @@ function ShiftCalendarPage() {
           
           <TabPanel value={tabValue} index={1}>
             <Box sx={{ p: 3, height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
-              {/* ★ 5. コンポーネントに動的な monthDays を渡す (※この時点では型エラー) */}
+              {/* (WorkSlotCalendarView) */}
               <WorkSlotCalendarView 
                 onCellClick={(date, unitId) => handleCellClick({ shiftKey: false } as React.MouseEvent, date, unitId)}
                 demandMap={demandMap} 
@@ -409,7 +476,7 @@ function ShiftCalendarPage() {
           </TabPanel>
         </Paper>
 
-        {/* (サイドバー - 変更なし) */}
+        {/* (サイドバー) */}
         <BurdenSidebar
           isOpen={isSidebarOpen}
           onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -419,16 +486,22 @@ function ShiftCalendarPage() {
       </Box> {/* 上部エリアここまで */}
 
 
-      {/* (AIサポートパネル - 変更なし) */}
+      {/* (AIサポートパネル) */}
       <AiSupportPane
         instruction={aiInstruction} 
         onInstructionChange={setAiInstruction} 
-        isLoading={adjustmentLoading || patchLoading}
+        
+        // ★ (Plan E) 拡張版の isOverallLoading を渡す
+        isLoading={isOverallLoading}
+        
         error={adjustmentError || patchError}
         onClearError={handleClearError} 
         onExecuteDefault={handleRunAiDefault}     
         onExecuteCustom={handleRunAiAdjustment}  
-        isAnalysisLoading={analysisLoading}
+        
+        // ★ (Plan E) 拡張版の isOverallLoading を渡す
+        isAnalysisLoading={isOverallLoading}
+
         analysisResult={analysisResult}
         analysisError={analysisError}
         onClearAnalysis={handleClearAnalysis} 
@@ -438,7 +511,7 @@ function ShiftCalendarPage() {
       />
 
 
-      {/* (モーダル群 - 変更なし) */}
+      {/* (モーダル群) */}
       <AssignPatternModal
         target={editingTarget} 
         allStaff={activeStaffList} 

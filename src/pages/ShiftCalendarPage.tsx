@@ -420,8 +420,9 @@ function ShiftCalendarPage() {
           
           {/* タブパネル */}
           <TabPanel value={tabValue} index={0}>
-            {/* (ToggleButtonGroup - 変更なし) */}
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: '0 24px 16px 24px' }}>
+            {/* (ToggleButtonGroup) */}
+            {/* ★★★ 修正: p: '0 24px 16px 24px' を削除 (TabPanelが p:3 を担当) ★★★ */}
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 /* ★ 簡易的にマージンボトムだけ残す */ }}>
               <h6 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 500 }}>
                 スタッフビュー（カレンダー）
               </h6>
@@ -471,8 +472,9 @@ function ShiftCalendarPage() {
           </TabPanel>
           
           <TabPanel value={tabValue} index={1}>
-            <Box sx={{ p: 3, height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
-              {/* (WorkSlotCalendarView - 変更なし) */}
+            {/* ★★★ 修正: p: 3 を削除 (TabPanelが p:3 を担当) ★★★ */}
+            <Box sx={{ height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
+              {/* (WorkSlotCalendarView) */}
               <WorkSlotCalendarView 
                 onCellClick={(date, unitId) => handleCellClick({ shiftKey: false } as React.MouseEvent, date, unitId)}
                 demandMap={demandMap} 

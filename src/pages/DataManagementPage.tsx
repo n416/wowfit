@@ -48,19 +48,7 @@ import TabPanel from '../components/TabPanel';
 
 // ★★★ 変更点 2: ローカルの TabPanel 定義 (約13行) を削除 ★★★
 /*
-interface TabPanelProps {
-  children?: React.ReactNode;
-  index: number;
-  value: number;
-}
-function TabPanel(props: TabPanelProps) {
-  const { children, value, index, ...other } = props;
-  return (
-    <div hidden={value !== index} {...other}>
-      {value === index && <Box sx={{ p: 3, overflow: 'auto' }}>{children}</Box>}
-    </div>
-  );
-}
+... (削除済み) ...
 */
 // ★★★ 変更点 2 ここまで ★★★
 
@@ -68,14 +56,7 @@ function TabPanel(props: TabPanelProps) {
 
 // ★★★ v5.9 修正: モックデータの定義 (約200行) をすべて削除 ★★★
 /*
-// ★★★ v5版: 勤務パターンの初期データ ★★★
-const MOCK_PATTERNS_V5: IShiftPattern[] = [ ... ];
-// ★★★ v5版: ユニットの初期データ (24hデマンド配列を持つ) ★★★
-const MOCK_UNITS_V5: IUnit[] = [ ... ];
-// (v4の簡略化された制約のデフォルト)
-const getDefaultConstraints = (): IStaffConstraints => ({ ... });
-// v4版: スタッフの初期データ (ご要望の10名)
-const MOCK_STAFF_V4: IStaff[] = [ ... ];
+... (削除済み) ...
 */
 // ★★★ v5.9 修正ここまで ★★★
 
@@ -174,7 +155,8 @@ function DataManagementPage() {
 
 
   return (
-    <Box sx={{ flexGrow: 1, p: '0 24px 24px 24px' }}>
+    // ★★★ 修正: p: '0 24px 24px 24px' -> p: '24px' に変更 (ShiftCalendarPageと合わせる) ★★★
+    <Box sx={{ flexGrow: 1, p: '24px' }}>
       <Paper sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 'calc(100vh - 120px)' }}>
         <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
           {/* ★★★ 未使用の引数 'e' を '_' に変更 ★★★ */}
@@ -249,7 +231,7 @@ function DataManagementPage() {
         {/* ★★★ v5: スタッフ管理タブ (★ 汎用コンポーネントを使用) ★★★ */}
         <TabPanel value={tabValue} index={2}>
           <Typography variant="h6" gutterBottom>新規スタッフの登録</Typography>
-          {/* ★★★↓ コンポーネント呼び出しに変更 ↓★★★ */}
+          {/* ★★★↓ コンポーポーネント呼び出しに変更 ↓★★★ */}
           <NewStaffForm />
           <TableContainer component={Paper} variant="outlined" sx={{ mt: 2, maxHeight: 600 }}>
             <Table size="small" stickyHeader>

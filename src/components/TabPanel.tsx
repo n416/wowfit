@@ -19,12 +19,13 @@ export default function TabPanel(props: TabPanelProps) {
       style={{ height: '100%' }} 
     >
       {value === index && (
-        // ★★★ 変更点 2: flexコンテナに変更 ★★★
+        // ★★★ 変更点 2: flexコンテナに変更 + p: 3 を追加 ★★★
         // (中の子要素(ToggleBoxやStaffCalendarView)を縦に並べるため)
         <Box sx={{ 
           height: '100%', 
           display: 'flex', 
-          flexDirection: 'column' 
+          flexDirection: 'column',
+          p: 2 // ★★★ 修正: ここに p: 3 (24px) を追加 ★★★
         }}> 
           {children}
         </Box>

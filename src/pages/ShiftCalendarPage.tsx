@@ -160,7 +160,7 @@ function ShiftCalendarPage() {
     showingGanttTarget,
     clearingStaff,
     openAssignModal,
-    openGanttModal, // ★ これを使います
+    openGanttModal,
     openClearStaffModal,
     closeModals,
     handleClearStaffAssignments,
@@ -525,7 +525,7 @@ function ShiftCalendarPage() {
       />
 
 
-      {/* (モーダル群 - 変更なし) */}
+      {/* (モーダル群) */}
       <AssignPatternModal
         target={editingTarget} 
         allStaff={activeStaffList} 
@@ -535,12 +535,14 @@ function ShiftCalendarPage() {
         burdenData={Array.from(staffBurdenData.values())} 
         onClose={closeModals} 
       />
+      {/* ★★★ 修正: monthDays を渡す ★★★ */}
       <DailyUnitGanttModal
         target={showingGanttTarget} 
         onClose={closeModals} 
         allAssignments={assignments} 
         demandMap={demandMap} 
         unitGroups={unitGroups} 
+        monthDays={monthDays} 
       />
       <ClearStaffAssignmentsModal
         staff={clearingStaff} 

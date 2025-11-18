@@ -8,6 +8,13 @@ import { setAssignments } from '../../store/assignmentSlice';
 import type { AppDispatch, RootState } from '../../store'; 
 // import { getPrevDateStr, MONTH_DAYS } from '../../utils/dateUtils'; // ★★★ 削除 ★★★
 
+// ★★★ (新規追加) monthDays の型定義 ★★★
+type MonthDay = {
+  dateStr: string;
+  weekday: string;
+  dayOfWeek: number;
+};
+
 // ★★★ v5.36 追加: ShiftCalendarPage から渡される unitGroups の型定義 ★★★
 type UnitGroupData = {
   unit: IUnit;
@@ -88,7 +95,7 @@ const inlineFormStyles: { [key: string]: CSSProperties } = {
   },
   // ★★★ (新規追加) 「+」ボタン用のコンテナスタイル ★★★
   addButtonContainer: {
-    padding: '8px 0 8px 50px', // 50pxインデント
+    padding: '8px 0 8px 50px', // ★★★ 修正: 150px -> 50pxインデント ★★★
     borderBottom: '1px solid #eee',
   },
   addButton: { // 「スタッフを追加」ボタン
@@ -114,6 +121,7 @@ interface DailyUnitGanttModalProps {
   allAssignments: IAssignment[]; // ★★★ allAssignments を受け取る
   demandMap: Map<string, { required: number; actual: number }>; // ★★★ v5.101 の変更を元に戻す ★★★
   unitGroups: UnitGroupData[]; // ★★★ v5.101 の変更を元に戻す ★★★
+  monthDays: MonthDay[]; // ★★★ この行を追加 ★★★
 }
 
 // (styles 定義は変更なし)
@@ -338,7 +346,8 @@ export default function DailyUnitGanttModal({
   target, onClose, 
   allAssignments, 
   demandMap, // ★★★ v5.101 の変更を元に戻す ★★★
-  unitGroups // ★★★ v5.101 の変更を元に戻す ★★★
+  unitGroups, // ★★★ v5.101 の変更を元に戻す ★★★
+  monthDays // ★★★ この行を追加 ★★★
 }: DailyUnitGanttModalProps) {
 
   const dispatch: AppDispatch = useDispatch(); 
@@ -933,6 +942,13 @@ export default function DailyUnitGanttModal({
       return;
     }
     
+    // ★★★ 修正: monthDays が渡されていない場合はエラーを防ぐ ★★★
+    if (!monthDays || monthDays.length === 0) {
+      console.error("handleConfirmChanges: monthDays がありません。");
+      onClose();
+      return;
+    }
+
     try {
       // 1. 変更分 (Update)
       if (pendingChanges.size > 0) {
@@ -950,9 +966,16 @@ export default function DailyUnitGanttModal({
         await db.assignments.bulkDelete(pendingDeletions);
       }
       
-      const allAssignmentsFromDB = await db.assignments.toArray();
+      // ★★★ 修正: DBから「全期間」ではなく「当月分」のみを読み直す ★★★
+      const firstDay = monthDays[0].dateStr;
+      const lastDay = monthDays[monthDays.length - 1].dateStr;
+      const assignmentsFromDBForMonth = await db.assignments
+        .where('date')
+        .between(firstDay, lastDay, true, true)
+        .toArray();
+      
       // ★ `setAssignments` は履歴に積まれる
-      dispatch(setAssignments(allAssignmentsFromDB));
+      dispatch(setAssignments(assignmentsFromDBForMonth)); // ★ 当月分のデータを渡す
       
       onClose(); 
       

@@ -160,7 +160,7 @@ function ShiftCalendarPage() {
     showingGanttTarget,
     clearingStaff,
     openAssignModal,
-    openGanttModal,
+    openGanttModal, // ★ これを使います
     openClearStaffModal,
     closeModals,
     handleClearStaffAssignments,
@@ -420,8 +420,7 @@ function ShiftCalendarPage() {
           
           {/* タブパネル */}
           <TabPanel value={tabValue} index={0}>
-            {/* (ToggleButtonGroup) */}
-            {/* ★★★ 修正: p: '0 24px 16px 24px' を削除 (TabPanelが p:3 を担当) ★★★ */}
+            {/* (ToggleButtonGroup - 変更なし) */}
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 /* ★ 簡易的にマージンボトムだけ残す */ }}>
               <h6 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 500 }}>
                 スタッフビュー（カレンダー）
@@ -452,7 +451,7 @@ function ShiftCalendarPage() {
               </ToggleButtonGroup>
             </Box>
             
-            {/* (StaffCalendarView - ★★★ 修正: workAreaRef を削除 ★★★) */}
+            {/* ★★★ 修正: onDateHeaderClick を追加 ★★★ */}
             <StaffCalendarView 
               sortedStaffList={sortedStaffList} 
               onCellClick={handleCellClick} 
@@ -460,6 +459,10 @@ function ShiftCalendarPage() {
               onHolidayIncrement={handleHolidayIncrement} 
               onHolidayDecrement={handleHolidayDecrement} 
               onStaffNameClick={openClearStaffModal} 
+              
+              // ★★★ 新規追加: 日付ヘッダーがクリックされたら、unitId=null でGanttモーダルを開く ★★★
+              onDateHeaderClick={(date) => openGanttModal(date, null)}
+              
               clickMode={clickMode}
               activeCell={activeCell}
               selectionRange={selectionRange}

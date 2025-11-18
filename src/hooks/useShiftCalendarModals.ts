@@ -28,7 +28,7 @@ export const useShiftCalendarModals = () => {
   const [editingTarget, setEditingTarget] = useState<{ date: string; staff: IStaff; } | null>(null);
 
   // 2. 日次ガントチャートモーダル (DailyUnitGanttModal)
-  const [showingGanttTarget, setShowingGanttTarget] = useState<{ date: string; unitId: string; } | null>(null);
+  const [showingGanttTarget, setShowingGanttTarget] = useState<{ date: string; unitId: string | null; } | null>(null);
   
   // 3. スタッフアサインクリアモーダル (ClearStaffAssignmentsModal)
   const [clearingStaff, setClearingStaff] = useState<IStaff | null>(null);
@@ -45,12 +45,13 @@ export const useShiftCalendarModals = () => {
   }, [allStaffMap, dispatch]);
 
   /**
-   * [ハンドラ] 勤務枠ビューでセルクリック
+   * [ハンドラ] 勤務枠ビューでセルクリック (または スタッフビューの日付ヘッダー)
    */
+  // ★★★ 修正: `if (unitId)` のガードを削除 ★★★
   const openGanttModal = useCallback((date: string, unitId: string | null) => {
-    if (unitId) {
-      setShowingGanttTarget({ date, unitId });
-    }
+    // if (unitId) {
+    setShowingGanttTarget({ date, unitId });
+    // }
   }, []);
 
   /**

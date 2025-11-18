@@ -1,6 +1,6 @@
 import React, { CSSProperties, useMemo, useCallback } from 'react';
-import { 
-  IconButton, 
+import {
+  IconButton,
   Table, TableBody, TableCell, TableHead, TableRow,
   Box,
   // ★★★ 修正: Collapse, FormControlLabel, Checkbox を削除
@@ -24,12 +24,14 @@ type MonthDay = {
 };
 
 interface StaffCalendarViewProps {
-  sortedStaffList: IStaff[]; 
+  sortedStaffList: IStaff[];
   onCellClick: (e: React.MouseEvent, date: string, staffId: string, staffIndex: number, dateIndex: number) => void;
   onHolidayIncrement: (staffId: string) => void;
   onHolidayDecrement: (staffId: string) => void;
-  staffHolidayRequirements: Map<string, number>; 
+  staffHolidayRequirements: Map<string, number>;
   onStaffNameClick: (staff: IStaff) => void;
+  // ★★★ 新規追加: onDateHeaderClick プロパティ ★★★
+  onDateHeaderClick: (date: string) => void;
   clickMode: ClickMode;
   activeCell: CellCoords | null;
   selectionRange: { start: CellCoords, end: CellCoords } | null;
@@ -88,12 +90,12 @@ const styles: { [key: string]: CSSProperties } = {
     backgroundColor: '#f5f5f5',
   },
   cellClickable: {
-    padding: '4px', 
+    padding: '4px',
     borderLeft: '1px solid #e0e0e0',
     cursor: 'pointer',
   },
   cellSelectable: {
-    padding: '4px', 
+    padding: '4px',
     borderLeft: '1px solid #e0e0e0',
     cursor: 'cell',
   },
@@ -113,14 +115,16 @@ const styles: { [key: string]: CSSProperties } = {
 };
 
 
-export default function StaffCalendarView({ 
+export default function StaffCalendarView({
   // (props - 変更なし)
-  sortedStaffList, 
-  onCellClick, 
-  onHolidayIncrement, 
+  sortedStaffList,
+  onCellClick,
+  onHolidayIncrement,
   onHolidayDecrement,
   staffHolidayRequirements,
   onStaffNameClick,
+  // ★★★ 新規追加: prop を受け取る ★★★
+  onDateHeaderClick,
   clickMode,
   activeCell,
   selectionRange,
@@ -131,21 +135,21 @@ export default function StaffCalendarView({
   mainCalendarScrollerRef,
   monthDays // ★ 追加
 }: StaffCalendarViewProps) {
-  
+
   // (フック - 変更なし)
   const { patterns: shiftPatterns } = useSelector((state: RootState) => state.pattern);
   const { assignments } = useSelector((state: RootState) => state.assignment.present);
   const patternMap = useMemo(() => new Map(shiftPatterns.map((p: IShiftPattern) => [p.patternId, p])), [shiftPatterns]);
   const assignmentsMap = useMemo(() => {
-    const map = new Map<string, IAssignment[]>(); 
-    for (const assignment of assignments) { 
+    const map = new Map<string, IAssignment[]>();
+    for (const assignment of assignments) {
       const key = `${assignment.staffId}_${assignment.date}`;
       if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(assignment); 
+      map.get(key)!.push(assignment);
     }
     return map;
   }, [assignments]);
-  
+
   // (選択範囲インデックス - 変更なし)
   const selectedRangeIndices = useMemo(() => {
     if (!selectionRange) return null;
@@ -156,27 +160,29 @@ export default function StaffCalendarView({
       maxDate: Math.max(selectionRange.start.dateIndex, selectionRange.end.dateIndex),
     };
   }, [selectionRange]);
-  
+
   // ★★★ 修正: 作業領域関連の state, ref, useEffect, フック (workAreaRowCount, workAreaColCount, virtualWorkAreaCols, virtualWorkAreaRows) をすべて削除 ★★★
-  
-  
+
+
   // (ヘッダー行 - 変更なし)
   const fixedHeaderContent = () => (
     <TableRow>
-      <TableCell style={{...styles.th, ...styles.stickyCell, ...styles.staffNameCell, zIndex: 12}}>スタッフ</TableCell>
-      <TableCell style={{...styles.th, ...styles.stickyCell, ...styles.holidayAdjustCell, zIndex: 12}}>
+      <TableCell style={{ ...styles.th, ...styles.stickyCell, ...styles.staffNameCell, zIndex: 12 }}>スタッフ</TableCell>
+      <TableCell style={{ ...styles.th, ...styles.stickyCell, ...styles.holidayAdjustCell, zIndex: 12 }}>
         公休調整
-      </TableCell> 
+      </TableCell>
       {monthDays.map(dayInfo => (
-        <TableCell 
-          key={dayInfo.dateStr} 
+        <TableCell
+          key={dayInfo.dateStr}
           style={{
             ...styles.th,
             ...styles.dateHeaderCell,
-            backgroundColor: (dayInfo.dayOfWeek === 0 || dayInfo.dayOfWeek === 6) ? '#eeeeee' : '#fff'
+            backgroundColor: (dayInfo.dayOfWeek === 0 || dayInfo.dayOfWeek === 6) ? '#eeeeee' : '#fff',
+            cursor: 'pointer' // ★★★ 修正: カーソルをポインターに変更
           }}
+          onClick={() => onDateHeaderClick(dayInfo.dateStr)} // ★★★ 修正: onClick を追加
         >
-          {dayInfo.dateStr.split('-')[2]}<br/>({dayInfo.weekday})
+          {dayInfo.dateStr.split('-')[2]}<br />({dayInfo.weekday})
         </TableCell>
       ))}
     </TableRow>
@@ -192,28 +198,28 @@ export default function StaffCalendarView({
         rowBorderStyle = { borderTop: '3px double #000' };
       }
     }
-    const requiredHolidays = staffHolidayRequirements.get(staff.staffId) || 0; 
+    const requiredHolidays = staffHolidayRequirements.get(staff.staffId) || 0;
 
     return (
       <>
         {/* (スタッフ名セル - 変更なし) */}
-        <TableCell 
+        <TableCell
           style={{ ...styles.td, ...styles.stickyCell, ...styles.staffNameCell, ...rowBorderStyle }}
           onClick={() => onStaffNameClick(staff)}
         >
           {staff.name}
-          <span style={{ 
-            display: 'block', 
-            fontSize: '0.75rem', 
+          <span style={{
+            display: 'block',
+            fontSize: '0.75rem',
             color: staff.employmentType === 'FullTime' ? '#1976d2' : '#666'
           }}>
             ({staff.unitId || 'フリー'})
           </span>
         </TableCell>
-        
+
         {/* (公休調整セル - 変更なし) */}
-        <TableCell style={{ 
-          ...styles.td, 
+        <TableCell style={{
+          ...styles.td,
           ...styles.stickyCell,
           ...styles.holidayAdjustCell,
           ...rowBorderStyle
@@ -236,19 +242,19 @@ export default function StaffCalendarView({
           const key = `${staff.staffId}_${dayInfo.dateStr}`;
           const assignmentsForCell = assignmentsMap.get(key) || [];
           const isWeekend = dayInfo.dayOfWeek === 0 || dayInfo.dayOfWeek === 6;
-          
-          const isSelected = selectedRangeIndices && 
-                             staffIndex >= selectedRangeIndices.minStaff && 
-                             staffIndex <= selectedRangeIndices.maxStaff &&
-                             dayIndex >= selectedRangeIndices.minDate && 
-                             dayIndex <= selectedRangeIndices.maxDate;
-          const isActive = activeCell && 
-                           activeCell.staffId === staff.staffId && 
-                           activeCell.date === dayInfo.dateStr;
+
+          const isSelected = selectedRangeIndices &&
+            staffIndex >= selectedRangeIndices.minStaff &&
+            staffIndex <= selectedRangeIndices.maxStaff &&
+            dayIndex >= selectedRangeIndices.minDate &&
+            dayIndex <= selectedRangeIndices.maxDate;
+          const isActive = activeCell &&
+            activeCell.staffId === staff.staffId &&
+            activeCell.date === dayInfo.dateStr;
           const cellStyle = clickMode === 'select' ? styles.cellSelectable : styles.cellClickable;
-          
-          let selectionStyle: CSSProperties = {}; 
-          const shadowColor = '#1976d2'; 
+
+          let selectionStyle: CSSProperties = {};
+          const shadowColor = '#1976d2';
           const shadowWidth = '2px';
           const shadows: string[] = [];
           if (clickMode === 'select' && isSelected && selectedRangeIndices) {
@@ -259,28 +265,28 @@ export default function StaffCalendarView({
             if (dayIndex === maxDate) shadows.push(`inset -${shadowWidth} 0 0 0 ${shadowColor}`);
             if (shadows.length > 0) {
               selectionStyle.boxShadow = shadows.join(', ');
-              selectionStyle.zIndex = 1; 
+              selectionStyle.zIndex = 1;
               selectionStyle.position = 'relative';
             }
           }
           if (isActive) {
-            selectionStyle.outline = '2px dotted #0d47a1'; 
-            selectionStyle.outlineOffset = '-2px'; 
-            selectionStyle.zIndex = 2; 
-            selectionStyle.position = 'relative'; 
+            selectionStyle.outline = '2px dotted #0d47a1';
+            selectionStyle.outlineOffset = '-2px';
+            selectionStyle.zIndex = 2;
+            selectionStyle.position = 'relative';
           }
 
           return (
-            <TableCell 
-              key={key} 
+            <TableCell
+              key={key}
               id={`cell-${staff.staffId}-${dayInfo.dateStr}`}
               style={{
-                ...styles.td, 
-                ...cellStyle, 
+                ...styles.td,
+                ...cellStyle,
                 ...(isWeekend ? styles.weekendBg : {}),
                 ...rowBorderStyle,
                 ...(isSelected ? { backgroundColor: 'rgba(25, 118, 210, 0.1)' } : {}),
-                ...selectionStyle, 
+                ...selectionStyle,
               }}
               onClick={(e) => onCellClick(e, dayInfo.dateStr, staff.staffId, staffIndex, dayIndex)}
               onMouseDown={(e) => onCellMouseDown(e, dayInfo.dateStr, staff.staffId, staffIndex, dayIndex)}
@@ -300,7 +306,7 @@ export default function StaffCalendarView({
                     bgColor = '#bdbdbd';
                   }
                   return (
-                    <div 
+                    <div
                       key={assignment.id}
                       style={{ ...styles.assignmentChip, backgroundColor: bgColor, color: textColor }}
                     >
@@ -321,16 +327,16 @@ export default function StaffCalendarView({
     clickMode, activeCell, selectedRangeIndices,
     onCellClick, onCellMouseDown, onCellMouseMove, onCellMouseUp
   ]);
-  
-  
+
+
   return (
     // ★★★ 修正: Boxラッパーを削除し、TableVirtuoso を直接返す (または flex: 1 の Box のみ残す) ★★★
     <Box sx={{ flex: 1, minHeight: 0 }}>
-      
+
       {/* 1. メインのカレンダー (Virtuoso) */}
       <TableVirtuoso
         // (scrollerRef 修正済み)
-        scrollerRef={(ref) => { 
+        scrollerRef={(ref) => {
           if (ref && !(ref instanceof Window)) {
             mainCalendarScrollerRef.current = ref;
           } else {
@@ -338,8 +344,8 @@ export default function StaffCalendarView({
           }
         }}
         style={{ height: '100%', border: '1px solid #e0e0e0', borderRadius: '4px' }}
-        data={sortedStaffList} 
-        fixedHeaderContent={fixedHeaderContent} // ★ monthDays に依存
+        data={sortedStaffList}
+        fixedHeaderContent={fixedHeaderContent} // ★ 修正: この関数が onDateHeaderClick を使用する
         itemContent={itemContent} // ★ monthDays に依存
         components={{
           Table: (props) => <Table {...props} style={{ borderCollapse: 'collapse', width: '100%', tableLayout: 'fixed' }} />,
@@ -348,9 +354,9 @@ export default function StaffCalendarView({
           TableBody: React.forwardRef((props, ref) => <TableBody {...props} ref={ref} />),
         }}
       />
-      
+
       {/* ★★★ 修正: チェックボックス (Box) と 作業用セル領域 (Collapse) をすべて削除 ★★★ */}
-      
+
     </Box>
   );
 };

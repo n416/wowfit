@@ -25,10 +25,10 @@ export type UnitGroupData = {
   }[];
 };
 
-// (calculateUnitGroups - 変更なし)
+// (calculateUnitGroups - ★★★ 修正: 型定義を string | null に変更 ★★★)
 // (この関数は特定の日付(target)のアサインのみを見るため、monthDays には依存しない)
 const calculateUnitGroups = (
-  showingGanttTarget: { date: string; unitId: string; } | null,
+  showingGanttTarget: { date: string; unitId: string | null; } | null,
   unitList: IUnit[],
   assignments: IAssignment[],
   patternMap: Map<string, IShiftPattern>,
@@ -120,7 +120,8 @@ const calculateUnitGroups = (
  * ★ 修正: 引数を追加
  */
 export const useUnitGroups = (
-  showingGanttTarget: { date: string; unitId: string; } | null,
+  // ★★★ 修正: 型定義を string | null に変更 ★★★
+  showingGanttTarget: { date: string; unitId: string | null; } | null,
   monthDays: MonthDay[] // ★ 追加 (ただし内部では現在未使用)
 ) => {
   // 1. 必要なデータを Redux から取得

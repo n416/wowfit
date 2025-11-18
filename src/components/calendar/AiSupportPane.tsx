@@ -138,108 +138,101 @@ export default function AiSupportPane({
             </Box>
           )}
 
+          {/* ★★★ ここからレイアウト修正 ★★★ */}
           <Stack spacing={3}>
             
-            {/* グループ1: 基本作成 */}
+            {/* ★★★ 修正: グループ1 [生成グループ] ★★★ */}
             <Box>
-              <Typography variant="caption" color="textSecondary" sx={{ mb: 1, display: 'block', fontWeight: 'bold' }}>
-                [作成・埋める]
+              <Typography variant="caption" color="textSecondary" sx={{ mb: 1.5, display: 'block', fontWeight: 'bold' }}>
+                [生成グループ (1→2→3の順に実行推奨)]
               </Typography>
-              <Stack direction="row" spacing={2}>
+              {/* (ボタンを縦積みに変更) */}
+              <Stack spacing={2}>
                 <Button 
                   variant="contained" 
                   color="primary"
-                  // ★★★ 修正: isLoading は草案作成中フラグ ★★★
                   startIcon={isLoading ? <CircularProgress size={20} color="inherit" /> : <AutoFixHighIcon />}
                   onClick={onExecuteDefault} 
-                  // ★★★ 修正: isOverallDisabled を使用 ★★★
                   disabled={isOverallDisabled} 
                   fullWidth
-                  sx={{ py: 1.5 }}
+                  // sx={{ py: 1.5 }} // ★★★ 修正: 削除
                 >
-                  {/* ★★★ 修正: isLoading は草案作成中フラグ ★★★ */}
-                  {isLoading ? '作成中...' : 'AIで草案を作成'}
+                  (1) {isLoading ? '作成中...' : 'AIで草案を作成'}
                 </Button>
+                
                 <Button 
-                  variant="contained" 
-                  color="success"
-                  startIcon={<SupportAgentIcon />}
-                  onClick={onFillRental}
-                  // ★★★ 修正: isOverallDisabled を使用 ★★★
+                  variant="outlined" // ★★★ 修正: "contained" -> "outlined"
+                  color="primary"    // ★★★ 修正: "warning" -> "primary"
+                  startIcon={<BalanceIcon color="primary" />} // ★★★ 修正: color="primary" を追加
+                  onClick={onForceAdjustHolidays}
                   disabled={isOverallDisabled} 
                   fullWidth
-                  sx={{ py: 1.5 }}
                 >
-                  応援スタッフで埋める (ロジック)
+                  (2) 公休数強制補正
+                </Button>
+
+                <Button 
+                  variant="outlined" // ★★★ 修正: "contained" -> "outlined"
+                  color="primary"    // ★★★ 修正: "success" -> "primary"
+                  startIcon={<SupportAgentIcon color="primary" />} // ★★★ 修正: color="primary" を追加
+                  onClick={onFillRental}
+                  disabled={isOverallDisabled} 
+                  fullWidth
+                  // sx={{ py: 1.5 }} // ★★★ 修正: 削除
+                >
+                  (3) 応援スタッフで埋める (ロジック)
                 </Button>
               </Stack>
             </Box>
 
             <Divider />
 
-            {/* グループ2: 調整・分析 (変更なし) */}
+            {/* ★★★ 修正: グループ2 [調整グループ] ★★★ */}
             <Box>
-              <Typography variant="caption" color="textSecondary" sx={{ mb: 1, display: 'block', fontWeight: 'bold' }}>
-                [調整・分析]
+              <Typography variant="caption" color="textSecondary" sx={{ mb: 1.5, display: 'block', fontWeight: 'bold' }}>
+                [調整グループ (任意)]
               </Typography>
-              <Stack direction="row" spacing={2}>
-                <Button 
-                  variant="outlined" 
-                  color="warning"
-                  startIcon={<BalanceIcon />}
-                  onClick={onForceAdjustHolidays}
-                  // ★★★ 修正: isOverallDisabled を使用 ★★★
-                  disabled={isOverallDisabled} 
-                  fullWidth
-                >
-                  公休数強制補正
-                </Button>
+              <Stack spacing={3}>
+                {/* 2-1: 現況分析 */}
                 <Button 
                   variant="outlined" 
                   color="secondary"
-                  // ★★★ 修正: isAnalysisLoading は分析中フラグ ★★★
                   startIcon={isAnalysisLoading ? <CircularProgress size={20} color="inherit" /> : <FindInPageIcon />}
                   onClick={() => onExecuteAnalysis()} 
-                  // ★★★ 修正: isOverallDisabled を使用 ★★★
                   disabled={isOverallDisabled} 
                   fullWidth
                 >
-                  {/* ★★★ 修正: isAnalysisLoading は分析中フラグ ★★★ */}
                   {isAnalysisLoading ? '分析中...' : 'AI現況分析'}
                 </Button>
+
+                {/* 2-2: カスタム指示 */}
+                <Box>
+                  <Typography variant="caption" color="textSecondary" sx={{ mb: 1, display: 'block' }}>
+                    [カスタム指示]
+                  </Typography>
+                  <Stack direction="row" spacing={1}>
+                    <TextField
+                      size="small"
+                      fullWidth
+                      placeholder="例: Aさんの夜勤を減らして..."
+                      value={instruction}
+                      onChange={(e) => onInstructionChange(e.target.value)}
+                      disabled={isOverallDisabled}
+                    />
+                    <Button 
+                      variant="contained" 
+                      color="info"
+                      onClick={() => handleExecute()} 
+                      disabled={isOverallDisabled} 
+                      sx={{ minWidth: '120px' }}
+                    >
+                      AI調整
+                    </Button>
+                  </Stack>
+                </Box>
               </Stack>
             </Box>
-
-            <Divider />
-
-            {/* グループ3: カスタム指示 */}
-            <Box>
-              <Typography variant="caption" color="textSecondary" sx={{ mb: 1, display: 'block', fontWeight: 'bold' }}>
-                [カスタム指示]
-              </Typography>
-              <Stack direction="row" spacing={1}>
-                <TextField
-                  size="small"
-                  fullWidth
-                  placeholder="例: Aさんの夜勤を減らして..."
-                  value={instruction}
-                  onChange={(e) => onInstructionChange(e.target.value)}
-                  // ★★★ 修正: isOverallDisabled を使用 ★★★
-                  disabled={isOverallDisabled}
-                />
-                <Button 
-                  variant="contained" 
-                  color="info"
-                  // ★★★ 修正: 内部の handleExecute を呼ぶ (これが onExecuteCustom を呼ぶ) ★★★
-                  onClick={() => handleExecute()} 
-                  // ★★★ 修正: isOverallDisabled を使用 ★★★
-                  disabled={isOverallDisabled} 
-                  sx={{ minWidth: '120px' }}
-                >
-                  AI調整
-                </Button>
-              </Stack>
-            </Box>
+            {/* ★★★ レイアウト修正ここまで ★★★ */}
 
           </Stack>
         </Box>

@@ -23,6 +23,7 @@ type GanttRowData = {
   assignmentId: number;
   // ★★★ 元の unitId を追加 (DB更新に必須) ★★★
   unitId: string | null; 
+  isNew?: boolean; // ★★★ 修正: 新規追加フラグ ★★★
 };
 
 // ★★★ ドラッグプレビュー用の型 ★★★
@@ -33,6 +34,74 @@ type DragPreview = {
   backgroundColor: string;
   text: string;
 };
+
+// ★★★ (新規追加) インラインフォーム用のスタイル ★★★
+const inlineFormStyles: { [key: string]: CSSProperties } = {
+  container: {
+    display: 'flex',
+    gap: '8px',
+    padding: '8px 0 12px 0', // ★ 修正: 150pxパディングを削除
+    backgroundColor: '#f9f9f9',
+    borderBottom: '1px solid #ddd',
+  },
+  select: {
+    padding: '8px',
+    borderRadius: '4px',
+    border: '1px solid #ccc',
+    backgroundColor: '#fff',
+    flex: 1,
+  },
+  // ★ (新規追加) 1番目のselect（スタッフ選択）にインデントを適用
+  selectStaff: {
+    padding: '8px',
+    borderRadius: '4px',
+    border: '1px solid #ccc',
+    backgroundColor: '#fff',
+    flex: 1,
+    marginLeft: '150px',
+  },
+  button: {
+    padding: '8px 12px',
+    borderRadius: '4px',
+    border: 'none',
+    backgroundColor: '#1976d2', // primary.main
+    color: '#fff',
+    cursor: 'pointer',
+  },
+  buttonDisabled: {
+    padding: '8px 12px',
+    borderRadius: '4px',
+    border: 'none',
+    backgroundColor: '#ccc',
+    color: '#777',
+    cursor: 'not-allowed',
+  },
+  buttonCancel: {
+    padding: '8px 12px',
+    borderRadius: '4px',
+    border: '1px solid #ccc',
+    backgroundColor: '#fff',
+    color: '#333',
+    cursor: 'pointer',
+  },
+  // ★★★ (新規追加) 「+」ボタン用のコンテナスタイル ★★★
+  addButtonContainer: {
+    padding: '8px 0 8px 50px', // 50pxインデント
+    borderBottom: '1px solid #eee',
+  },
+  addButton: { // 「スタッフを追加」ボタン
+    padding: '4px 8px',
+    fontSize: '0.75rem',
+    borderRadius: '4px',
+    border: '1px solid #1976d2',
+    backgroundColor: '#fff',
+    color: '#1976d2',
+    cursor: 'pointer',
+    // marginLeft: 'auto', // ★ 削除
+  },
+};
+// ★★★ (新規追加) ここまで ★★★
+
 
 interface DailyUnitGanttModalProps {
   target: { date: string; unitId: string } | null;
@@ -295,7 +364,15 @@ export default function DailyUnitGanttModal({
   const chartAreaRef = useRef<HTMLDivElement>(null); 
   const modalContentRef = useRef<HTMLDivElement>(null); 
 
+  // ★★★ 修正: 既存の「変更」を管理する State ★★★
   const [pendingChanges, setPendingChanges] = useState<Map<number, IAssignment>>(new Map());
+  
+  // ★★★ 新規追加: 「新規追加」を管理する State ★★★
+  const [pendingAdditions, setPendingAdditions] = useState<Omit<IAssignment, 'id'>[]>([]);
+  const [addingToUnitId, setAddingToUnitId] = useState<string | null>(null);
+  const [selectedStaffId, setSelectedStaffId] = useState<string>("");
+  const [selectedPatternId, setSelectedPatternId] = useState<string>("");
+  // ★★★ 新規追加ここまで ★★★
 
   const workPatterns = useMemo(() => {
     // ★★★ 変更点 3: allPatterns (配列) を使う ★★★
@@ -313,11 +390,12 @@ export default function DailyUnitGanttModal({
 
   // ★★★ v5.101 で追加した unitGroups の useMemo を削除 ★★★
 
-  // ★★★ localUnitGroups (pendingChanges をマージ) ★★★
+  // ★★★ localUnitGroups (pendingChanges と pendingAdditions をマージ) ★★★
   const localUnitGroups = useMemo(() => {
     if (!target) return [];
     
-    return unitGroups.map(group => ({
+    // 1. props からの unitGroups (DBベース) に pendingChanges (変更) をマージ
+    const updatedGroups = unitGroups.map(group => ({
       ...group,
       rows: group.rows.map(row => {
         const change = pendingChanges.get(row.assignmentId);
@@ -336,7 +414,6 @@ export default function DailyUnitGanttModal({
              if (change.date === target.date) {
                displayDuration = 24 - startH;
              } else {
-               // ★★★ バグ修正: 前日からの夜勤は 0 時スタート ★★★
                displayStart = 0; 
                displayDuration = endH;
              }
@@ -348,16 +425,52 @@ export default function DailyUnitGanttModal({
             startHour: displayStart,
             duration: displayDuration,
             unitId: change.unitId, 
+            isNew: false, // ★★★ 修正: 既存の行 ★★★
           };
         }
-        return row;
+        return { ...row, isNew: false }; // ★★★ 修正: 既存の行 ★★★
       })
     }));
-  }, [unitGroups, pendingChanges, patternMap, target]); // ★ 依存配列に props の unitGroups を指定
+
+    // 2. pendingAdditions (新規追加) をマージ
+    // ★★★ 修正: forEach から map に変更し、一時IDとしてインデックスを使用 ★★★
+    pendingAdditions.forEach((newAssignment, index) => {
+      const group = updatedGroups.find(g => g.unit.unitId === newAssignment.unitId);
+      const staff = allStaffMap.get(newAssignment.staffId);
+      const pattern = patternMap.get(newAssignment.patternId);
+      
+      if (group && staff && pattern) {
+        const startH = parseInt(pattern.startTime.split(':')[0]);
+        const [endH_raw, endM] = pattern.endTime.split(':').map(Number);
+        let endH = (endM > 0) ? endH_raw + 1 : endH_raw;
+        
+        let displayStart = startH;
+        let displayDuration = endH - startH;
+
+        if (pattern.crossesMidnight) {
+            displayDuration = 24 - startH;
+        }
+
+        group.rows.push({
+          staff: staff,
+          pattern: pattern,
+          isSupport: false, 
+          startHour: displayStart,
+          duration: displayDuration,
+          assignmentId: 9000 + index, // ★★★ 修正: 衝突しない一時ID (インデックス) ★★★
+          unitId: newAssignment.unitId,
+          isNew: true, // ★★★ 修正: 新規の行 ★★★
+        });
+      }
+    });
+    
+    return updatedGroups;
+
+  }, [unitGroups, pendingChanges, pendingAdditions, patternMap, target, allStaffMap]); // ★ 依存配列に pendingAdditions, allStaffMap を追加
 
   // ★★★ v5.101 で追加した demandMap の useMemo を削除 ★★★
 
-  // ★★★ ローカルのデマンドマップ (pendingChanges を反映) ★★★
+  // ★★★ ローカルのデマンドマップ (pendingChanges と pendingAdditions を反映) ★★★
   const localDemandMap = useMemo(() => {
     if (!target) return demandMap; 
     
@@ -367,21 +480,20 @@ export default function DailyUnitGanttModal({
       newDemandMap.set(key, { ...value });
     });
 
-    // 2. pendingChanges にある変更（新しいアサイン）を適用
+    // 2. pendingChanges (変更) を反映 (減算 -> 加算)
     pendingChanges.forEach((newAssignment) => {
       const staff = allStaffMap.get(newAssignment.staffId);
-      if (staff && staff.status === 'OnLeave') return; // 休職者は除外
+      if (staff && staff.status === 'OnLeave') return; 
 
       const newPattern = patternMap.get(newAssignment.patternId);
       if (!newPattern || newPattern.workType !== 'Work' || !newAssignment.unitId) return;
 
-      // 3. この変更の「元のアサイン」を探す
       const originalAssignment = allAssignmentsMap.get(newAssignment.id!);
-      if (!originalAssignment) return; // 元がない (ありえない)
+      if (!originalAssignment) return; 
       
       const oldPattern = patternMap.get(originalAssignment.patternId);
       
-      // 4. 元のアサインの影響を newDemandMap から「減算」する
+      // 減算ロジック (変更なし)
       if (originalAssignment.unitId && oldPattern && oldPattern.workType === 'Work') {
         const startTime = parseInt(oldPattern.startTime.split(':')[0]);
         const [endH, endM] = oldPattern.endTime.split(':').map(Number);
@@ -391,7 +503,7 @@ export default function DailyUnitGanttModal({
           for (let hour = startTime; hour < endTime; hour++) { 
             const key = `${originalAssignment.date}_${originalAssignment.unitId}_${hour}`;
             const entry = newDemandMap.get(key);
-            if (entry) entry.actual = Math.max(0, entry.actual - 1); // 0未満にならないように
+            if (entry) entry.actual = Math.max(0, entry.actual - 1); 
           }
         } else {
           for (let hour = startTime; hour < 24; hour++) {
@@ -410,7 +522,43 @@ export default function DailyUnitGanttModal({
         }
       }
       
-      // 5. 新しいアサインの影響を newDemandMap に「加算」する
+      // 加算ロジック (変更なし)
+      const startTime = parseInt(newPattern.startTime.split(':')[0]);
+      const [endH, endM] = newPattern.endTime.split(':').map(Number);
+      const endTime = (endM > 0) ? endH + 1 : endH;
+      
+      if (!newPattern.crossesMidnight) {
+        for (let hour = startTime; hour < endTime; hour++) { 
+          const key = `${newAssignment.date}_${newAssignment.unitId}_${hour}`;
+          const entry = newDemandMap.get(key);
+          if (entry) entry.actual += 1;
+        }
+      } else {
+        for (let hour = startTime; hour < 24; hour++) {
+          const key = `${newAssignment.date}_${newAssignment.unitId}_${hour}`;
+          const entry = newDemandMap.get(key);
+          if (entry) entry.actual += 1;
+        }
+        const nextDateObj = new Date(newAssignment.date.replace(/-/g, '/'));
+        nextDateObj.setDate(nextDateObj.getDate() + 1);
+        const correctNextDateStr = `${nextDateObj.getFullYear()}-${String(nextDateObj.getMonth() + 1).padStart(2, '0')}-${String(nextDateObj.getDate()).padStart(2, '0')}`;
+        for (let hour = 0; hour < endTime; hour++) {
+          const key = `${correctNextDateStr}_${newAssignment.unitId}_${hour}`;
+          const entry = newDemandMap.get(key);
+          if (entry) entry.actual += 1;
+        }
+      }
+    });
+
+    // 3. pendingAdditions (新規追加) を反映 (加算のみ)
+    pendingAdditions.forEach((newAssignment) => {
+      const staff = allStaffMap.get(newAssignment.staffId);
+      if (staff && staff.status === 'OnLeave') return; 
+
+      const newPattern = patternMap.get(newAssignment.patternId);
+      if (!newPattern || newPattern.workType !== 'Work' || !newAssignment.unitId) return;
+      
+      // 加算ロジック (上記と同じ)
       const startTime = parseInt(newPattern.startTime.split(':')[0]);
       const [endH, endM] = newPattern.endTime.split(':').map(Number);
       const endTime = (endM > 0) ? endH + 1 : endH;
@@ -440,17 +588,69 @@ export default function DailyUnitGanttModal({
     
     return newDemandMap;
 
-  }, [demandMap, pendingChanges, allAssignmentsMap, patternMap, allStaffMap, target]); // ★ 依存配列に props の demandMap を指定
+  }, [demandMap, pendingChanges, pendingAdditions, allAssignmentsMap, patternMap, allStaffMap, target]); // ★ 依存配列に pendingAdditions を追加
 
 
+  // ★★★ 新規追加: アサイン可能なスタッフリスト (その日にまだ勤務アサインがない) ★★★
+  const availableStaffForAdding = useMemo(() => {
+    // ★★★ 修正: addingToUnitId が null（フォーム非表示）なら計算しない ★★★
+    if (!target || !addingToUnitId) return [];
+    
+    // その日に勤務(Work)アサインが既にあるスタッフのIDセット
+    const assignedStaffIds = new Set<string>();
+    allAssignments.forEach(a => {
+      if (a.date === target.date) {
+        const p = patternMap.get(a.patternId);
+        if (p && p.workType === 'Work') {
+          assignedStaffIds.add(a.staffId);
+        }
+      }
+    });
+
+    // 既にローカルで追加(pending)されたスタッフも除外
+    pendingAdditions.forEach(a => {
+        assignedStaffIds.add(a.staffId);
+    });
+
+    return allStaff
+      .filter(s => {
+        // 条件1: アサイン済みでなく、アクティブであること
+        const isAvailable = s.status === 'Active' && !assignedStaffIds.has(s.staffId);
+        if (!isAvailable) return false;
+        
+        // ★★★ 修正: 条件2: 現在のユニット所属か、所属無しか ★★★
+        const isMatchingUnit = (s.unitId === addingToUnitId) || (s.unitId === null);
+        return isMatchingUnit;
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+  // ★★★ 修正: 依存配列に addingToUnitId を追加 ★★★
+  }, [allStaff, allAssignments, pendingAdditions, target, patternMap, addingToUnitId]);
+
+  // ★★★ 新規追加: 選択中のスタッフが可能な勤務パターンリスト ★★★
+  const availablePatternsForSelectedStaff = useMemo(() => {
+    if (!selectedStaffId) return [];
+    const staff = allStaffMap.get(selectedStaffId);
+    if (!staff) return [];
+    
+    return workPatterns.filter(p => staff.availablePatternIds.includes(p.patternId));
+
+  }, [selectedStaffId, allStaffMap, workPatterns]);
+
+
+  // ★★★ 修正: モーダルが閉じる/対象が変わる時に State をすべてリセット ★★★
   useEffect(() => {
     setPendingChanges(new Map());
+    setPendingAdditions([]); // ★ 追加
+    setAddingToUnitId(null); // ★ 追加
+    setSelectedStaffId(""); // ★ 追加
+    setSelectedPatternId(""); // ★ 追加
     setIsDragging(false);
     setDraggingRow(null);
     setDragPreview(null);
   }, [target]);
 
-
+  // (updatePendingChanges - 変更なし)
   const updatePendingChanges = useCallback((
     assignmentId: number, 
     staff: IStaff,
@@ -478,6 +678,27 @@ export default function DailyUnitGanttModal({
   }, [target, allAssignmentsMap]);
 
   
+  // ★★★ 新規追加: `pendingAdditions` を変更するためのハンドラ ★★★
+  const modifyPendingAddition = useCallback((index: number, newPattern: IShiftPattern) => {
+    setPendingAdditions(prevAdditions => {
+      // 不変性(immutability)を保つために配列をコピー
+      const newAdditions = [...prevAdditions];
+      const itemToModify = newAdditions[index];
+
+      if (itemToModify) {
+        // アイテムを更新
+        newAdditions[index] = {
+          ...itemToModify,
+          patternId: newPattern.patternId,
+          // unitId と date, staffId は変更しない
+        };
+      }
+      return newAdditions;
+    });
+  }, []); // 依存配列なし
+
+
+  // ★★★ 修正: handleBarClick が `isNew` フラグを見るように変更 ★★★
   const handleBarClick = (e: MouseEvent, clickedRow: GanttRowData) => {
     e.stopPropagation(); 
     
@@ -495,7 +716,7 @@ export default function DailyUnitGanttModal({
     
     if (availablePatternsAtTime.length === 0) return; 
 
-    const currentPatternId = pendingChanges.get(clickedRow.assignmentId)?.patternId || clickedRow.pattern.patternId;
+    const currentPatternId = clickedRow.pattern.patternId; // ★ 修正: ローカルstateではなく描画されている行のパターンIDを見る
     const currentIndex = availablePatternsAtTime.findIndex(p => p.patternId === currentPatternId);
     
     const nextIndex = (currentIndex + 1) % availablePatternsAtTime.length;
@@ -503,57 +724,53 @@ export default function DailyUnitGanttModal({
     
     if (nextPattern.patternId === currentPatternId && availablePatternsAtTime.length === 1) return;
 
-    updatePendingChanges(clickedRow.assignmentId, staff, nextPattern);
+    // ★★★ 修正: isNew フラグで分岐 ★★★
+    if (clickedRow.isNew) {
+      const index = clickedRow.assignmentId - 9000; // 一時IDからインデックスを復元
+      modifyPendingAddition(index, nextPattern);
+    } else {
+      updatePendingChanges(clickedRow.assignmentId, staff, nextPattern);
+    }
   };
 
+  // (handleDragStart - 変更なし)
   const handleDragStart = (e: MouseEvent, row: GanttRowData) => {
     if (e.button !== 0) return; 
-    
     e.preventDefault();
     e.stopPropagation();
-    
     setIsDragging(true);
     setDraggingRow(row);
     document.body.style.cursor = 'grabbing'; 
   };
-
+  
+  // (handleDragMove - 変更なし)
   const handleDragMove = (e: MouseEvent) => {
     if (!isDragging || !draggingRow || !modalContentRef.current) return;
-    
     e.preventDefault();
     e.stopPropagation();
-
     const mouseX = e.clientX;
     const scrollContainer = modalContentRef.current;
     const scrollLeft = scrollContainer.scrollLeft;
     const containerRect = scrollContainer.getBoundingClientRect();
     const xInContainer = mouseX - containerRect.left + scrollLeft - 150;
-
     let hoverHour = Math.round(xInContainer / HOUR_WIDTH);
     hoverHour = Math.max(0, Math.min(23, hoverHour)); 
-
     const staff = draggingRow.staff;
-
     const availablePatternsAtHour = workPatterns.filter(p => 
       parseInt(p.startTime.split(':')[0]) === hoverHour &&
       staff.availablePatternIds.includes(p.patternId)
     );
-
     if (availablePatternsAtHour.length === 0) {
       setDragPreview(null); 
       return;
     }
-
     availablePatternsAtHour.sort((a, b) => b.durationHours - a.durationHours);
     const longestPattern = availablePatternsAtHour[0];
-
     const newLeft = hoverHour * HOUR_WIDTH;
-    
     let newWidth = longestPattern.durationHours * HOUR_WIDTH;
     if (longestPattern.crossesMidnight) {
         newWidth = (24 - hoverHour) * HOUR_WIDTH;
     }
-
     setDragPreview({
       left: newLeft,
       width: newWidth,
@@ -562,7 +779,8 @@ export default function DailyUnitGanttModal({
       text: longestPattern.name,
     });
   };
-
+  
+  // ★★★ 修正: handleDragEnd が `isNew` フラグを見るように変更 ★★★
   const handleDragEnd = (e: MouseEvent) => {
     if (!isDragging || !draggingRow) {
       if (isDragging || draggingRow) {
@@ -573,16 +791,21 @@ export default function DailyUnitGanttModal({
       }
       return;
     }
-
     e.preventDefault();
     e.stopPropagation();
     
     if (dragPreview) {
-      updatePendingChanges(
-        draggingRow.assignmentId, 
-        draggingRow.staff, 
-        dragPreview.pattern
-      );
+      // ★★★ 修正: isNew フラグで分岐 ★★★
+      if (draggingRow.isNew) {
+        const index = draggingRow.assignmentId - 9000; // 一時IDからインデックスを復元
+        modifyPendingAddition(index, dragPreview.pattern);
+      } else {
+        updatePendingChanges(
+          draggingRow.assignmentId, 
+          draggingRow.staff, 
+          dragPreview.pattern
+        );
+      }
     }
 
     setIsDragging(false);
@@ -591,15 +814,51 @@ export default function DailyUnitGanttModal({
     document.body.style.cursor = 'default';
   };
   
+  // ★★★ 新規追加: インラインフォームの表示ハンドラ ★★★
+  const handleShowAddForm = (unitId: string) => {
+    setAddingToUnitId(unitId);
+    setSelectedStaffId("");
+    setSelectedPatternId("");
+  };
+
+  // ★★★ 新規追加: インラインフォームの「追加」実行ハンドラ ★★★
+  const handleAddAssignment = () => {
+    if (!target || !addingToUnitId || !selectedStaffId || !selectedPatternId) return;
+    
+    const newAssignment: Omit<IAssignment, 'id'> = {
+      date: target.date,
+      staffId: selectedStaffId,
+      patternId: selectedPatternId,
+      unitId: addingToUnitId, // ★ フォームを開いたユニットのID
+      locked: true, // ★ 手動追加はロック
+    };
+    
+    setPendingAdditions(prev => [...prev, newAssignment]);
+    
+    // フォームを閉じる
+    setAddingToUnitId(null);
+    setSelectedStaffId("");
+    setSelectedPatternId("");
+  };
+
+  // ★★★ 修正: DB保存ロジック (pendingAdditions も保存) ★★★
   const handleConfirmChanges = async () => {
-    if (pendingChanges.size === 0) {
+    if (pendingChanges.size === 0 && pendingAdditions.length === 0) {
       onClose(); 
       return;
     }
     
     try {
-      const changesToSave = Array.from(pendingChanges.values());
-      await db.assignments.bulkPut(changesToSave);
+      // 1. 変更分 (Update)
+      if (pendingChanges.size > 0) {
+        const changesToSave = Array.from(pendingChanges.values());
+        await db.assignments.bulkPut(changesToSave);
+      }
+      
+      // 2. 新規追加分 (Create)
+      if (pendingAdditions.length > 0) {
+        await db.assignments.bulkAdd(pendingAdditions);
+      }
       
       const allAssignmentsFromDB = await db.assignments.toArray();
       // ★ `setAssignments` は履歴に積まれる
@@ -608,7 +867,7 @@ export default function DailyUnitGanttModal({
       onClose(); 
       
     } catch (e) {
-      console.error("アサインの一括更新に失敗:", e);
+      console.error("アサインの一括更新/追加に失敗:", e);
       alert("アサインの保存に失敗しました。");
     }
   };
@@ -656,6 +915,7 @@ export default function DailyUnitGanttModal({
                   <div style={styles.statusBarRow}>
                     <div style={styles.unitNameCell}>
                       {group.unit.name}
+                      {/* ★★★ 修正: ボタンを削除 ★★★ */}
                     </div>
                     <div style={{ ...styles.statusBarContainer, width: CHART_WIDTH }}>
                       {Array.from({ length: 24 }).map((_, h) => {
@@ -694,15 +954,18 @@ export default function DailyUnitGanttModal({
                     </div>
                   </div>
 
+                  {/* ★★★ 修正: インラインフォームを削除 ★★★ */}
+
+
                   {/* スタッフ行 */}
                   {group.rows.length === 0 ? (
                     <p style={styles.italicPlaceholder}>
                       アサインなし
                     </p>
                   ) : (
-                    // ★★★ 未使用のインデックス 'i' を '_' に変更 ★★★
-                    group.rows.map((row, _) => ( 
-                      <div key={row.assignmentId} style={{ 
+                    // ★★★ 修正: row.assignmentId をキーに設定 ★★★
+                    group.rows.map((row) => ( 
+                      <div key={row.assignmentId} style={{ // ★★★ 修正 ★★★
                         ...styles.staffRow,
                         height: ROW_HEIGHT,
                         backgroundColor: row.isSupport ? '#f0f7ff' : 'transparent'
@@ -759,6 +1022,68 @@ export default function DailyUnitGanttModal({
                       </div>
                     ))
                   )}
+
+                  {/* ★★★ 修正: 「+」ボタンとフォームをこの位置（スタッフ行の後）に移動 ★★★ */}
+                  {addingToUnitId === group.unit.unitId ? (
+                    // (フォーム表示)
+                    <div style={inlineFormStyles.container}>
+                      <select 
+                        style={inlineFormStyles.selectStaff} // ★ 修正: インデント付きスタイル
+                        value={selectedStaffId}
+                        onChange={(e) => {
+                          setSelectedStaffId(e.target.value);
+                          setSelectedPatternId(""); 
+                        }}
+                      >
+                        <option value="">(1. スタッフを選択)</option>
+                        {availableStaffForAdding.map(staff => (
+                          <option key={staff.staffId} value={staff.staffId}>
+                            {staff.name}
+                          </option>
+                        ))}
+                      </select>
+                      
+                      <select
+                        style={inlineFormStyles.select}
+                        value={selectedPatternId}
+                        onChange={(e) => setSelectedPatternId(e.target.value)}
+                        disabled={!selectedStaffId} 
+                      >
+                        <option value="">(2. 勤務パターンを選択)</option>
+                        {availablePatternsForSelectedStaff.map(pattern => (
+                          <option key={pattern.patternId} value={pattern.patternId}>
+                            {pattern.name} ({pattern.startTime}-{pattern.endTime})
+                          </option>
+                        ))}
+                      </select>
+                      
+                      <button
+                        style={(!selectedStaffId || !selectedPatternId) ? inlineFormStyles.buttonDisabled : inlineFormStyles.button}
+                        onClick={handleAddAssignment}
+                        disabled={!selectedStaffId || !selectedPatternId}
+                      >
+                        追加
+                      </button>
+                      <button
+                        style={inlineFormStyles.buttonCancel}
+                        onClick={() => setAddingToUnitId(null)}
+                      >
+                        キャンセル
+                      </button>
+                    </div>
+                  ) : (
+                    // (「+」ボタン表示)
+                    <div style={inlineFormStyles.addButtonContainer}>
+                      <button
+                        style={inlineFormStyles.addButton}
+                        onClick={() => handleShowAddForm(group.unit.unitId)}
+                      >
+                        +
+                      </button>
+                    </div>
+                  )}
+                  {/* ★★★ 修正ここまで ★★★ */}
+
                 </div>
               ))}
 
@@ -768,9 +1093,8 @@ export default function DailyUnitGanttModal({
         
         {/* Actions */}
         <div style={styles.actions}>
-          {/* ★★★ 変更履歴 (pendingChanges) のサイズに応じてボタンを出し分ける ★★★ */}
-          {pendingChanges.size === 0 ? (
-            // ★★★ 変更点: `width: '100%'` を削除 ★★★
+          {/* ★★★ 修正: pendingAdditions のチェックも追加 ★★★ */}
+          {pendingChanges.size === 0 && pendingAdditions.length === 0 ? (
             <button onClick={onClose} style={styles.button}>
               閉じる
             </button>

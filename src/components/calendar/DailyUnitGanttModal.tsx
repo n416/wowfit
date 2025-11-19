@@ -1,12 +1,38 @@
 import { CSSProperties, useState, useRef, MouseEvent, useEffect } from 'react'; 
 import { Popover, Button } from '@mui/material'; 
-import { IShiftPattern, IAssignment, IUnit, IStaff } from '../../db/dexie'; 
+import { IShiftPattern, IAssignment, IStaff } from '../../db/dexie'; // IStaffを追加
 import { 
   useDailyGanttLogic, 
   GanttRowData, 
   UnitGroupData, 
   MonthDay 
-} from '../../hooks/useDailyGanttLogic'; // ★ 作成したフックをインポート
+} from '../../hooks/useDailyGanttLogic'; 
+
+// ★ 追加: 時間変換ヘルパー
+const timeToMin = (t: string) => {
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + m;
+};
+
+// ★ 追加: 契約時間帯チェックヘルパー
+const isWithinContract = (staff: IStaff, start: string, end: string): boolean => {
+  if (staff.employmentType !== 'PartTime') return true;
+
+  // 未設定または空の場合はデフォルト(8:00-20:00)とみなす
+  const ranges = (staff.workableTimeRanges && staff.workableTimeRanges.length > 0)
+    ? staff.workableTimeRanges
+    : [{ start: '08:00', end: '20:00' }];
+
+  const sMin = timeToMin(start);
+  const eMin = timeToMin(end);
+
+  // いずれかのレンジに完全に含まれていればOK
+  return ranges.some(range => {
+    const rStart = timeToMin(range.start);
+    const rEnd = timeToMin(range.end);
+    return sMin >= rStart && eMin <= rEnd;
+  });
+};
 
 type DragPreview = {
   left: number;
@@ -16,6 +42,7 @@ type DragPreview = {
   text: string;
 };
 
+// ... (inlineFormStyles, styles, getBarColor は変更なし) ...
 const inlineFormStyles: { [key: string]: CSSProperties } = {
   container: { display: 'flex', gap: '8px', padding: '8px 0 12px 0', backgroundColor: '#f9f9f9', borderBottom: '1px solid #ddd' },
   select: { padding: '8px', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: '#fff', flex: 1 },
@@ -27,16 +54,6 @@ const inlineFormStyles: { [key: string]: CSSProperties } = {
   addButton: { padding: '4px 8px', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid #1976d2', backgroundColor: '#fff', color: '#1976d2', cursor: 'pointer' },
 };
 
-interface DailyUnitGanttModalProps {
-  target: { date: string; unitId: string | null; } | null;
-  onClose: () => void;
-  allAssignments: IAssignment[]; 
-  demandMap: Map<string, { required: number; actual: number }>; 
-  unitGroups: UnitGroupData[]; 
-  monthDays: MonthDay[]; 
-}
-
-// (styles は変更なしのため、コード量削減のため省略して記載しますが、実際には元のまま残してください)
 const styles: { [key: string]: CSSProperties } = {
   backdrop: { position: 'fixed', inset: 0, backgroundColor: 'rgba(0, 0, 0, 0.5)', zIndex: 1300 },
   modal: { position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '90%', maxWidth: '960px', maxHeight: '90vh', backgroundColor: '#ffffff', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', zIndex: 1301, display: 'flex', flexDirection: 'column' },
@@ -66,14 +83,24 @@ const styles: { [key: string]: CSSProperties } = {
 };
 
 const getBarColor = (pattern: IShiftPattern, isSupport: boolean) => {
+  if (pattern.isFlex) return '#ffb74d'; 
   return isSupport ? '#42a5f5' : (pattern.isNightShift ? '#757575' : '#81c784');
 };
+
+// ... (props定義など変更なし) ...
+interface DailyUnitGanttModalProps {
+  target: { date: string; unitId: string | null; } | null;
+  onClose: () => void;
+  allAssignments: IAssignment[]; 
+  demandMap: Map<string, { required: number; actual: number }>; 
+  unitGroups: UnitGroupData[]; 
+  monthDays: MonthDay[]; 
+}
 
 export default function DailyUnitGanttModal({ 
   target, onClose, allAssignments, demandMap, unitGroups, monthDays 
 }: DailyUnitGanttModalProps) {
 
-  // ★★★ Logic Hook (ロジックは全てここに集約) ★★★
   const {
     localUnitGroups,
     localDemandMap,
@@ -87,12 +114,10 @@ export default function DailyUnitGanttModal({
     getAvailablePatternsForStaff
   } = useDailyGanttLogic(target, onClose, allAssignments, demandMap, unitGroups, monthDays);
 
-
   const HOUR_WIDTH = 30; 
   const CHART_WIDTH = HOUR_WIDTH * 24; 
   const ROW_HEIGHT = 40; 
 
-  // --- UI State (ドラッグやポップオーバーなど、見た目だけの状態) ---
   const [isDragging, setIsDragging] = useState(false);
   const [draggingRow, setDraggingRow] = useState<GanttRowData | null>(null);
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
@@ -106,7 +131,6 @@ export default function DailyUnitGanttModal({
   const [deletingRow, setDeletingRow] = useState<GanttRowData | null>(null);
   const [popoverAnchorEl, setPopoverAnchorEl] = useState<HTMLElement | null>(null);
 
-  // Reset UI state on target change
   useEffect(() => {
     setAddingToUnitId(null); 
     setSelectedStaffId(""); 
@@ -118,7 +142,7 @@ export default function DailyUnitGanttModal({
     setDragPreview(null);
   }, [target]);
 
-  // --- Event Handlers ---
+  // ... (handleBarClick, handleStaffNameClick, handleCloseDeletePopover, handleDeleteAssignment, handleDragStart は変更なし) ...
 
   const handleBarClick = (e: MouseEvent, clickedRow: GanttRowData) => {
     e.stopPropagation(); 
@@ -129,6 +153,8 @@ export default function DailyUnitGanttModal({
     const xInChart = e.clientX - chartRect.left;
     const clickedHour = Math.floor(xInChart / HOUR_WIDTH);
     
+    if (clickedRow.pattern.isFlex) return;
+
     const staff = clickedRow.staff;
     const availablePatterns = workPatterns.filter(p => 
       parseInt(p.startTime.split(':')[0]) === clickedHour && 
@@ -143,7 +169,6 @@ export default function DailyUnitGanttModal({
     
     if (nextPattern.patternId === currentPatternId && availablePatterns.length === 1) return;
 
-    // ★ ロジックをフックに委譲
     updateRow(clickedRow, nextPattern);
   };
 
@@ -161,12 +186,10 @@ export default function DailyUnitGanttModal({
 
   const handleDeleteAssignment = () => {
     if (!deletingRow) return;
-    // ★ ロジックをフックに委譲
     deleteRow(deletingRow);
     handleCloseDeletePopover();
   };
 
-  // Drag & Drop
   const handleDragStart = (e: MouseEvent, row: GanttRowData) => {
     if (e.button !== 0) return; 
     handleCloseDeletePopover();
@@ -177,6 +200,7 @@ export default function DailyUnitGanttModal({
     document.body.style.cursor = 'grabbing'; 
   };
   
+  // ★★★ 修正: handleDragMove で契約時間外へのドラッグをブロック ★★★
   const handleDragMove = (e: MouseEvent) => {
     if (!isDragging || !draggingRow || !modalContentRef.current) return;
     e.preventDefault();
@@ -188,17 +212,65 @@ export default function DailyUnitGanttModal({
     const xInContainer = mouseX - containerRect.left + scrollLeft - 150;
     let hoverHour = Math.round(xInContainer / HOUR_WIDTH);
     hoverHour = Math.max(0, Math.min(23, hoverHour)); 
+    
+    // --- バリデーション用変数 ---
+    let candidateStartStr = "";
+    let candidateEndStr = "";
+
+    // ★ Flexパターンの場合
+    if (draggingRow.pattern.isFlex) {
+      const pattern = draggingRow.pattern;
+      const newLeft = hoverHour * HOUR_WIDTH;
+      const currentDuration = draggingRow.duration; 
+      const newWidth = currentDuration * HOUR_WIDTH;
+      
+      // バリデーション用の時間文字列計算
+      candidateStartStr = `${String(hoverHour).padStart(2, '0')}:00`;
+      const endH_val = hoverHour + currentDuration;
+      const endH_int = Math.floor(endH_val);
+      const endM_int = Math.round((endH_val - endH_int) * 60);
+      candidateEndStr = `${String(endH_int).padStart(2, '0')}:${String(endM_int).padStart(2, '0')}`;
+
+      // ★ ガード: 契約時間外なら移動しない (return)
+      if (!isWithinContract(draggingRow.staff, candidateStartStr, candidateEndStr)) {
+        return;
+      }
+
+      setDragPreview({
+        left: newLeft,
+        width: newWidth,
+        pattern: pattern,
+        backgroundColor: '#ffa726',
+        text: `${pattern.name} (${hoverHour}:00~)`,
+      });
+      return;
+    }
+
+    // ★ 通常パターンの場合
     const staff = draggingRow.staff;
     const availablePatterns = workPatterns.filter(p => 
       parseInt(p.startTime.split(':')[0]) === hoverHour &&
       staff.availablePatternIds.includes(p.patternId)
     );
+    
     if (availablePatterns.length === 0) {
       setDragPreview(null); 
       return;
     }
+
     availablePatterns.sort((a, b) => b.durationHours - a.durationHours);
     const longestPattern = availablePatterns[0];
+    
+    // バリデーション用の時間文字列
+    candidateStartStr = longestPattern.startTime;
+    candidateEndStr = longestPattern.endTime;
+
+    // ★ ガード: 契約時間外なら移動しない (return)
+    if (!isWithinContract(draggingRow.staff, candidateStartStr, candidateEndStr)) {
+       // 視覚的にも「ここには置けない」とわかるよう、移動を止める（直前の有効な位置に残る）
+       return;
+    }
+
     const newLeft = hoverHour * HOUR_WIDTH;
     let newWidth = longestPattern.durationHours * HOUR_WIDTH;
     if (longestPattern.crossesMidnight) {
@@ -212,6 +284,8 @@ export default function DailyUnitGanttModal({
       text: longestPattern.name,
     });
   };
+  
+  // ... (handleDragEnd, Form handlers, render return は変更なし) ...
   
   const handleDragEnd = (e: MouseEvent) => {
     if (!isDragging || !draggingRow) {
@@ -227,8 +301,21 @@ export default function DailyUnitGanttModal({
     e.stopPropagation();
     
     if (dragPreview) {
-      // ★ ロジックをフックに委譲
-      updateRow(draggingRow, dragPreview.pattern);
+      if (draggingRow.pattern.isFlex) {
+         const newStartHour = Math.round(dragPreview.left / HOUR_WIDTH);
+         const duration = draggingRow.duration; 
+         
+         const newStartStr = `${String(newStartHour).padStart(2, '0')}:00`;
+         const endH = newStartHour + duration;
+         const endH_int = Math.floor(endH);
+         const endM_int = (endH - endH_int) * 60;
+         const newEndStr = `${String(endH_int).padStart(2, '0')}:${String(Math.round(endM_int)).padStart(2, '0')}`;
+         
+         updateRow(draggingRow, draggingRow.pattern, { start: newStartStr, end: newEndStr });
+
+      } else {
+         updateRow(draggingRow, dragPreview.pattern);
+      }
     }
 
     setIsDragging(false);
@@ -237,7 +324,6 @@ export default function DailyUnitGanttModal({
     document.body.style.cursor = 'default';
   };
   
-  // Form Handlers
   const handleShowAddForm = (unitId: string) => {
     setAddingToUnitId(unitId);
     setSelectedStaffId("");
@@ -246,7 +332,6 @@ export default function DailyUnitGanttModal({
 
   const handleAddAssignment = () => {
     if (!addingToUnitId || !selectedStaffId || !selectedPatternId) return;
-    // ★ ロジックをフックに委譲
     addAssignment(addingToUnitId, selectedStaffId, selectedPatternId);
     
     setAddingToUnitId(null);
@@ -266,6 +351,7 @@ export default function DailyUnitGanttModal({
       onMouseUp={handleDragEnd}
       onMouseLeave={handleDragEnd} 
     >
+      {/* (JSX部分は変更なし) */}
       <div style={styles.modal}>
         <div style={styles.header}>
           {target.date} 詳細タイムライン
@@ -275,7 +361,6 @@ export default function DailyUnitGanttModal({
           <div style={styles.contentInnerScroll} ref={modalContentRef}>
             <div style={{ minWidth: CHART_WIDTH + 150, position: 'relative' }}>
               
-              {/* Time Header */}
               <div style={styles.timeHeaderContainer}>
                 {Array.from({ length: 24 }).map((_, h) => (
                   <div key={h} style={{ ...styles.timeHeaderCell, width: HOUR_WIDTH }}>
@@ -284,11 +369,9 @@ export default function DailyUnitGanttModal({
                 ))}
               </div>
 
-              {/* Unit Groups */}
               {localUnitGroups.map((group, groupIndex) => (
                 <div key={group.unit.unitId} style={groupIndex > 0 ? styles.unitBlock : styles.firstUnitBlock}>
                   
-                  {/* Status Bar Row */}
                   <div style={styles.statusBarRow}>
                     <div style={styles.unitNameCell}>
                       {group.unit.name}
@@ -320,7 +403,6 @@ export default function DailyUnitGanttModal({
                     </div>
                   </div>
 
-                  {/* Staff Rows */}
                   {group.rows.length === 0 ? (
                     <p style={styles.italicPlaceholder}>アサインなし</p>
                   ) : (
@@ -353,7 +435,7 @@ export default function DailyUnitGanttModal({
                             onClick={(e) => handleBarClick(e, row)}
                             onMouseDown={(e) => handleDragStart(e, row)}
                           >
-                            {row.pattern.name}
+                            {row.pattern.isFlex && row.displayStartTime ? `${row.pattern.name} (${row.displayStartTime})` : row.pattern.name}
                           </div>
 
                           {(isDragging && draggingRow?.assignmentId === row.assignmentId && dragPreview) && (
@@ -371,7 +453,6 @@ export default function DailyUnitGanttModal({
                     ))
                   )}
 
-                  {/* Add Staff Form / Button */}
                   {addingToUnitId === group.unit.unitId ? (
                     <div style={inlineFormStyles.container}>
                       <select style={inlineFormStyles.selectStaff} value={selectedStaffId} onChange={(e) => { setSelectedStaffId(e.target.value); setSelectedPatternId(""); }}>
@@ -404,7 +485,6 @@ export default function DailyUnitGanttModal({
           </div>
         </div>
         
-        {/* Footer Actions */}
         <div style={styles.actions}>
           {!hasPendingChanges ? (
             <button onClick={onClose} style={styles.button}>閉じる</button>
@@ -417,7 +497,6 @@ export default function DailyUnitGanttModal({
         </div>
       </div>
 
-      {/* Delete Popover */}
       <Popover
         open={Boolean(popoverAnchorEl)}
         anchorEl={popoverAnchorEl}

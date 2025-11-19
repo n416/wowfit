@@ -3,7 +3,6 @@ import {
   Box, Paper, Typography, Button, 
   CircularProgress, Alert, List, ListItemText, Avatar, Chip,
   Dialog, DialogTitle, DialogContent, DialogActions, ListItemButton,
-  // ★ Divider を削除
 } from '@mui/material';
 import { useSelector, useDispatch } from 'react-redux';
 import type { AppDispatch, RootState } from '../../store';
@@ -11,39 +10,56 @@ import { IStaff, IShiftPattern, IAssignment, IUnit } from '../../db/dexie';
 import { db } from '../../db/dexie';
 import { setAssignments, clearAdvice, fetchAssignmentAdvice } from '../../store/assignmentSlice'; 
 
-// (ShiftCalendarPage.tsx から手動アサインモーダルのコードを移動)
+// Helper: 時間文字列 "HH:MM" を分単位の数値に変換
+const timeToMin = (t: string) => {
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + m;
+};
+
+// Helper: 契約時間帯のチェック
+const isWithinContract = (staff: IStaff, start: string, end: string): boolean => {
+  if (staff.employmentType !== 'PartTime') return true;
+  
+  // 未設定または空の場合はデフォルト(8:00-20:00)とみなす
+  const ranges = (staff.workableTimeRanges && staff.workableTimeRanges.length > 0) 
+    ? staff.workableTimeRanges 
+    : [{ start: '08:00', end: '20:00' }];
+
+  const sMin = timeToMin(start);
+  const eMin = timeToMin(end);
+
+  // いずれかのレンジに完全に含まれていればOK
+  return ranges.some(range => {
+    const rStart = timeToMin(range.start);
+    const rEnd = timeToMin(range.end);
+    return sMin >= rStart && eMin <= rEnd;
+  });
+};
 
 interface AssignPatternModalProps {
-  // ★ v5.9 モーダルに必要な props を定義
-  target: { date: string; staff: IStaff; } | null; // (editingTarget)
+  target: { date: string; staff: IStaff; } | null; 
   allStaff: IStaff[];
   allPatterns: IShiftPattern[];
   allUnits: IUnit[];
   allAssignments: IAssignment[];
-  burdenData: any[]; // (staffBurdenData.values() の配列)
+  burdenData: any[]; 
   onClose: () => void;
 }
 
-// export default を追加
 export default function AssignPatternModal({ 
   target, allStaff, allPatterns, allUnits, allAssignments, burdenData, onClose 
 }: AssignPatternModalProps) {
   
   const dispatch: AppDispatch = useDispatch(); 
   
-  // ★ v5.9 AI助言の state はこのコンポーネントが直接ストアから取得
-  // ★★★ 修正: state.assignment.present から AI 関連 state を取得 ★★★
   const { adviceLoading, adviceError, adviceResult } = useSelector((state: RootState) => state.assignment.present);
   
   const [selectedPatternId, setSelectedPatternId] = useState<string | null>(null);
 
-  // ★ v5.9 patternMap をこのコンポーネント内で計算
   const patternMap = useMemo(() => new Map(allPatterns.map((p: IShiftPattern) => [p.patternId, p])), [allPatterns]);
 
-  // ★ v5.9 モーダルが開く/対象が変わるたびに state をリセット
   useEffect(() => {
     if (target) {
-      // ★★★ タイポ修正: target.staff.Id -> target.staff.staffId ★★★
       const existing = allAssignments.find(a => a.date === target.date && a.staffId === target.staff.staffId);
       setSelectedPatternId(existing?.patternId || null);
       dispatch(clearAdvice());
@@ -51,11 +67,26 @@ export default function AssignPatternModal({
   }, [target, allAssignments, dispatch]);
 
 
-  // ★ v5.9 担当者決定ロジック (ShiftCalendarPageから移動)
-  // ★ v5.9 修正: locked: true を追加
+  // 担当者決定ロジック
   const handleAssignPattern = async () => {
     if (!target) return;
     const { date, staff } = target;
+
+    // ★★★ バリデーション: 契約時間帯チェック ★★★
+    if (selectedPatternId) {
+      const pattern = patternMap.get(selectedPatternId);
+      if (pattern && pattern.workType === 'Work') {
+        // Flexの場合はデフォルト枠(startTime/endTime)でチェック
+        // (※Flexの場合、実際はドラッグで縮めれば入るかもしれないが、アサイン時点では枠でチェックして警告する)
+        if (!isWithinContract(staff, pattern.startTime, pattern.endTime)) {
+          const ranges = staff.workableTimeRanges?.map(r => `${r.start}-${r.end}`).join(', ') || "08:00-20:00";
+          if (!window.confirm(`警告: ${staff.name} さんの契約時間帯(${ranges})外の可能性があります。\n(${pattern.name}: ${pattern.startTime}-${pattern.endTime})\n\nそれでも割り当てますか？`)) {
+            return; // キャンセル
+          }
+        }
+      }
+    }
+
     try {
       const existing = await db.assignments
         .where('[date+staffId]')
@@ -72,20 +103,23 @@ export default function AssignPatternModal({
             staffId: staff.staffId,
             patternId: selectedPatternId,
             unitId: (pattern.workType === 'Work') ? staff.unitId : null,
-            locked: true // ★★★ 手動アサインはロックする ★★★
+            locked: true, // 手動アサインはロックする
+            // ★ Flexならデフォルト時間を入れておく (v7)
+            overrideStartTime: pattern.isFlex ? pattern.startTime : undefined,
+            overrideEndTime: pattern.isFlex ? pattern.endTime : undefined
           };
           await db.assignments.add(newAssignment);
         }
       }
       const allAssignments = await db.assignments.toArray();
-      dispatch(setAssignments(allAssignments)); // ★ ストアを更新
+      dispatch(setAssignments(allAssignments)); // ストアを更新
     } catch (e) {
       console.error("アサインの更新に失敗:", e);
     }
-    onClose(); // ★ 親コンポーネントにクローズを通知
+    onClose(); // 親コンポーネントにクローズを通知
   };
 
-  // ★ v5.9 AI助言ボタンのハンドラ (ShiftCalendarPageから移動)
+  // AI助言ボタンのハンドラ
   const handleFetchAdvice = () => {
     if (!target) return;
     dispatch(fetchAssignmentAdvice({
@@ -99,40 +133,34 @@ export default function AssignPatternModal({
     }));
   };
 
-  // ★★★ v5.100 修正: リストを2つに分離 ★★★
-
-  // ★ リスト1: 「公休」「有給」のみのリスト
+  // リスト1: 「公休」「有給」のみのリスト
   const holidayLeavePatterns = useMemo(() => {
     return allPatterns
       .filter(p => p.workType === 'StatutoryHoliday' || p.workType === 'PaidLeave')
       .sort((a, b) => a.workType.localeCompare(b.workType)); // 公休を先に
   }, [allPatterns]);
 
-  // ★ リスト2: 「勤務可能パターン」 + 「会議」「その他」のリスト
+  // リスト2: 「勤務可能パターン」 + 「会議」「その他」のリスト
   const availableWorkAndOtherPatterns = useMemo(() => {
     if (!target?.staff) return [];
 
     const staffSpecificPatternIds = target.staff.availablePatternIds || [];
-    // ★ 会議(Meeting)とその他(Other)のみを抽出
     const otherPatternIds = allPatterns
       .filter(p => p.workType === 'Meeting' || p.workType === 'Other') 
       .map(p => p.patternId);
       
-    // ★ 勤務可能パターン + 会議/その他 を結合
     const combinedIds = [...new Set([...staffSpecificPatternIds, ...otherPatternIds])];
 
     return combinedIds
       .map(pid => patternMap.get(pid))
       .filter((p): p is IShiftPattern => !!p) 
       .sort((a, b) => { 
-        // (勤務を一番上、会議/その他をその下)
         if (a.workType === 'Work' && b.workType !== 'Work') return -1;
         if (a.workType !== 'Work' && b.workType === 'Work') return 1;
         return a.patternId.localeCompare(b.patternId);
       });
       
   }, [target?.staff, allPatterns, patternMap]);
-  // ★★★ v5.100 修正ここまで ★★★
 
 
   return (
@@ -145,7 +173,7 @@ export default function AssignPatternModal({
         {/* 左側: パターン選択リスト */}
         <Box sx={{ flex: 1, maxHeight: 500, overflowY: 'auto' }}>
           
-          {/* ★★★ リスト1: 休み・解除 ★★★ */}
+          {/* リスト1: 休み・解除 */}
           <Typography variant="caption">1. 休み・解除</Typography>
           <List dense component={Paper} variant="outlined" sx={{ mb: 2 }}>
             <ListItemButton onClick={() => setSelectedPatternId(null)} selected={selectedPatternId === null}>
@@ -170,10 +198,9 @@ export default function AssignPatternModal({
             ))}
           </List>
 
-          {/* ★★★ リスト2: 勤務・その他 ★★★ */}
+          {/* リスト2: 勤務・その他 */}
           <Typography variant="caption">2. 勤務・その他</Typography>
           <List dense component={Paper} variant="outlined" sx={{maxHeight: 300, overflow: 'auto'}}>
-            {/* (※スタッフの「勤務可能パターン」 + 「会議/その他」を表示) */}
             {availableWorkAndOtherPatterns.map(pattern => (
               <ListItemButton 
                 key={pattern.patternId}

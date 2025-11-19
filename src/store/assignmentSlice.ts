@@ -1,11 +1,16 @@
 import { createSlice, PayloadAction, createAsyncThunk } from '@reduxjs/toolkit';
-// ★ 1. ActionTypes をインポート (excludeAction は不要)
 import undoable, { ActionTypes } from 'redux-undo';
 import { IStaff, IShiftPattern, db, IAssignment, IUnit } from '../db/dexie'; 
 import { GeminiApiClient } from '../api/geminiApiClient'; 
 import { extractJson } from '../utils/jsonExtractor'; 
 import { getDefaultRequiredHolidays } from '../utils/dateUtils';
 
+// ★ Helper: 時間文字列 "HH:MM" を分単位の数値に変換 (バリデーション用)
+const timeToMin = (t: string) => {
+  if (!t) return 0;
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + m;
+};
 
 // (FetchAdviceArgs, fetchAssignmentAdvice は変更なし)
 interface FetchAdviceArgs {
@@ -20,14 +25,13 @@ interface FetchAdviceArgs {
 export const fetchAssignmentAdvice = createAsyncThunk(
   'assignment/fetchAdvice',
   async (args: FetchAdviceArgs, { rejectWithValue }) => {
-    // ... (プロンプト生成・API呼び出し) ...
     const { targetDate, targetStaff, allPatterns, allUnits, burdenData, allAssignments } = args;
     const gemini = new GeminiApiClient();
     if (!gemini.isAvailable) {
       return rejectWithValue('Gemini APIが設定されていません。');
     }
     const prompt = `あなたは勤務スケジュールアシスタントです。管理者が「${targetStaff.name}」の「${targetDate}」のアサインを手動で調整しようとしています。
-以下の状況を分析し、管理者が**次に行うべきアクション（ネゴシ_エーション）**を具体的に助言してください。
+以下の状況を分析し、管理者が**次に行うべきアクション（ネゴシエーション）**を具体的に助言してください。
 # 1. 調整対象のスタッフ
 - 氏名: ${targetStaff.name} (ID: ${targetStaff.staffId})
 - 所属: ${targetStaff.unitId || 'フリー'}
@@ -57,7 +61,7 @@ ${JSON.stringify(allAssignments.filter(s => s.staffId), null, 2)}
 );
 
 
-// (fetchAiAdjustment は変更なし)
+// (fetchAiAdjustment - ここを大幅修正)
 interface FetchAiAdjustmentArgs {
   instruction: string; 
   allStaff: IStaff[];
@@ -70,96 +74,171 @@ interface FetchAiAdjustmentArgs {
 export const fetchAiAdjustment = createAsyncThunk(
   'assignment/fetchAiAdjustment',
   async (args: FetchAiAdjustmentArgs, { rejectWithValue }) => {
-    // ... (プロンプト生成・API呼び出し) ...
     console.log("★ AI草案作成: Thunk (fetchAiAdjustment) 開始");
     const { instruction, allStaff, allPatterns, allUnits, allAssignments, monthInfo, staffHolidayRequirements } = args;
     const gemini = new GeminiApiClient();
     if (!gemini.isAvailable) {
       return rejectWithValue('Gemini APIが設定されていません。');
     }
+    
+    // Helper Map作成
+    const staffMap = new Map(allStaff.map(s => [s.staffId, s]));
+    const patternMap = new Map(allPatterns.map(p => [p.patternId, p]));
+
     const defaultHolidayCount = getDefaultRequiredHolidays(monthInfo.days);
     const staffWithHolidayReq = allStaff.map(staff => ({
       ...staff,
       requiredHolidays: staffHolidayRequirements.get(staff.staffId) || defaultHolidayCount 
     }));
-    let finalInstruction = instruction || '特記事項なし。デマンド（必要人数）を満し、スタッフの負担（特に連勤・インターバル・公休数）が公平になるよう全体を最適化してください。';
+
+    let finalInstruction = instruction || '特記事項なし。デマンドを満し、スタッフの負担が公平になるよう全体を最適化してください。';
     if (instruction.includes("公休数強制補正")) {
-      finalInstruction = "最優先事項: スタッフ一覧で定義された `requiredHolidays`（必要公休数）を厳密に守ってください。デマンド（必要人数）やその他の制約（連勤など）を満たすのが難しい場合でも、公休数の確保を最優先としてください。";
+      finalInstruction = "最優先事項: スタッフ一覧で定義された `requiredHolidays`（必要公休数）を厳密に守ってください。";
     }
     
+    // ★ プロンプト修正: isFlex, overrideStartTime, workableTimeRanges の説明を追加
     const prompt = `あなたは勤務表の自動調整AIです。以下の入力に基づき、月全体の勤務表アサイン（IAssignment[]）を最適化し、修正後のアサイン配列「全体」をJSON形式で**のみ**出力してください。
+
 # 1. 管理者からの指示
 ${finalInstruction}
-# 2. スタッフ一覧 (勤務可能パターンと制約、★必要公休数)
+
+# 2. スタッフ一覧 (制約・必要公休数・★契約時間帯)
+// workableTimeRanges があるスタッフはパートタイムです。指定された時間帯の範囲内でのみ勤務可能です。
 ${JSON.stringify(staffWithHolidayReq, null, 2)}
-# 3. 勤務パターン定義 (時間や種類)
+
+# 3. 勤務パターン定義 (時間・種類・★Flexフラグ)
+// isFlex: true のパターンは「時間枠指定」です。アサイン時に具体的な開始・終了時間を決定する必要があります。
 ${JSON.stringify(allPatterns, null, 2)}
-# 4. ユニット別・24時間デマンド（あるべき必要人数）
+
+# 4. ユニット別・24時間デマンド
 ${JSON.stringify(allUnits, null, 2)}
+
 # 5. 現在のアサイン（下書き）
 ${JSON.stringify(allAssignments, null, 2)}
+
 # 6. 対象月
 ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
-(参考: この月のデフォルト公休数は ${defaultHolidayCount} 日です)
+
 # 指示 (最重要)
-1. **ロックされたアサインの維持 (最重要)**: 「現在のアサイン」のうち、 \`"locked": true\` が設定されているアサインは、**絶対に変更してはなりません (MUST NOT change)**。修正後のJSONにも、これらのアサインをそのまま含めてください。
-2. **必要公休数の厳守 (重要)**: 「スタッフ一覧」で各スタッフに定義された \`"requiredHolidays"\` の日数を、**厳密に（STRICTLY）守ってください**。この日数と「公休」（"workType": "StatutoryHoliday"）のアサイン回数が一致するようにしてください。
-3. **0.5人デマンドのルール**: 
-   - 「ユニット別デマンド」に \`0.5\` が設定されている場合、**2つのユニットを合計して \`1.0\`** とし、'crossUnitWorkType: \\'有\\'' または '\\'サポート\\'' が可能なスタッフ1名（1.0人）を割り当てることで**両方**を満たせます。
-   - アサインする際は、片方のユニット（例：ユニットA）に \`"unitId": "U01"\` としてアサインすれば、AI側で両方（U01とU02）が満たされたと解釈します。
-4. **★ パートスタッフのみのシフト禁止 (重要)**: 
-   - 勤務が割り当てられている（「公休」「有給」以外）時間帯において、**パートスタッフ（"employmentType": "PartTime"）だけにならないようにしてください。**
-   - どの時間帯・どのユニットにおいても、デマンドが1以上ある場合は、最低1名は常勤スタッフ（"employmentType": "FullTime"）が含まれるように配置してください。
+1. **ロック維持**: \`"locked": true\` のアサインは変更しないでください。
+2. **公休数厳守**: \`"requiredHolidays"\` の日数を守ってください。
+3. **0.5人ルール**: デマンド0.5には 'crossUnitWorkType' が有/サポートのスタッフを割り当ててください。
+4. **パート契約時間の遵守 (重要)**: 
+   - \`employmentType: "PartTime"\` のスタッフには、必ず \`workableTimeRanges\` の範囲内に収まる時間を割り当ててください。
+   - 範囲外の時間になるパターンは割り当てないでください。
 
-5. **★ 制約の遵守 (ルール変更)**:
-   - 「スタッフ一覧」で定義された "constraints"（最大連勤・最短インターバル）を遵守してください。
-   - "availablePatternIds" は、そのスタッフが勤務可能な**「労働（"workType": "Work"）」パターンのみ**をリストしたものです。
-   - **「公休（"workType": "StatutoryHoliday"）」と「有給（"workType": "PaidLeave"）」は、"availablePatternIds" に記載がなくても、すべてのスタッフに割り当て可能です。**
-   - ロックされたアサイン（"locked": true）は、これらの制約（連勤、インターバル、勤務可能パターン）に違反していても維持してください。
-
-6. **デマンドの充足**: 可能な限りデマンドを満たしてください。
-7. **公休の配置**: 公休・有給は \`unitId: null\` としてください。
-8. **管理者の指示**: 「管理者からの指示」(#1)を（上記1〜5の制約の次に）優先して考慮してください。
+5. **Flexパターンの扱い (重要)**:
+   - \`isFlex: true\` のパターンを割り当てる場合は、必ず \`overrideStartTime\` と \`overrideEndTime\` プロパティを出力JSONに追加し、具体的な勤務時間を指定してください。
+   - Flexでなくても、契約時間に合わせて時間を調整したい場合は override を使用しても構いません。
 
 # 9. 出力形式 (【厳守】)
-- **修正後のアサイン配列（IAssignment[]）「全体」を、以下のJSON形式でのみ出力してください。**
-- **\`\`\`json ... \`\`\` のマークダウンや、前後の挨拶・説明文（「はい、承知いたしました。」など）は絶対に（MUST NOT）含めないでください。**
-- **応答は必ず \`[\` で始まり、 \`]\` で終わる必要があります。**
+- JSON配列のみを出力してください。
 \`\`\`json
 [
   { "date": "2025-11-01", "staffId": "s001", "patternId": "N", "unitId": "U01", "locked": true },
-  { "date": "2025-11-01", "staffId": "s003", "patternId": "A", "unitId": "U01" },
-  { "date": "2025-11-01", "staffId": "s007", "patternId": "半1", "unitId": "U01" },
-  { "date": "2025-11-01", "staffId": "s002", "patternId": "公休", "unitId": null },
+  { "date": "2025-11-01", "staffId": "s003", "patternId": "P1", "unitId": "U01", "overrideStartTime": "10:00", "overrideEndTime": "14:00" }, 
   ...
-  { "date": "2025-11-30", "staffId": "s010", "patternId": "有給", "unitId": null }
 ]
 \`\`\`
 `;
+
     try {
-      console.log("★ AI草案作成: APIにプロンプトを送信します (これ以降、時間がかかります)");
+      console.log("★ AI草案作成: API送信");
       const resultText = await gemini.generateContent(prompt);
-      console.log("★ AI草案作成: APIから応答受信。JSONを解析します。");
+      console.log("★ AI草案作成: 応答受信");
       const newAssignments: IAssignment[] = extractJson(resultText);
-      if (!Array.isArray(newAssignments) || newAssignments.length === 0 || !newAssignments[0].date || !newAssignments[0].staffId) {
+      
+      if (!Array.isArray(newAssignments)) {
         throw new Error("AIが不正な形式のJSONを返しました。");
       }
-      
+
+      // ---------------------------------------------------------
+      // ★ バリデーション & フィルタリング (契約時間外チェック)
+      // ---------------------------------------------------------
+      const validAssignments: IAssignment[] = [];
+      const removedMessages: string[] = [];
+
+      for (const assignment of newAssignments) {
+        // 1. 必要なデータを取得
+        const staff = staffMap.get(assignment.staffId);
+        const pattern = patternMap.get(assignment.patternId);
+        
+        // データ不整合があればスキップ (あるいは安全のため残すか判断。ここでは残す)
+        if (!staff || !pattern) {
+          validAssignments.push(assignment);
+          continue;
+        }
+
+        // 休み系はチェック不要
+        if (pattern.workType === 'StatutoryHoliday' || pattern.workType === 'PaidLeave') {
+          validAssignments.push(assignment);
+          continue;
+        }
+
+        // パート以外はチェック不要
+        if (staff.employmentType !== 'PartTime') {
+          validAssignments.push(assignment);
+          continue;
+        }
+
+        // 時間の特定 (overrideがあればそちら、なければパターン定義)
+        const startStr = assignment.overrideStartTime || pattern.startTime;
+        const endStr = assignment.overrideEndTime || pattern.endTime;
+
+        // 契約時間帯チェック (DailyUnitGanttModalと同様のロジック)
+        const ranges = (staff.workableTimeRanges && staff.workableTimeRanges.length > 0)
+          ? staff.workableTimeRanges
+          : [{ start: '08:00', end: '20:00' }]; // デフォルト
+
+        const sMin = timeToMin(startStr);
+        const eMin = timeToMin(endStr);
+        
+        // 日付またぎ対応 (簡易的: 終了が開始より小さい場合は+24時間とみなしてチェック...は複雑なので
+        // 今回は「開始時間」と「終了時間」がレンジの開始・終了に収まっているか単純比較します)
+        // ※厳密には日付またぎシフトの契約チェックは難しいですが、パートは通常日勤帯が多い前提で
+        
+        const isValid = ranges.some(range => {
+          const rStart = timeToMin(range.start);
+          const rEnd = timeToMin(range.end);
+          return sMin >= rStart && eMin <= rEnd;
+        });
+
+        if (isValid) {
+          validAssignments.push(assignment);
+        } else {
+          // 契約外なので除外
+          removedMessages.push(
+            `・${assignment.date} ${staff.name} (${pattern.name}: ${startStr}～${endStr})`
+          );
+        }
+      }
+
+      // ユーザーへの通知
+      if (removedMessages.length > 0) {
+        const msg = `AIが作成したアサインのうち、以下の${removedMessages.length}件はスタッフの契約時間外（または時間設定不備）だったため、自動的に削除しました。\n\n` + 
+                    removedMessages.slice(0, 10).join('\n') + 
+                    (removedMessages.length > 10 ? `\n...他 ${removedMessages.length - 10}件` : '');
+        alert(msg);
+      }
+
+      // ---------------------------------------------------------
+      // DB保存
+      // ---------------------------------------------------------
       await db.assignments.clear();
-      await db.assignments.bulkPut(newAssignments);
+      await db.assignments.bulkPut(validAssignments);
       
       const allAssignmentsFromDB = await db.assignments.toArray();
       return allAssignmentsFromDB;
       
     } catch (e: any) {
-      console.error("★ AI草案作成: APIリクエストまたはJSON解析でエラー発生", e);
+      console.error("★ AI草案作成エラー", e);
       return rejectWithValue(e.message);
     }
   }
 );
 
 
-// (fetchAiHolidayPatch は変更なし)
+// (fetchAiHolidayPatch, fetchAiAnalysis は変更なし、slice定義も変更なし)
 interface FetchAiHolidayPatchArgs {
   allStaff: IStaff[];
   allPatterns: IShiftPattern[];
@@ -171,7 +250,6 @@ interface FetchAiHolidayPatchArgs {
 export const fetchAiHolidayPatch = createAsyncThunk(
   'assignment/fetchAiHolidayPatch',
   async (args: FetchAiHolidayPatchArgs, { rejectWithValue }) => {
-    // ... (プロンプト生成・API呼び出し) ...
     console.log("★ AI公休補正: Thunk (fetchAiHolidayPatch) 開始");
     const { allStaff, allPatterns, allUnits, allAssignments, monthInfo, staffHolidayRequirements } = args;
     const gemini = new GeminiApiClient();
@@ -268,8 +346,7 @@ interface FetchAiAnalysisArgs {
 export const fetchAiAnalysis = createAsyncThunk(
   'assignment/fetchAiAnalysis',
   async (args: FetchAiAnalysisArgs, { rejectWithValue }) => {
-    console.log("★[LOCK-AI] fetchAiAnalysis: Thunkが呼び出されました。 (analysisLoading = true になります)");
-    // ... (プロンプト生成・API呼び出し) ...
+    console.log("★[LOCK-AI] fetchAiAnalysis: Thunkが呼び出されました。");
     const { allStaff, allPatterns, allUnits, allAssignments, monthInfo, staffHolidayRequirements } = args;
     const gemini = new GeminiApiClient();
     if (!gemini.isAvailable) {
@@ -310,19 +387,14 @@ ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
 - 問題がなさそうな場合は、「データ設定に明らかな矛盾は見当たりません。AI草案作成を実行可能です。」と回答してください。
 `;
     try {
-      console.log("★ AI現況分析: APIにプロンプトを送信します");
       const resultText = await gemini.generateContent(prompt);
-      console.log("★ AI現況分析: APIから応答受信");
       return resultText; 
     } catch (e: any) {
-      console.error("★ AI現況分析: APIリクエストでエラー発生", e);
       return rejectWithValue(e.message);
     }
   }
 );
 
-
-// ... (State 定義, initialState は変更なし) ...
 interface AssignmentState {
   assignments: IAssignment[];
   isSyncing: boolean; 
@@ -352,7 +424,6 @@ const initialState: AssignmentState = {
   patchError: null,
 };
 
-// ★ スライス本体 (ログ削除)
 const assignmentSlice = createSlice({
   name: 'assignment',
   initialState,
@@ -385,7 +456,6 @@ const assignmentSlice = createSlice({
     }
   },
   extraReducers: (builder) => {
-    // ★ (ログ削除)
     builder
       // (fetchAssignmentAdvice)
       .addCase(fetchAssignmentAdvice.pending, (state) => {
@@ -456,13 +526,8 @@ export const {
   clearAnalysis 
 } = assignmentSlice.actions;
 
-// ★★★ 修正版 (Plan H - ログ削除) ★★★
-// (ts2353 エラーを修正し、月またぎバグを修正します)
 const undoableAssignmentReducer = undoable(assignmentSlice.reducer, {
-  
-  // ★ カスタム filter 関数
   filter: (action) => {
-    // 除外したいアクションのリスト
     const excludedTypes = [
       _syncAssignments.type,
       _setIsSyncing.type,
@@ -471,24 +536,16 @@ const undoableAssignmentReducer = undoable(assignmentSlice.reducer, {
       fetchAiAnalysis.pending.type,
       fetchAssignmentAdvice.pending.type
     ];
-
-    // 1. UNDO/REDO 自体はスキップ
     if (action.type === ActionTypes.UNDO || action.type === ActionTypes.REDO) {
       return false; 
     }
-
-    // 2. 除外リストに含まれているかチェック
     if (excludedTypes.includes(action.type)) {
-      return false; // 履歴に記録しない
+      return false; 
     }
-
-    // 3. アクションタイプが 'assignment/' で始まらないものはすべて除外
     if (!action.type.startsWith('assignment/')) {
-      return false; // 履歴に記録しない
+      return false; 
     }
-    
-    // 4. それ以外のアクション (setAssignments など)
-    return true; // 履歴に記録する
+    return true; 
   },
 });
 

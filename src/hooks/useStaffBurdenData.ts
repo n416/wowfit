@@ -4,20 +4,18 @@ import type { RootState } from '../store';
 import { IStaff, IAssignment, IShiftPattern } from '../db/dexie';
 import { getDefaultRequiredHolidays } from '../utils/dateUtils';
 
-// ★★★ 修正: このファイル内でも MonthDay 型を定義 ★★★
 type MonthDay = {
   dateStr: string;
   weekday: string;
   dayOfWeek: number;
 };
 
-// ★★★ 修正: monthDays の型を MonthDay[] に変更 ★★★
 const calculateStaffBurdenData = (
-  staffList: IStaff[], // (アクティブなスタッフリスト)
+  staffList: IStaff[], 
   assignments: IAssignment[],
   patternMap: Map<string, IShiftPattern>,
   staffHolidayRequirements: Map<string, number>,
-  monthDays: MonthDay[] // ★ 型を修正
+  monthDays: MonthDay[]
 ) => {
   const burdenMap = new Map<string, {
       staffId: string; name: string; employmentType: 'FullTime' | 'PartTime' | 'Rental'; 
@@ -39,7 +37,6 @@ const calculateStaffBurdenData = (
     });
   });
 
-  // ★ 修正: これで d.dateStr (TS2339) が解決される
   const dateToDayOfWeekMap = new Map<string, number>(
     monthDays.map(d => [d.dateStr, d.dayOfWeek])
   );
@@ -51,7 +48,25 @@ const calculateStaffBurdenData = (
       if (staffData && pattern) { 
         if (pattern.workType === 'Work') { 
           staffData.assignmentCount++;
-          staffData.totalHours += pattern.durationHours;
+          
+          // ★★★ Flex計算ロジック ★★★
+          let hours = pattern.durationHours;
+          if (pattern.isFlex && assignment.overrideStartTime && assignment.overrideEndTime) {
+             const [sh, sm] = assignment.overrideStartTime.split(':').map(Number);
+             const [eh, em] = assignment.overrideEndTime.split(':').map(Number);
+             const startVal = sh + (sm / 60);
+             const endVal = eh + (em / 60);
+             // 休憩時間を引くならここで pattern.breakDurationMinutes を考慮するが、
+             // Flexの場合「実働」を指定している前提であればそのまま差分、
+             // 「枠」を指定しているなら休憩を引く。
+             // ここでは「枠内で実働X時間」という要件だが、overrideTimeは「確定した時間」とみなして単純差分とします。
+             // もし休憩が必要なら (diff - break) とする
+             const diff = endVal - startVal;
+             hours = diff > 0 ? diff : 0;
+          }
+
+          staffData.totalHours += hours;
+
           if (pattern.isNightShift) staffData.nightShiftCount++;
           
           const dayOfWeek = dateToDayOfWeekMap.get(assignment.date);
@@ -67,53 +82,39 @@ const calculateStaffBurdenData = (
   return burdenMap;
 };
 
-/**
- * 負担状況と公休数管理のロジックを集約したカスタムフック
- * ★ 修正: 引数の型を MonthDay[] に変更
- */
 export const useStaffBurdenData = (
   currentYear: number, 
   currentMonth: number, 
   monthDays: MonthDay[]
 ) => {
-  // 1. 必要なデータを Redux から取得
+  // (変更なし)
   const { staff: allStaff } = useSelector((state: RootState) => state.staff);
-  
   const { assignments } = useSelector((state: RootState) => state.assignment.present);
-
   const shiftPatterns = useSelector((state: RootState) => state.pattern.patterns);
+  
   const patternMap = useMemo(() => 
     new Map(shiftPatterns.map(p => [p.patternId, p])),
     [shiftPatterns]
   );
-  
-  // 2. アクティブなスタッフリスト (変更なし)
   const staffList = useMemo(() => 
     allStaff.filter(s => s.status !== 'OnLeave'), 
     [allStaff]
   );
-
-  // 3. 公休数の State 管理 (変更なし)
   const [staffHolidayRequirements, setStaffHolidayRequirements] = useState<Map<string, number>>(new Map());
 
-  // (localStorage のキー動的変更 - 変更なし)
   useEffect(() => {
     const storageKey = `staffHolidayRequirements_${currentYear}_${currentMonth}`;
     const storedReqs = localStorage.getItem(storageKey); 
-    
     if (storedReqs) {
       setStaffHolidayRequirements(new Map(JSON.parse(storedReqs)));
     } else {
       const defaultReq = getDefaultRequiredHolidays(monthDays);
       const newMap = new Map<string, number>();
-      allStaff.forEach(staff => { 
-        newMap.set(staff.staffId, defaultReq);
-      });
+      allStaff.forEach(staff => { newMap.set(staff.staffId, defaultReq); });
       setStaffHolidayRequirements(newMap);
     }
   }, [allStaff, currentYear, currentMonth, monthDays]); 
 
-  // (localStorage のキー動的変更 - 変更なし)
   useEffect(() => {
     if (staffHolidayRequirements.size > 0) {
       const storageKey = `staffHolidayRequirements_${currentYear}_${currentMonth}`;
@@ -121,7 +122,6 @@ export const useStaffBurdenData = (
     }
   }, [staffHolidayRequirements, currentYear, currentMonth]);
 
-  // 4. 負担データの計算 (変更なし)
   const staffBurdenData = useMemo(() => {
     return calculateStaffBurdenData(
       staffList,
@@ -132,7 +132,6 @@ export const useStaffBurdenData = (
     );
   }, [assignments, staffList, patternMap, staffHolidayRequirements, monthDays]);
 
-  // 5. 公休数ハンドラ (変更なし)
   const handleHolidayIncrement = useCallback((staffId: string) => {
     setStaffHolidayRequirements(prevMap => {
       const newMap = new Map(prevMap);
@@ -151,7 +150,6 @@ export const useStaffBurdenData = (
     });
   }, [monthDays]); 
 
-  // 6. 必要なデータとハンドラを返す
   return {
     staffList, 
     staffBurdenData,

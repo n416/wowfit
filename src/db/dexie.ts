@@ -1,17 +1,14 @@
 import Dexie, { type Table } from 'dexie';
 
-// --- 1. ユニット定義 (v5: 24時間デマンド配列を追加) ---
+// --- 1. ユニット定義 ---
 export interface IUnit {
   unitId: string; // (例: "U01")
   name: string;   // (例: "ユニットA")
-  // ★★★ v5: 24時間デマンド (0時台, 1時台, ..., 23時台) ★★★
-  // (例: [0.5, 0.5, ..., 1, 2, 2, ...])
+  // 24時間デマンド (0時台, 1時台, ..., 23時台)
   demand: number[];
 }
 
-// --- (v5: ITimeSlotRule は廃止) ---
-
-// --- 3. 勤務パターン定義 (v4から変更なし) ---
+// --- 3. 勤務パターン定義 ---
 export type CrossUnitWorkType = '-' | '有' | 'サポート';
 export type WorkType = 'Work' | 'StatutoryHoliday' | 'PaidLeave' | 'Meeting' | 'Other';
 
@@ -27,52 +24,58 @@ export interface IShiftPattern {
   durationHours: number;
   isNightShift: boolean;
   crossesMidnight: boolean;
+  // ★ v7追加: 時間枠指定（フレックス）かどうか
+  isFlex?: boolean; 
 }
 
-// ★★★ IStaffConstraints を個別に定義してエクスポート ★★★
+// --- IStaffConstraints ---
 export interface IStaffConstraints {
   maxConsecutiveDays: number;
   minIntervalHours: number;
 }
 
-// --- 4. スタッフ定義 (v4から変更なし) ---
+// ★ v8追加: 勤務可能時間帯の定義
+export interface ITimeRange {
+  start: string; // "08:00"
+  end: string;   // "12:00"
+}
+
+// --- 4. スタッフ定義 ---
 export interface IStaff {
   staffId: string;
   name: string;
-  // ★★★ v5.11 修正: 'Rental' を追加 ★★★
   employmentType: 'FullTime' | 'PartTime' | 'Rental';
-  status?: 'Active' | 'OnLeave'; // ★★★ 状態を追加 (Active: 勤務中, OnLeave: 休職中) ★★★
+  status?: 'Active' | 'OnLeave';
   skills: string[];
-  unitId: string | null; // 所属ユニット (レンタルなら「応援元」の意味合いでも可)
-  availablePatternIds: string[]; // 勤務可能パターン (レンタルなら可能なシフト)
-  constraints: IStaffConstraints; // ★ 型を参照するように変更
+  unitId: string | null; // 所属ユニット
+  availablePatternIds: string[]; // 勤務可能パターン
+  constraints: IStaffConstraints;
   memo?: string;
+  // ★ v8追加: 勤務可能時間帯 (パート用)
+  workableTimeRanges?: ITimeRange[]; 
 }
 
-// ★★★ v5.9 修正: locked フラグを追加 ★★★
-// --- 5. アサイン結果 (v4から変更なし) ---
+// --- 5. アサイン結果 ---
 export interface IAssignment {
   id?: number;
   date: string;
   staffId: string;
   patternId: string; // "SA", "N", "公休", "有給" など
   unitId: string | null; // 勤務したユニット
-  locked?: boolean; // ★ AIが変更不可なアサインは true
+  locked?: boolean; // AIが変更不可なアサインは true
+  // ★ v7追加: フレックス時の確定時間
+  overrideStartTime?: string; 
+  overrideEndTime?: string;   
 }
 
-
-// ★★★ v5.9 修正: 24時間分のデフォルトDemand（すべて0人）を生成するヘルパー ★★★
-// (※NewUnitForm.tsx から移動)
+// ヘルパー: デフォルトデマンド生成
 export const getDefaultDemand = (): number[] => {
   return Array(24).fill(0);
 };
 
-
-// --- Dexie データベース定義 (v5) ---
+// --- Dexie データベース定義 ---
 export class ShiftWorkDB extends Dexie {
   units!: Table<IUnit>;
-  // ★★★ (v5) timeSlotRules を削除 ★★★
-  // timeSlotRules!: Table<ITimeSlotRule>; 
   shiftPatterns!: Table<IShiftPattern>;
   staffList!: Table<IStaff>;
   assignments!: Table<IAssignment>;
@@ -80,34 +83,41 @@ export class ShiftWorkDB extends Dexie {
   constructor() {
     super('ShiftWorkAppDB');
 
-    // ★★★ スキーマを v6 にバージョンアップ (statusインデックス追加) ★★★
+    // ★★★ スキーマを v8 にバージョンアップ (TimeRanges対応) ★★★
+    this.version(8).stores({
+      units: '&unitId, name', 
+      shiftPatterns: '&patternId, name, mainCategory, workType, crossUnitWorkType',
+      staffList: '&staffId, name, employmentType, unitId, status, *availablePatternIds, *skills', 
+      assignments: '++id, [date+staffId], [date+patternId], [date+unitId], staffId, patternId, unitId, locked',
+    });
+
+    // (v7: Flex対応)
+    this.version(7).stores({
+      units: '&unitId, name', 
+      shiftPatterns: '&patternId, name, mainCategory, workType, crossUnitWorkType',
+      staffList: '&staffId, name, employmentType, unitId, status, *availablePatternIds, *skills', 
+      assignments: '++id, [date+staffId], [date+patternId], [date+unitId], staffId, patternId, unitId, locked',
+    });
+
+    // (v6: Statusインデックス追加)
     this.version(6).stores({
       units: '&unitId, name', 
       shiftPatterns: '&patternId, name, mainCategory, workType, crossUnitWorkType',
-      staffList: '&staffId, name, employmentType, unitId, status, *availablePatternIds, *skills', // ★ status をインデックスに追加
+      staffList: '&staffId, name, employmentType, unitId, status, *availablePatternIds, *skills',
       assignments: '++id, [date+staffId], [date+patternId], [date+unitId], staffId, patternId, unitId, locked',
     });
 
-    // ★★★ スキーマを v5 にバージョンアップ ★★★
+    // (v5: Lockedインデックス追加, timeSlotRules削除)
     this.version(5).stores({
-      units: '&unitId, name', // (demand 配列はインデックス化しない)
+      units: '&unitId, name',
       shiftPatterns: '&patternId, name, mainCategory, workType, crossUnitWorkType',
       staffList: '&staffId, name, employmentType, unitId, *availablePatternIds, *skills',
-      // ★★★ v5.9 修正: assignments に locked インデックスを追加 ★★★
       assignments: '++id, [date+staffId], [date+patternId], [date+unitId], staffId, patternId, unitId, locked',
-      // (※ timeSlotRules は削除)
     }).upgrade(tx => {
-      // v4 -> v5 へのアップグレード
-      console.log("Upgrading database to version 5...");
-      // (旧v4の timeSlotRules テーブルを削除)
-      return tx.table('timeSlotRules').clear().then(() => {
-        console.log("Old 'timeSlotRules' table cleared.");
-      }).catch(err => {
-        console.warn("Could not clear 'timeSlotRules' (might not exist):", err);
-      });
+      return tx.table('timeSlotRules').clear().catch(() => {});
     });
 
-    // (v4 スキーマ定義)
+    // (v4: 旧バージョン)
     this.version(4).stores({
       units: '&unitId, name',
       timeSlotRules: '++id, timeStart, timeEnd',
@@ -116,7 +126,7 @@ export class ShiftWorkDB extends Dexie {
       assignments: '++id, [date+staffId], [date+patternId], [date+unitId], staffId, patternId, unitId',
     });
 
-    // (v3 スキーマ定義)
+    // (v3)
     this.version(3).stores({
       units: '&unitId, name',
       timeSlotRules: '++id, timeStart, timeEnd',
@@ -125,7 +135,7 @@ export class ShiftWorkDB extends Dexie {
       assignmentSlots: '&slotId, date, unitId, assignedStaffId, patternId, [date+unitId]',
     });
 
-    // (v2 スキーマ定義)
+    // (v2)
     this.version(2).stores({
       staffList: '&staffId, employmentType, name, *skills',
       shiftPatterns: '&patternId, name',
@@ -133,7 +143,7 @@ export class ShiftWorkDB extends Dexie {
       assignments: '++id, [date+staffId], [date+patternId], staffId, patternId'
     });
 
-    // (v1 スキーマ定義)
+    // (v1)
     this.version(1).stores({
       staffList: '&staffId, employmentType, name, *skills',
       shiftPatterns: '&patternId, name',

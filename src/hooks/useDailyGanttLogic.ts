@@ -1,63 +1,33 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { IStaff, IShiftPattern, IUnit, IAssignment, db } from '../db/dexie';
+import { IStaff, IShiftPattern, IAssignment, db } from '../db/dexie';
 import { setAssignments } from '../store/assignmentSlice';
 import type { AppDispatch, RootState } from '../store';
+import { calculateDemandMap } from './useDemandMap';
+import { calculateUnitGroups, UnitGroupData } from './useUnitGroups'; 
 
-export type MonthDay = { dateStr: string; weekday: string; dayOfWeek: number; };
-export type UnitGroupData = { unit: IUnit; rows: GanttRowData[]; };
-export type GanttRowData = {
-  staff: IStaff;
-  pattern: IShiftPattern;
-  isSupport: boolean;
-  startHour: number;
-  duration: number;
-  assignmentId: number;
-  unitId: string | null;
-  isNew?: boolean;
-  displayStartTime?: string;
-  displayEndTime?: string;
-};
-
-// ★ Helper: 時間文字列 "HH:MM" を分単位の数値に変換
-const timeToMin = (t: string) => {
-  const [h, m] = t.split(':').map(Number);
-  return h * 60 + m;
-};
-
-// ★ Helper: 契約時間帯のチェック
+const timeToMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
 const isWithinContract = (staff: IStaff, start: string, end: string): boolean => {
   if (staff.employmentType !== 'PartTime') return true;
-
-  // 未設定または空の場合はデフォルト(8:00-20:00)とみなす
-  const ranges = (staff.workableTimeRanges && staff.workableTimeRanges.length > 0)
-    ? staff.workableTimeRanges
-    : [{ start: '08:00', end: '20:00' }];
-
-  const sMin = timeToMin(start);
-  const eMin = timeToMin(end);
-
-  // いずれかのレンジに完全に含まれていればOK
-  return ranges.some(range => {
-    const rStart = timeToMin(range.start);
-    const rEnd = timeToMin(range.end);
-    return sMin >= rStart && eMin <= rEnd;
-  });
+  const ranges = (staff.workableTimeRanges && staff.workableTimeRanges.length > 0) ? staff.workableTimeRanges : [{ start: '08:00', end: '20:00' }];
+  const sMin = timeToMin(start); const eMin = timeToMin(end);
+  return ranges.some(range => { const rStart = timeToMin(range.start); const rEnd = timeToMin(range.end); return sMin >= rStart && eMin <= rEnd; });
 };
 
+export type MonthDay = { dateStr: string; weekday: string; dayOfWeek: number; };
+export type GanttRowData = UnitGroupData['rows'][number];
 
 export const useDailyGanttLogic = (
   target: { date: string; unitId: string | null } | null,
   onClose: () => void,
   allAssignments: IAssignment[],
   demandMap: Map<string, { required: number; actual: number }>,
-  unitGroups: UnitGroupData[],
   monthDays: MonthDay[]
 ) => {
-  // ... (既存のコード: dispatch, selectors, maps, state定義) ...
   const dispatch: AppDispatch = useDispatch();
   const allStaff = useSelector((state: RootState) => state.staff.staff);
   const allPatterns = useSelector((state: RootState) => state.pattern.patterns);
+  const unitList = useSelector((state: RootState) => state.unit.units);
 
   const allStaffMap = useMemo(() => new Map(allStaff.map(s => [s.staffId, s])), [allStaff]);
   const patternMap = useMemo(() => new Map(allPatterns.map(p => [p.patternId, p])), [allPatterns]);
@@ -79,16 +49,48 @@ export const useDailyGanttLogic = (
     setPendingDeletions([]);
   }, [target]);
 
-  // ... (localUnitGroups, localDemandMap は既存のまま) ...
+  const mergedAssignments = useMemo(() => {
+    const deletionSet = new Set(pendingDeletions);
+    const base = allAssignments
+      .filter(a => a.id && !deletionSet.has(a.id))
+      .map(a => {
+        if (a.id && pendingChanges.has(a.id)) {
+          return pendingChanges.get(a.id)!;
+        }
+        return a;
+      });
+    const additions = pendingAdditions.map(a => a as IAssignment);
+    return [...base, ...additions];
+  }, [allAssignments, pendingChanges, pendingAdditions, pendingDeletions]);
 
+  const recalculatedDemandMap = useMemo(() => {
+    if (!target) return demandMap;
+    // @ts-ignore
+    return calculateDemandMap(unitList, mergedAssignments, patternMap, allStaffMap, monthDays, "Modal");
+  }, [unitList, mergedAssignments, patternMap, allStaffMap, monthDays, target, demandMap]);
+
+  const baseUnitGroups = useMemo(() => {
+    return calculateUnitGroups(target, unitList, allAssignments, patternMap, allStaffMap);
+  }, [target, unitList, allAssignments, patternMap, allStaffMap]);
+
+  // ★★★ 修正: localUnitGroups 生成ロジック (日付またぎ表示補正の強化) ★★★
   const localUnitGroups = useMemo(() => {
-    // ... (既存の実装: GanttRowData生成ロジック) ...
     if (!target) return [];
     const deletionIdSet = new Set(pendingDeletions);
-    const updatedGroups = unitGroups.map(group => ({
+    
+    const updatedGroups = baseUnitGroups.map(group => ({
       ...group,
       rows: group.rows
-        .filter(row => !deletionIdSet.has(row.assignmentId))
+        .filter(row => {
+           if (deletionIdSet.has(row.assignmentId)) return false;
+           if (!pendingChanges.has(row.assignmentId)) {
+              const currentAssignment = allAssignmentsMap.get(row.assignmentId);
+              if (!currentAssignment) return false;
+              const currentPattern = patternMap.get(currentAssignment.patternId);
+              if (!currentPattern || currentPattern.workType !== 'Work') return false; 
+           }
+           return true;
+        })
         .map(row => {
           const change = pendingChanges.get(row.assignmentId);
           const assignment = change || allAssignmentsMap.get(row.assignmentId);
@@ -97,25 +99,47 @@ export const useDailyGanttLogic = (
 
           const overrideStart = assignment?.overrideStartTime;
           const timeBase = (pattern.isFlex && overrideStart) ? overrideStart : pattern.startTime;
-
-          // FlexでOverrideがあり、終了時間もあれば差分計算、なければパターンのduration
-          const durationBase = (pattern.isFlex && overrideStart && assignment?.overrideEndTime)
-            ? (parseInt(assignment.overrideEndTime.split(':')[0]) + parseInt(assignment.overrideEndTime.split(':')[1]) / 60) -
-            (parseInt(overrideStart.split(':')[0]) + parseInt(overrideStart.split(':')[1]) / 60)
-            : pattern.durationHours;
+          
+          let displayDuration = pattern.durationHours;
+          if (pattern.isFlex && overrideStart && assignment?.overrideEndTime) {
+            const s = parseInt(overrideStart.split(':')[0]) + (parseInt(overrideStart.split(':')[1]) || 0)/60;
+            const e = parseInt(assignment.overrideEndTime.split(':')[0]) + (parseInt(assignment.overrideEndTime.split(':')[1]) || 0)/60;
+            displayDuration = (e < s ? e + 24 : e) - s;
+          }
 
           const startH_raw = parseInt(timeBase.split(':')[0]);
           let displayStart = startH_raw;
-          let displayDuration = durationBase;
 
-          if (pattern.crossesMidnight) {
-            if (row.assignmentId > 9000 || assignment?.date === target.date) {
-              displayDuration = 24 - startH_raw;
-            } else {
-              displayStart = 0;
-              const [endH_raw] = pattern.endTime.split(':').map(Number);
-              displayDuration = endH_raw;
-            }
+          // ★★★ 修正: 日付比較による表示位置の決定 ★★★
+          const isSameDay = (assignment?.date === target.date);
+
+          if (!isSameDay) {
+             // 前日からのシフト: 常に0時から開始
+             displayStart = 0;
+             
+             // 長さの計算: 「終了時刻」まで
+             // FlexかつOverrideがあればそれを使う、なければパターン定義
+             if (pattern.isFlex && assignment?.overrideEndTime) {
+                 const [eh, em] = assignment.overrideEndTime.split(':').map(Number);
+                 displayDuration = eh + (em/60);
+             } else {
+                 // パターン定義の終了時刻をパースして使用
+                 // ※日付またぎ前提なので、endTimeがそのまま翌日の終了時刻になる
+                 const [eh, em] = pattern.endTime.split(':').map(Number);
+                 displayDuration = eh + (em/60);
+             }
+             
+             // 24時を超える場合はカット (念のため)
+             if (displayDuration > 24) displayDuration = 24;
+
+          } else {
+             // 当日のシフト: はみ出し防止のみ
+             if (pattern.crossesMidnight || startH_raw + displayDuration > 24) {
+                const overflow = (startH_raw + displayDuration) - 24;
+                if (overflow > 0) {
+                  displayDuration -= overflow;
+                }
+             }
           }
 
           return {
@@ -131,7 +155,6 @@ export const useDailyGanttLogic = (
         })
     }));
 
-    // (新規追加分の反映ロジック - 省略せずに記述)
     pendingAdditions.forEach((newAssignment, index) => {
       const tempId = 9000 + index;
       if (deletionIdSet.has(tempId)) return;
@@ -144,10 +167,19 @@ export const useDailyGanttLogic = (
         const timeBase = (pattern.isFlex && overrideStart) ? overrideStart : pattern.startTime;
         const startH = parseInt(timeBase.split(':')[0]);
         let displayStart = startH;
+        
         let displayDuration = pattern.durationHours;
-        if (pattern.crossesMidnight) {
-          displayDuration = 24 - startH;
+        if (pattern.isFlex && overrideStart && newAssignment.overrideEndTime) {
+           const s = parseInt(overrideStart.split(':')[0]) + (parseInt(overrideStart.split(':')[1]) || 0)/60;
+           const e = parseInt(newAssignment.overrideEndTime.split(':')[0]) + (parseInt(newAssignment.overrideEndTime.split(':')[1]) || 0)/60;
+           displayDuration = (e < s ? e + 24 : e) - s;
         }
+        
+        if (displayStart + displayDuration > 24) {
+          const overflow = (displayStart + displayDuration) - 24;
+          if (overflow > 0) displayDuration -= overflow;
+        }
+
         group.rows.push({
           staff: staff,
           pattern: pattern,
@@ -163,10 +195,7 @@ export const useDailyGanttLogic = (
       }
     });
     return updatedGroups;
-  }, [unitGroups, pendingChanges, pendingAdditions, pendingDeletions, patternMap, target, allStaffMap, allAssignmentsMap]);
-
-
-  // --- Action Methods ---
+  }, [baseUnitGroups, pendingChanges, pendingAdditions, pendingDeletions, patternMap, target, allStaffMap, allAssignmentsMap]);
 
   const updateRow = useCallback((
     row: GanttRowData,
@@ -174,25 +203,11 @@ export const useDailyGanttLogic = (
     newTimeRange?: { start: string, end: string }
   ) => {
     if (!target) return;
-
-    // ★★★ バリデーション: 時間帯チェック ★★★
     if (newTimeRange) {
-      // Flexの場合の時間移動
-      if (!isWithinContract(row.staff, newTimeRange.start, newTimeRange.end)) {
-        const ranges = row.staff.workableTimeRanges?.map(r => `${r.start}-${r.end}`).join(', ') || "08:00-20:00";
-        alert(`この時間は契約時間外です。\n許可された範囲: ${ranges}`);
-        return; // 更新をキャンセル
-      }
+      if (!isWithinContract(row.staff, newTimeRange.start, newTimeRange.end)) return;
     } else {
-      // パターン変更の場合
-      // パターンのstartTime〜endTimeが収まっているか簡易チェック
       if (!isWithinContract(row.staff, newPattern.startTime, newPattern.endTime)) {
-        // 日付またぎパターンの場合の厳密チェックは複雑だが、とりあえず始点・終点でチェック
-        // (深夜勤などをパートに割り当てる場合は注意が必要)
-        const ranges = row.staff.workableTimeRanges?.map(r => `${r.start}-${r.end}`).join(', ') || "08:00-20:00";
-        if (!window.confirm(`警告: 選択したパターン(${newPattern.startTime}-${newPattern.endTime})は、契約時間(${ranges})の範囲外の可能性があります。\n適用しますか？`)) {
-          return;
-        }
+        if (!window.confirm(`警告: 選択したパターン(${newPattern.startTime}-${newPattern.endTime})は、契約時間外の可能性があります。\n適用しますか？`)) return;
       }
     }
 
@@ -203,7 +218,6 @@ export const useDailyGanttLogic = (
       locked: true
     };
 
-    // ... (以下、既存の更新ロジック) ...
     if (row.isNew) {
       const index = row.assignmentId - 9000;
       setPendingAdditions(prev => {
@@ -228,9 +242,7 @@ export const useDailyGanttLogic = (
     }
   }, [target, allAssignmentsMap]);
 
-
-  // ... (deleteRow, addAssignment, saveChanges, ヘルパー関数 は既存のまま) ...
-  const deleteRow = useCallback((row: GanttRowData) => { /* 既存コード */
+  const deleteRow = useCallback((row: GanttRowData) => {
     const { assignmentId, isNew } = row;
     if (isNew) {
       const index = assignmentId - 9000;
@@ -251,7 +263,6 @@ export const useDailyGanttLogic = (
   const addAssignment = useCallback((unitId: string, staffId: string, patternId: string) => {
     if (!target) return;
     const pattern = patternMap.get(patternId);
-    // ★ ここでもバリデーション入れると親切だが、フォーム側で制御しにくいので一旦パス
     const newAssignment: Omit<IAssignment, 'id'> = {
       date: target.date,
       staffId,
@@ -292,14 +303,13 @@ export const useDailyGanttLogic = (
 
   return {
     localUnitGroups,
-    localDemandMap: demandMap,
+    localDemandMap: recalculatedDemandMap,
     workPatterns,
     hasPendingChanges: pendingChanges.size > 0 || pendingAdditions.length > 0 || pendingDeletions.length > 0,
     updateRow,
     deleteRow,
     addAssignment,
     saveChanges,
-    // 型エラー修正済み
     getAvailableStaffForUnit: (u: string, a: string | null) => {
       if (!target || !a) return [];
       const assignedStaffIds = new Set<string>();

@@ -5,7 +5,6 @@ import { GeminiApiClient } from '../api/geminiApiClient';
 import { extractJson } from '../utils/jsonExtractor'; 
 import { getDefaultRequiredHolidays } from '../utils/dateUtils';
 
-// ★ Helper: 時間文字列 "HH:MM" を分単位の数値に変換 (バリデーション用)
 const timeToMin = (t: string) => {
   if (!t) return 0;
   const [h, m] = t.split(':').map(Number);
@@ -60,8 +59,7 @@ ${JSON.stringify(allAssignments.filter(s => s.staffId), null, 2)}
   }
 );
 
-
-// (fetchAiAdjustment - ここを大幅修正)
+// (fetchAiAdjustment)
 interface FetchAiAdjustmentArgs {
   instruction: string; 
   allStaff: IStaff[];
@@ -81,7 +79,6 @@ export const fetchAiAdjustment = createAsyncThunk(
       return rejectWithValue('Gemini APIが設定されていません。');
     }
     
-    // Helper Map作成
     const staffMap = new Map(allStaff.map(s => [s.staffId, s]));
     const patternMap = new Map(allPatterns.map(p => [p.patternId, p]));
 
@@ -96,7 +93,6 @@ export const fetchAiAdjustment = createAsyncThunk(
       finalInstruction = "最優先事項: スタッフ一覧で定義された `requiredHolidays`（必要公休数）を厳密に守ってください。";
     }
     
-    // ★ プロンプト修正: isFlex, overrideStartTime, workableTimeRanges の説明を追加
     const prompt = `あなたは勤務表の自動調整AIです。以下の入力に基づき、月全体の勤務表アサイン（IAssignment[]）を最適化し、修正後のアサイン配列「全体」をJSON形式で**のみ**出力してください。
 
 # 1. 管理者からの指示
@@ -152,50 +148,37 @@ ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
         throw new Error("AIが不正な形式のJSONを返しました。");
       }
 
-      // ---------------------------------------------------------
-      // ★ バリデーション & フィルタリング (契約時間外チェック)
-      // ---------------------------------------------------------
       const validAssignments: IAssignment[] = [];
       const removedMessages: string[] = [];
 
       for (const assignment of newAssignments) {
-        // 1. 必要なデータを取得
         const staff = staffMap.get(assignment.staffId);
         const pattern = patternMap.get(assignment.patternId);
         
-        // データ不整合があればスキップ (あるいは安全のため残すか判断。ここでは残す)
         if (!staff || !pattern) {
           validAssignments.push(assignment);
           continue;
         }
 
-        // 休み系はチェック不要
         if (pattern.workType === 'StatutoryHoliday' || pattern.workType === 'PaidLeave') {
           validAssignments.push(assignment);
           continue;
         }
 
-        // パート以外はチェック不要
         if (staff.employmentType !== 'PartTime') {
           validAssignments.push(assignment);
           continue;
         }
 
-        // 時間の特定 (overrideがあればそちら、なければパターン定義)
         const startStr = assignment.overrideStartTime || pattern.startTime;
         const endStr = assignment.overrideEndTime || pattern.endTime;
 
-        // 契約時間帯チェック (DailyUnitGanttModalと同様のロジック)
         const ranges = (staff.workableTimeRanges && staff.workableTimeRanges.length > 0)
           ? staff.workableTimeRanges
-          : [{ start: '08:00', end: '20:00' }]; // デフォルト
+          : [{ start: '08:00', end: '20:00' }];
 
         const sMin = timeToMin(startStr);
         const eMin = timeToMin(endStr);
-        
-        // 日付またぎ対応 (簡易的: 終了が開始より小さい場合は+24時間とみなしてチェック...は複雑なので
-        // 今回は「開始時間」と「終了時間」がレンジの開始・終了に収まっているか単純比較します)
-        // ※厳密には日付またぎシフトの契約チェックは難しいですが、パートは通常日勤帯が多い前提で
         
         const isValid = ranges.some(range => {
           const rStart = timeToMin(range.start);
@@ -206,14 +189,12 @@ ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
         if (isValid) {
           validAssignments.push(assignment);
         } else {
-          // 契約外なので除外
           removedMessages.push(
             `・${assignment.date} ${staff.name} (${pattern.name}: ${startStr}～${endStr})`
           );
         }
       }
 
-      // ユーザーへの通知
       if (removedMessages.length > 0) {
         const msg = `AIが作成したアサインのうち、以下の${removedMessages.length}件はスタッフの契約時間外（または時間設定不備）だったため、自動的に削除しました。\n\n` + 
                     removedMessages.slice(0, 10).join('\n') + 
@@ -222,12 +203,32 @@ ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
       }
 
       // ---------------------------------------------------------
-      // DB保存
+      // ★★★ 修正: 保存処理の強化 (重複防止) ★★★
       // ---------------------------------------------------------
-      await db.assignments.clear();
-      await db.assignments.bulkPut(validAssignments);
       
-      const allAssignmentsFromDB = await db.assignments.toArray();
+      // 1. 対象月のアサインを「完全に」削除する
+      const firstDay = monthInfo.days[0].dateStr;
+      const lastDay = monthInfo.days[monthInfo.days.length - 1].dateStr;
+      
+      await db.transaction('rw', db.assignments, async () => {
+          // 範囲内のデータを物理削除
+          await db.assignments
+            .where('date')
+            .between(firstDay, lastDay, true, true)
+            .delete();
+            
+          // 新しいデータを追加
+          // IDが含まれていると競合する可能性があるので、IDを除外して追加
+          const assignmentsToSave = validAssignments.map(({ id, ...rest }) => rest);
+          await db.assignments.bulkAdd(assignmentsToSave);
+      });
+      
+      // 2. 最新の状態を読み直す
+      const allAssignmentsFromDB = await db.assignments
+          .where('date')
+          .between(firstDay, lastDay, true, true)
+          .toArray();
+          
       return allAssignmentsFromDB;
       
     } catch (e: any) {
@@ -237,8 +238,7 @@ ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
   }
 );
 
-
-// (fetchAiHolidayPatch, fetchAiAnalysis は変更なし、slice定義も変更なし)
+// (fetchAiHolidayPatch, fetchAiAnalysis, Slice定義 は変更なし)
 interface FetchAiHolidayPatchArgs {
   allStaff: IStaff[];
   allPatterns: IShiftPattern[];
@@ -333,8 +333,6 @@ ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
   }
 );
 
-
-// (fetchAiAnalysis は変更なし)
 interface FetchAiAnalysisArgs {
   allStaff: IStaff[];
   allPatterns: IShiftPattern[];

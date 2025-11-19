@@ -5,7 +5,7 @@ import {
   TableContainer, TableHead, TableRow, IconButton,
   Alert,
   Chip,
-  Stack, TextField // ★ 追加
+  Stack, TextField
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
@@ -16,20 +16,20 @@ import type { AppDispatch, RootState } from '../store';
 import {
   db,
   IStaff,
-  IShiftPattern, IUnit,
+  IUnit,
 } from '../db/dexie';
 
 import { deleteStaff, updateStaff, setStaffList, copyStaff } from '../store/staffSlice';
-import { deletePattern, updatePattern, setPatterns } from '../store/patternSlice';
+import { setPatterns } from '../store/patternSlice'; // 初期データロード用
 import { deleteUnit, updateUnit, setUnits } from '../store/unitSlice';
 import Dexie from 'dexie';
 
 // コンポーネント
 import NewUnitForm from '../components/data/NewUnitForm';
-// import EditUnitModal from '../components/data/EditUnitModal'; // ★ 削除 (リスト内編集に変更のため)
-import { DemandGraphEditor } from '../components/data/DemandGraphEditor'; // ★ 追加
-import NewPatternForm from '../components/data/NewPatternForm';
-import EditPatternModal from '../components/data/EditPatternModal';
+import { DemandGraphEditor } from '../components/data/DemandGraphEditor';
+// ★ 新しいパターン管理コンポーネントをインポート
+import PatternManagementTab from '../components/data/PatternManagementTab'; 
+
 import NewStaffForm from '../components/data/NewStaffForm';
 import EditStaffModal from '../components/data/EditStaffModal';
 import TabPanel from '../components/TabPanel';
@@ -41,13 +41,14 @@ function DataManagementPage() {
   const dispatch: AppDispatch = useDispatch();
 
   const unitList = useSelector((state: RootState) => state.unit.units);
-  const patternList = useSelector((state: RootState) => state.pattern.patterns);
+  // patternList は PatternManagementTab 側で取得するためここでは不要
   const staffList = useSelector((state: RootState) => state.staff.staff);
 
   // 編集モーダルのState
   const [editingStaff, setEditingStaff] = useState<IStaff | null>(null);
-  const [editingPattern, setEditingPattern] = useState<IShiftPattern | null>(null);
-  // const [editingUnit, setEditingUnit] = useState<IUnit | null>(null); // ★ 削除 (直接編集のため)
+  
+  // ★ 削除: Pattern用のStateとModalは不要になりました
+  // const [editingPattern, setEditingPattern] = useState<IShiftPattern | null>(null);
 
   // データ読み込み (変更なし)
   useEffect(() => {
@@ -109,7 +110,7 @@ function DataManagementPage() {
     }
   };
 
-  // Staff, Pattern用のハンドラ (変更なし)
+  // Staff用のハンドラ
   const handleStaffDelete = (staffId: string) => dispatch(deleteStaff(staffId));
   const handleStaffCopy = (staffId: string) => {
     if (window.confirm('このスタッフをコピーして新しいスタッフを作成しますか？')) {
@@ -120,22 +121,20 @@ function DataManagementPage() {
     dispatch(updateStaff(updatedStaff));
     setEditingStaff(null);
   };
-  const handlePatternDelete = (patternId: string) => dispatch(deletePattern(patternId));
-  const handlePatternUpdate = (updatedPattern: IShiftPattern) => {
-    dispatch(updatePattern(updatedPattern));
-    setEditingPattern(null);
-  };
+
+  // ★ 削除: Pattern用のハンドラは不要になりました
+  // const handlePatternDelete = ...
+  // const handlePatternUpdate = ...
 
 
   return (
-    // ★★★ 修正: コンテナの高さを確保し、スクロール可能にする ★★★
     <Box sx={{ flexGrow: 1, p: '24px', height: '100%', overflow: 'hidden' }}>
       <Paper sx={{
         flex: 1,
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
-        overflow: 'hidden' // はみ出し防止
+        overflow: 'hidden'
       }}>
         <Box sx={{ borderBottom: 1, borderColor: 'divider', flexShrink: 0 }}>
           <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)}>
@@ -149,7 +148,7 @@ function DataManagementPage() {
         {/* コンテンツエリア全体をスクロール可能にする */}
         <Box sx={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
 
-          {/* ★★★ Tab 1: ユニット・デマンド管理 (ここを変更) ★★★ */}
+          {/* Tab 1: ユニット・デマンド管理 */}
           <TabPanel value={tabValue} index={0}>
             <Typography variant="h6" gutterBottom>ユニット一覧・デマンド設定</Typography>
             <Alert severity="info" sx={{ mb: 3 }}>
@@ -157,12 +156,10 @@ function DataManagementPage() {
             </Alert>
 
             <NewUnitForm />
-            {/* ユニットごとの編集カードをループ表示 */}
             <Stack spacing={4} sx={{ pb: 10 }}>
               {unitList.map((unit: IUnit) => (
                 <Paper key={unit.unitId} variant="outlined" sx={{ p: 3, backgroundColor: '#fcfcfc' }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-                    {/* ユニット名編集 */}
                     <TextField
                       label="ユニット名"
                       value={unit.name}
@@ -171,15 +168,11 @@ function DataManagementPage() {
                       sx={{ width: 300, backgroundColor: '#fff' }}
                     />
                     <Typography variant="caption" color="text.secondary">ID: {unit.unitId}</Typography>
-
                     <Box sx={{ flexGrow: 1 }} />
-
                     <IconButton onClick={() => handleUnitDelete(unit.unitId)} color="error" title="ユニットを削除">
                       <DeleteIcon />
                     </IconButton>
                   </Box>
-
-                  {/* ★ ここにグラフエディタを直接配置 ★ */}
                   <Box sx={{ pl: 1 }}>
                     <DemandGraphEditor
                       initialDemand={unit.demand || []}
@@ -188,7 +181,6 @@ function DataManagementPage() {
                   </Box>
                 </Paper>
               ))}
-
               {unitList.length === 0 && (
                 <Typography color="text.secondary" align="center" sx={{ py: 5 }}>
                   ユニットがありません。上のフォームから追加してください。
@@ -197,48 +189,23 @@ function DataManagementPage() {
             </Stack>
           </TabPanel>
 
-
-          {/* ★★★ Tab 2: 勤務パターン管理 (元のコードを維持) ★★★ */}
+          {/* ★★★ Tab 2: 勤務パターン管理 (入れ替え完了) ★★★ */}
           <TabPanel value={tabValue} index={1}>
-            <Typography variant="h6" gutterBottom>勤務パターンの登録</Typography>
-            <NewPatternForm />
-            <TableContainer component={Paper} variant="outlined" sx={{ mt: 2, maxHeight: 600 }}>
-              <Table size="small" stickyHeader>
-                <TableHead><TableRow><TableCell>ID</TableCell><TableCell>名称</TableCell><TableCell>カテゴリ</TableCell><TableCell>時間</TableCell><TableCell>実働</TableCell><TableCell>他ユニット</TableCell><TableCell>タイプ</TableCell><TableCell>操作</TableCell></TableRow></TableHead>
-                <TableBody>
-                  {patternList.map((p: IShiftPattern) => (
-                    <TableRow key={p.patternId}>
-                      <TableCell>{p.patternId}</TableCell>
-                      <TableCell>{p.name}</TableCell>
-                      <TableCell>{p.mainCategory}</TableCell>
-                      <TableCell>{p.startTime}-{p.endTime}</TableCell>
-                      <TableCell>{p.durationHours}h</TableCell>
-                      <TableCell>{p.crossUnitWorkType}</TableCell>
-                      <TableCell>{p.workType}</TableCell>
-                      <TableCell>
-                        <IconButton size="small" onClick={() => setEditingPattern(p)} color="primary"><EditIcon /></IconButton>
-                        <IconButton size="small" onClick={() => handlePatternDelete(p.patternId)} color="error"><DeleteIcon /></IconButton>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
+            {/* 古いリストとフォームを削除し、新しいコックピットを配置 */}
+            <PatternManagementTab />
           </TabPanel>
 
-          {/* ★★★ Tab 3: スタッフ管理 (元のコードを維持) ★★★ */}
+          {/* Tab 3: スタッフ管理 */}
           <TabPanel value={tabValue} index={2}>
             <Typography variant="h6" gutterBottom>新規スタッフの登録</Typography>
             <NewStaffForm />
             <TableContainer component={Paper} variant="outlined" sx={{ mt: 2, maxHeight: 600 }}>
               <Table size="small" stickyHeader>
-                {/* ★★★ 「ステータス」列を追加 ★★★ */}
                 <TableHead><TableRow><TableCell>氏名</TableCell><TableCell>ステータス</TableCell><TableCell>雇用形態</TableCell><TableCell>所属ユニット</TableCell><TableCell>勤務可能パターン</TableCell><TableCell>操作</TableCell></TableRow></TableHead>
                 <TableBody>
                   {staffList.map((staff: IStaff) => (
                     <TableRow key={staff.staffId}>
                       <TableCell>{staff.name}</TableCell>
-                      {/* ★★★ ステータス列のセルを追加 ★★★ */}
                       <TableCell>
                         {staff.status === 'OnLeave' ? (
                           <Chip label="休職中" color="error" size="small" />
@@ -253,7 +220,6 @@ function DataManagementPage() {
                       </TableCell>
                       <TableCell>
                         <IconButton size="small" onClick={() => setEditingStaff(staff)} color="primary"><EditIcon /></IconButton>
-                        {/* ★★★ コピーボタンを追加 ★★★ */}
                         <IconButton size="small" onClick={() => handleStaffCopy(staff.staffId)} color="default" title="このスタッフをコピー">
                           <ContentCopyIcon />
                         </IconButton>
@@ -271,18 +237,13 @@ function DataManagementPage() {
         </Box>
       </Paper>
 
-      {/* 編集モーダルをレンダリング */}
+      {/* 編集モーダル */}
       <EditStaffModal
         staff={editingStaff}
         onClose={() => setEditingStaff(null)}
         onSave={handleStaffUpdate}
       />
-      <EditPatternModal
-        pattern={editingPattern}
-        onClose={() => setEditingPattern(null)}
-        onSave={handlePatternUpdate}
-      />
-      {/* EditUnitModal は削除しました */}
+      {/* ★ 削除: EditPatternModal は不要になりました */}
     </Box>
   );
 }

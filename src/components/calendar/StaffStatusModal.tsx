@@ -4,18 +4,29 @@ import {
   Dialog, DialogActions, DialogContent, DialogTitle
 } from '@mui/material';
 import { IStaff } from '../../db/dexie';
-// ★★★ v5.9 修正: 共通ユーティリティからインポート ★★★
 import { getDefaultRequiredHolidays } from '../../utils/dateUtils'; 
+
+// ★ MonthDay型を定義（または共有型からインポート）
+type MonthDay = {
+  dayOfWeek: number;
+  // 他のプロパティはここでは必須ではないため省略可
+};
 
 interface StaffStatusModalProps {
   staff: IStaff | null;
   currentHolidayReq: number;
   onClose: () => void;
   onSave: (newHolidayReq: number) => void;
+  monthDays: MonthDay[]; // ★ 追加: 月の日付情報を受け取る
 }
 
-// export default を追加
-export default function StaffStatusModal({ staff, currentHolidayReq, onClose, onSave }: StaffStatusModalProps) {
+export default function StaffStatusModal({ 
+  staff, 
+  currentHolidayReq, 
+  onClose, 
+  onSave, 
+  monthDays // ★ 追加
+}: StaffStatusModalProps) {
   const [holidayReq, setHolidayReq] = useState(currentHolidayReq);
 
   useEffect(() => {
@@ -25,6 +36,9 @@ export default function StaffStatusModal({ staff, currentHolidayReq, onClose, on
   const handleSave = () => {
     onSave(Number(holidayReq));
   };
+
+  // ★ 修正: monthDays を渡す
+  const defaultHolidays = monthDays ? getDefaultRequiredHolidays(monthDays) : 0;
 
   return (
     <Dialog open={!!staff} onClose={onClose}>
@@ -40,7 +54,8 @@ export default function StaffStatusModal({ staff, currentHolidayReq, onClose, on
           onChange={(e) => setHolidayReq(Number(e.target.value))}
           fullWidth
           margin="normal"
-          helperText={`デフォルト (今月の土日数): ${getDefaultRequiredHolidays()} 日`}
+          // ★ 修正: 計算結果を表示
+          helperText={`デフォルト (今月の土日数): ${defaultHolidays} 日`}
         />
       </DialogContent>
       <DialogActions>

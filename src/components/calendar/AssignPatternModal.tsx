@@ -10,17 +10,14 @@ import { IStaff, IShiftPattern, IAssignment, IUnit } from '../../db/dexie';
 import { db } from '../../db/dexie';
 import { setAssignments, clearAdvice, fetchAssignmentAdvice } from '../../store/assignmentSlice'; 
 
-// Helper: 時間文字列 "HH:MM" を分単位の数値に変換
 const timeToMin = (t: string) => {
   const [h, m] = t.split(':').map(Number);
   return h * 60 + m;
 };
 
-// Helper: 契約時間帯のチェック
 const isWithinContract = (staff: IStaff, start: string, end: string): boolean => {
   if (staff.employmentType !== 'PartTime') return true;
   
-  // 未設定または空の場合はデフォルト(8:00-20:00)とみなす
   const ranges = (staff.workableTimeRanges && staff.workableTimeRanges.length > 0) 
     ? staff.workableTimeRanges 
     : [{ start: '08:00', end: '20:00' }];
@@ -28,7 +25,6 @@ const isWithinContract = (staff: IStaff, start: string, end: string): boolean =>
   const sMin = timeToMin(start);
   const eMin = timeToMin(end);
 
-  // いずれかのレンジに完全に含まれていればOK
   return ranges.some(range => {
     const rStart = timeToMin(range.start);
     const rEnd = timeToMin(range.end);
@@ -51,11 +47,8 @@ export default function AssignPatternModal({
 }: AssignPatternModalProps) {
   
   const dispatch: AppDispatch = useDispatch(); 
-  
   const { adviceLoading, adviceError, adviceResult } = useSelector((state: RootState) => state.assignment.present);
-  
   const [selectedPatternId, setSelectedPatternId] = useState<string | null>(null);
-
   const patternMap = useMemo(() => new Map(allPatterns.map((p: IShiftPattern) => [p.patternId, p])), [allPatterns]);
 
   useEffect(() => {
@@ -66,22 +59,17 @@ export default function AssignPatternModal({
     }
   }, [target, allAssignments, dispatch]);
 
-
-  // 担当者決定ロジック
   const handleAssignPattern = async () => {
     if (!target) return;
     const { date, staff } = target;
 
-    // ★★★ バリデーション: 契約時間帯チェック ★★★
     if (selectedPatternId) {
       const pattern = patternMap.get(selectedPatternId);
       if (pattern && pattern.workType === 'Work') {
-        // Flexの場合はデフォルト枠(startTime/endTime)でチェック
-        // (※Flexの場合、実際はドラッグで縮めれば入るかもしれないが、アサイン時点では枠でチェックして警告する)
         if (!isWithinContract(staff, pattern.startTime, pattern.endTime)) {
           const ranges = staff.workableTimeRanges?.map(r => `${r.start}-${r.end}`).join(', ') || "08:00-20:00";
           if (!window.confirm(`警告: ${staff.name} さんの契約時間帯(${ranges})外の可能性があります。\n(${pattern.name}: ${pattern.startTime}-${pattern.endTime})\n\nそれでも割り当てますか？`)) {
-            return; // キャンセル
+            return; 
           }
         }
       }
@@ -103,8 +91,7 @@ export default function AssignPatternModal({
             staffId: staff.staffId,
             patternId: selectedPatternId,
             unitId: (pattern.workType === 'Work') ? staff.unitId : null,
-            locked: true, // 手動アサインはロックする
-            // ★ Flexならデフォルト時間を入れておく (v7)
+            locked: true, 
             overrideStartTime: pattern.isFlex ? pattern.startTime : undefined,
             overrideEndTime: pattern.isFlex ? pattern.endTime : undefined
           };
@@ -112,14 +99,13 @@ export default function AssignPatternModal({
         }
       }
       const allAssignments = await db.assignments.toArray();
-      dispatch(setAssignments(allAssignments)); // ストアを更新
+      dispatch(setAssignments(allAssignments)); 
     } catch (e) {
       console.error("アサインの更新に失敗:", e);
     }
-    onClose(); // 親コンポーネントにクローズを通知
+    onClose(); 
   };
 
-  // AI助言ボタンのハンドラ
   const handleFetchAdvice = () => {
     if (!target) return;
     dispatch(fetchAssignmentAdvice({
@@ -133,14 +119,12 @@ export default function AssignPatternModal({
     }));
   };
 
-  // リスト1: 「公休」「有給」のみのリスト
   const holidayLeavePatterns = useMemo(() => {
     return allPatterns
       .filter(p => p.workType === 'StatutoryHoliday' || p.workType === 'PaidLeave')
-      .sort((a, b) => a.workType.localeCompare(b.workType)); // 公休を先に
+      .sort((a, b) => a.workType.localeCompare(b.workType));
   }, [allPatterns]);
 
-  // リスト2: 「勤務可能パターン」 + 「会議」「その他」のリスト
   const availableWorkAndOtherPatterns = useMemo(() => {
     if (!target?.staff) return [];
 
@@ -170,10 +154,8 @@ export default function AssignPatternModal({
       </DialogTitle>
       <DialogContent sx={{ display: 'flex', gap: 2 }}>
         
-        {/* 左側: パターン選択リスト */}
         <Box sx={{ flex: 1, maxHeight: 500, overflowY: 'auto' }}>
           
-          {/* リスト1: 休み・解除 */}
           <Typography variant="caption">1. 休み・解除</Typography>
           <List dense component={Paper} variant="outlined" sx={{ mb: 2 }}>
             <ListItemButton onClick={() => setSelectedPatternId(null)} selected={selectedPatternId === null}>
@@ -187,8 +169,14 @@ export default function AssignPatternModal({
                 onClick={() => setSelectedPatternId(pattern.patternId)} 
                 selected={selectedPatternId === pattern.patternId}
               >
-                <Avatar sx={{ width: 32, height: 32, mr: 2, fontSize: '0.8rem', bgcolor: 'error.light', color: 'common.white' }}>
-                  {pattern.mainCategory.charAt(0)}
+                <Avatar sx={{ 
+                  width: 32, height: 32, mr: 2, 
+                  fontSize: '0.8rem', 
+                  bgcolor: pattern.workType === 'StatutoryHoliday' ? '#ef5350' : '#42a5f5',
+                  color: 'common.white',
+                  borderRadius: '3px' // ★ 角丸3px
+                }}>
+                  {pattern.symbol || pattern.patternId.slice(0, 2)}
                 </Avatar>
                 <ListItemText 
                   primary={pattern.name} 
@@ -198,7 +186,6 @@ export default function AssignPatternModal({
             ))}
           </List>
 
-          {/* リスト2: 勤務・その他 */}
           <Typography variant="caption">2. 勤務・その他</Typography>
           <List dense component={Paper} variant="outlined" sx={{maxHeight: 300, overflow: 'auto'}}>
             {availableWorkAndOtherPatterns.map(pattern => (
@@ -208,11 +195,16 @@ export default function AssignPatternModal({
                 selected={selectedPatternId === pattern.patternId}
               >
                 <Avatar sx={{ 
-                  width: 32, height: 32, mr: 2, fontSize: '0.8rem', 
-                  bgcolor: pattern.workType === 'Work' ? 'primary.light' : 'warning.light',
-                  color: 'common.white'
+                  width: 32, height: 32, mr: 2, 
+                  fontSize: '0.8rem', 
+                  // ★ 配色ロジックをPatternManagementTabと統一したいが、
+                  // ここでは簡易的に workType ベースで色分けしている既存ロジックを維持しつつ、
+                  // 夜勤だけ黒にするなど微調整
+                  bgcolor: pattern.isNightShift ? '#424242' : (pattern.workType === 'Work' ? '#66bb6a' : '#ffa726'),
+                  color: 'common.white',
+                  borderRadius: '3px' // ★ 角丸3px
                 }}>
-                  {pattern.mainCategory.charAt(0)}
+                  {pattern.symbol || pattern.patternId.slice(0, 2)}
                 </Avatar>
                 <ListItemText 
                   primary={pattern.name} 
@@ -228,7 +220,6 @@ export default function AssignPatternModal({
           </List>
         </Box>
 
-        {/* 右側: AI助言エリア */}
         <Box sx={{ flex: 1, borderLeft: '1px solid', borderColor: 'divider', pl: 2 }}>
           <Typography variant="h6" gutterBottom>AI助言</Typography>
           <Button 

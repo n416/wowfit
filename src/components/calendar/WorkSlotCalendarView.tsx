@@ -1,17 +1,13 @@
 import React, { useMemo, CSSProperties } from 'react';
 import { 
-  // ★ Button を削除
   Table, TableBody, TableCell, TableHead, TableRow,
   Box
 } from '@mui/material';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../../store';
 import { IStaff, IShiftPattern, IAssignment, IUnit } from '../../db/dexie';
-// ★ 修正: MONTH_DAYS のインポートを削除
-// import { MONTH_DAYS, /* getPrevDateStr */ } from '../../utils/dateUtils'; 
 import { TableVirtuoso } from 'react-virtuoso';
 
-// ★ 修正: 動的な monthDays の型を定義
 type MonthDay = {
   dateStr: string;
   weekday: string;
@@ -21,10 +17,9 @@ type MonthDay = {
 interface WorkSlotCalendarViewProps {
   onCellClick: (date: string, unitId: string | null) => void;
   demandMap: Map<string, { required: number; actual: number }>; 
-  monthDays: MonthDay[]; // ★ 追加
+  monthDays: MonthDay[]; 
 }
 
-// (styles 定義 - 変更なし)
 const styles: { [key: string]: CSSProperties } = {
   th: {
     border: '1px solid #e0e0e0',
@@ -65,7 +60,7 @@ const styles: { [key: string]: CSSProperties } = {
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: '16px',
+    borderRadius: '3px', // ★ 16px -> 3px
     padding: '4px 8px',
     fontSize: '0.75rem',
     marginRight: '4px',
@@ -86,16 +81,13 @@ const styles: { [key: string]: CSSProperties } = {
 export default function WorkSlotCalendarView({
   onCellClick,
   demandMap, 
-  monthDays // ★ 追加
+  monthDays
 }: WorkSlotCalendarViewProps) {
   const { staff: staffList } = useSelector((state: RootState) => state.staff);
   const unitList = useSelector((state: RootState) => state.unit.units);
-  
   const { assignments } = useSelector((state: RootState) => state.assignment.present);
-  
   const { patterns: shiftPatterns } = useSelector((state: RootState) => state.pattern);
 
-  // (useMemo フック - 変更なし)
   const staffMap = useMemo(() => new Map(staffList.map((s: IStaff) => [s.staffId, s])), [staffList]);
   const patternMap = useMemo(() => new Map(shiftPatterns.map((p: IShiftPattern) => [p.patternId, p])), [shiftPatterns]);
   
@@ -111,7 +103,6 @@ export default function WorkSlotCalendarView({
     return map;
   }, [assignments]);
 
-  // (fixedHeaderContent - 変更なし)
   const fixedHeaderContent = () => (
     <TableRow>
       <TableCell style={{ ...styles.th, ...styles.dateCell, zIndex: 3, top: 0 }}>日付</TableCell>
@@ -123,11 +114,9 @@ export default function WorkSlotCalendarView({
     </TableRow>
   );
 
-  // ★★★ itemContent (monthDays に依存) ★★★
-  const itemContent = (_: number, dayInfo: MonthDay) => { // ★ 修正: 型を変更
+  const itemContent = (_: number, dayInfo: MonthDay) => { 
     return (
       <>
-        {/* ★ 修正: 改行 <br /> を追加 */}
         <TableCell style={{ ...styles.td, ...styles.dateCell }}>
           {dayInfo.dateStr.split('-')[2]}日
           <br />
@@ -144,7 +133,6 @@ export default function WorkSlotCalendarView({
               style={{ ...styles.td, ...styles.clickableCell }}
               onClick={() => onCellClick(dayInfo.dateStr, unit.unitId)}
             >
-              {/* 24時間バー */}
               <div style={styles.barContainer}>
                 {Array.from({ length: 24 }).map((_, hour) => {
                   const demandKey = `${dayInfo.dateStr}_${unit.unitId}_${hour}`;
@@ -162,21 +150,23 @@ export default function WorkSlotCalendarView({
                   return <div key={hour} title={title} style={{ flex: 1, backgroundColor: bgColor, borderRight: (hour + 1) % 6 === 0 && hour < 23 ? '1px solid #bdbdbd' : 'none' }} />;
                 })}
               </div>
-              {/* スタッフ表示 */}
               {assignmentsForCell.map(assignment => {
                 const staff = staffMap.get(assignment.staffId);
                 const pattern = patternMap.get(assignment.patternId);
                 const isNight = pattern?.isNightShift;
+
+                const patternText = pattern?.symbol || pattern?.patternId || '??';
+
                 if (staff?.status === 'OnLeave') {
                   return (
                     <div key={assignment.id} style={{ ...styles.chip, backgroundColor: '#fafafa', color: '#bdbdbd', textDecoration: 'line-through' }}>
-                      {`${pattern?.patternId || '??'} (${staff?.name || '??'})`}
+                      {`${patternText} (${staff?.name || '??'})`}
                     </div>
                   );
                 }
                 return (
                   <div key={assignment.id} style={{ ...styles.chip, backgroundColor: isNight ? '#e0e0e0' : '#e0e0e0', color: isNight ? '#d32f2f' : 'rgba(0, 0, 0, 0.87)' }}>
-                    {`${pattern?.patternId || '??'} (${staff?.name || '??'})`}
+                    {`${patternText} (${staff?.name || '??'})`}
                   </div>
                 );
               })}
@@ -187,15 +177,11 @@ export default function WorkSlotCalendarView({
     );
   };
 
-
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* (リセットボタンは削除済み) */}
-
       <Box sx={{ flex: 1, minHeight: 0 }}>
         <TableVirtuoso
           style={{ height: '100%', border: '1px solid #e0e0e0', borderRadius: '4px' }}
-          // ★ 修正: MONTH_DAYS -> monthDays
           data={monthDays}
           fixedHeaderContent={fixedHeaderContent}
           itemContent={itemContent}

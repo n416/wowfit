@@ -6,8 +6,6 @@ import {
   GanttRowData, 
   MonthDay 
 } from '../../hooks/useDailyGanttLogic'; 
-// UnitGroupData は型のみインポート
-import { UnitGroupData } from '../../hooks/useUnitGroups';
 
 // --- Helper Functions ---
 

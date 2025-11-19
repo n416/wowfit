@@ -15,8 +15,8 @@ export const calculateDemandMap = (
   assignments: IAssignment[],
   patternMap: Map<string, IShiftPattern>,
   staffMap: Map<string, IStaff>, 
-  monthDays: MonthDay[],
-  caller: string = "Background" 
+  monthDays: MonthDay[]
+  // ★ 修正: caller 引数を削除
 ) => {
   const map = new Map<string, { required: number; actual: number }>(); 
 
@@ -62,7 +62,6 @@ export const calculateDemandMap = (
       }
 
       // 翌日分 (日付またぎ)
-      // ★★★ 修正: pattern.crossesMidnight フラグだけでなく、計算上の終了時間が24を超えていれば翌日扱いとする
       if (pattern.crossesMidnight || endH_calc > 24) {
         const nextDateObj = new Date(assignment.date.replace(/-/g, '/'));
         nextDateObj.setDate(nextDateObj.getDate() + 1);
@@ -71,8 +70,6 @@ export const calculateDemandMap = (
         for (let hour = 0; hour < endH_nextDay; hour++) {
           const key = `${nextDateStr}_${assignment.unitId}_${hour}`;
           const entry = map.get(key);
-          // ★ Debug: 翌日分のカウント状況を確認したい場合
-          // if (caller === 'Modal' && nextDateStr === '2025-11-03' && hour < 9) console.log(`[Pass2] NextDay Hit: ${assignment.staffId} ${hour}:00`);
           if (entry) entry.actual += 1;
         }
       }
@@ -127,8 +124,7 @@ export const calculateDemandMap = (
             if (a.date === day.dateStr) {
               return (h >= startH && h < endH_today) || (h < endH_nextDay && p.crossesMidnight);
             }
-            // ★ 前日からのシフト (ここが重要！)
-            // 前日の日付で、かつ日付またぎシフトの場合、翌日(当日)の朝の時間帯に含まれるか
+            // ★ 前日からのシフト
             if (a.date === prevDateStr && (p.crossesMidnight || endH_calc > 24)) {
               return h < endH_nextDay;
             }
@@ -184,8 +180,8 @@ export const useDemandMap = (
       assignments,
       patternMap,
       staffMap,
-      monthDays,
-      "Background"
+      monthDays
+      // ★ 修正: "Background" 引数を削除
     );
   }, [assignments, unitList, patternMap, staffMap, monthDays]);
 

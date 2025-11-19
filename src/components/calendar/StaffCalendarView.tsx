@@ -3,20 +3,15 @@ import {
   IconButton,
   Table, TableBody, TableCell, TableHead, TableRow,
   Box,
-  // ★★★ 修正: Collapse, FormControlLabel, Checkbox を削除
 } from '@mui/material';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../../store';
 import { IStaff, IShiftPattern, IAssignment } from '../../db/dexie';
-// ★★★ 修正: MONTH_DAYS のインポートを削除 ★★★
-// import { MONTH_DAYS } from '../../utils/dateUtils';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
-// ★ 修正: 未使用の TableVirtuosoHandle を削除
 import { TableVirtuoso } from 'react-virtuoso';
 import { CellCoords, ClickMode } from '../../hooks/useCalendarInteractions';
 
-// ★ 修正: 動的な monthDays の型を定義
 type MonthDay = {
   dateStr: string;
   weekday: string;
@@ -30,7 +25,6 @@ interface StaffCalendarViewProps {
   onHolidayDecrement: (staffId: string) => void;
   staffHolidayRequirements: Map<string, number>;
   onStaffNameClick: (staff: IStaff) => void;
-  // ★★★ 新規追加: onDateHeaderClick プロパティ ★★★
   onDateHeaderClick: (date: string) => void;
   clickMode: ClickMode;
   activeCell: CellCoords | null;
@@ -38,13 +32,10 @@ interface StaffCalendarViewProps {
   onCellMouseDown: (e: React.MouseEvent, date: string, staffId: string, staffIndex: number, dateIndex: number) => void;
   onCellMouseMove: (date: string, staffId: string, staffIndex: number, dateIndex: number) => void;
   onCellMouseUp: () => void;
-  // ★★★ 修正: workAreaRef を Props から削除 ★★★
-  // workAreaRef: React.RefObject<HTMLDivElement | null>;
   mainCalendarScrollerRef: React.RefObject<HTMLElement | null>;
-  monthDays: MonthDay[]; // ★ 追加
+  monthDays: MonthDay[];
 }
 
-// (styles 定義 - 変更なし)
 const styles: { [key: string]: CSSProperties } = {
   th: {
     padding: '8px',
@@ -100,30 +91,25 @@ const styles: { [key: string]: CSSProperties } = {
     cursor: 'cell',
   },
   assignmentChip: {
-    borderRadius: '16px',
+    borderRadius: '3px', // ★ 16px -> 3px (シャープに)
     padding: '4px 8px',
     fontSize: '0.75rem',
     marginBottom: '4px',
     textAlign: 'center',
     width: '100%',
     boxSizing: 'border-box',
-    border: '1px solid #9e9e9e',
+    // border: '1px solid #9e9e9e', // ★ ボーダー削除
     pointerEvents: 'none',
   },
-  // ★★★ 修正: workAreaCell スタイルを削除 ★★★
-  // workAreaCell: { ... },
 };
 
-
 export default function StaffCalendarView({
-  // (props - 変更なし)
   sortedStaffList,
   onCellClick,
   onHolidayIncrement,
   onHolidayDecrement,
   staffHolidayRequirements,
   onStaffNameClick,
-  // ★★★ 新規追加: prop を受け取る ★★★
   onDateHeaderClick,
   clickMode,
   activeCell,
@@ -131,12 +117,10 @@ export default function StaffCalendarView({
   onCellMouseDown,
   onCellMouseMove,
   onCellMouseUp,
-  // ★★★ 修正: workAreaRef を Props から削除 ★★★
   mainCalendarScrollerRef,
-  monthDays // ★ 追加
+  monthDays
 }: StaffCalendarViewProps) {
 
-  // (フック - 変更なし)
   const { patterns: shiftPatterns } = useSelector((state: RootState) => state.pattern);
   const { assignments } = useSelector((state: RootState) => state.assignment.present);
   const patternMap = useMemo(() => new Map(shiftPatterns.map((p: IShiftPattern) => [p.patternId, p])), [shiftPatterns]);
@@ -150,7 +134,6 @@ export default function StaffCalendarView({
     return map;
   }, [assignments]);
 
-  // (選択範囲インデックス - 変更なし)
   const selectedRangeIndices = useMemo(() => {
     if (!selectionRange) return null;
     return {
@@ -161,10 +144,6 @@ export default function StaffCalendarView({
     };
   }, [selectionRange]);
 
-  // ★★★ 修正: 作業領域関連の state, ref, useEffect, フック (workAreaRowCount, workAreaColCount, virtualWorkAreaCols, virtualWorkAreaRows) をすべて削除 ★★★
-
-
-  // (ヘッダー行 - 変更なし)
   const fixedHeaderContent = () => (
     <TableRow>
       <TableCell style={{ ...styles.th, ...styles.stickyCell, ...styles.staffNameCell, zIndex: 12 }}>スタッフ</TableCell>
@@ -178,9 +157,9 @@ export default function StaffCalendarView({
             ...styles.th,
             ...styles.dateHeaderCell,
             backgroundColor: (dayInfo.dayOfWeek === 0 || dayInfo.dayOfWeek === 6) ? '#eeeeee' : '#fff',
-            cursor: 'pointer' // ★★★ 修正: カーソルをポインターに変更
+            cursor: 'pointer'
           }}
-          onClick={() => onDateHeaderClick(dayInfo.dateStr)} // ★★★ 修正: onClick を追加
+          onClick={() => onDateHeaderClick(dayInfo.dateStr)}
         >
           {dayInfo.dateStr.split('-')[2]}<br />({dayInfo.weekday})
         </TableCell>
@@ -188,7 +167,6 @@ export default function StaffCalendarView({
     </TableRow>
   );
 
-  // (データ行 - 変更なし)
   const itemContent = useCallback((index: number, staff: IStaff) => {
     const staffIndex = index;
     let rowBorderStyle: CSSProperties = {};
@@ -202,7 +180,6 @@ export default function StaffCalendarView({
 
     return (
       <>
-        {/* (スタッフ名セル - 変更なし) */}
         <TableCell
           style={{ ...styles.td, ...styles.stickyCell, ...styles.staffNameCell, ...rowBorderStyle }}
           onClick={() => onStaffNameClick(staff)}
@@ -217,7 +194,6 @@ export default function StaffCalendarView({
           </span>
         </TableCell>
 
-        {/* (公休調整セル - 変更なし) */}
         <TableCell style={{
           ...styles.td,
           ...styles.stickyCell,
@@ -237,7 +213,6 @@ export default function StaffCalendarView({
           </div>
         </TableCell>
 
-        {/* (日付セル - 変更なし) */}
         {monthDays.map((dayInfo, dayIndex) => {
           const key = `${staff.staffId}_${dayInfo.dateStr}`;
           const assignmentsForCell = assignmentsMap.get(key) || [];
@@ -293,7 +268,6 @@ export default function StaffCalendarView({
               onMouseMove={() => onCellMouseMove(dayInfo.dateStr, staff.staffId, staffIndex, dayIndex)}
               onMouseUp={onCellMouseUp}
             >
-              {/* (チップ描画ロジック - 変更なし) */}
               {assignmentsForCell.length === 0 ? (
                 <span style={{ display: 'block', textAlign: 'center', color: '#888' }}>-</span>
               ) : (
@@ -305,12 +279,15 @@ export default function StaffCalendarView({
                   } else if (pattern?.isNightShift) {
                     bgColor = '#bdbdbd';
                   }
+                  
+                  const displayText = pattern?.symbol || pattern?.patternId || '??';
+
                   return (
                     <div
                       key={assignment.id}
                       style={{ ...styles.assignmentChip, backgroundColor: bgColor, color: textColor }}
                     >
-                      {pattern?.patternId || '??'}
+                      {displayText}
                     </div>
                   );
                 })
@@ -321,21 +298,15 @@ export default function StaffCalendarView({
       </>
     );
   }, [
-    // (依存配列 - 変更なし)
     sortedStaffList, staffHolidayRequirements, assignmentsMap, patternMap, monthDays,
     onHolidayDecrement, onHolidayIncrement, onStaffNameClick,
     clickMode, activeCell, selectedRangeIndices,
     onCellClick, onCellMouseDown, onCellMouseMove, onCellMouseUp
   ]);
 
-
   return (
-    // ★★★ 修正: Boxラッパーを削除し、TableVirtuoso を直接返す (または flex: 1 の Box のみ残す) ★★★
     <Box sx={{ flex: 1, minHeight: 0 }}>
-
-      {/* 1. メインのカレンダー (Virtuoso) */}
       <TableVirtuoso
-        // (scrollerRef 修正済み)
         scrollerRef={(ref) => {
           if (ref && !(ref instanceof Window)) {
             mainCalendarScrollerRef.current = ref;
@@ -345,8 +316,8 @@ export default function StaffCalendarView({
         }}
         style={{ height: '100%', border: '1px solid #e0e0e0', borderRadius: '4px' }}
         data={sortedStaffList}
-        fixedHeaderContent={fixedHeaderContent} // ★ 修正: この関数が onDateHeaderClick を使用する
-        itemContent={itemContent} // ★ monthDays に依存
+        fixedHeaderContent={fixedHeaderContent}
+        itemContent={itemContent}
         components={{
           Table: (props) => <Table {...props} style={{ borderCollapse: 'collapse', width: '100%', tableLayout: 'fixed' }} />,
           TableHead: TableHead,
@@ -354,9 +325,6 @@ export default function StaffCalendarView({
           TableBody: React.forwardRef((props, ref) => <TableBody {...props} ref={ref} />),
         }}
       />
-
-      {/* ★★★ 修正: チェックボックス (Box) と 作業用セル領域 (Collapse) をすべて削除 ★★★ */}
-
     </Box>
   );
 };

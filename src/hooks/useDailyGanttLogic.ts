@@ -4,7 +4,7 @@ import { IStaff, IShiftPattern, IAssignment, db } from '../db/dexie';
 import { setAssignments } from '../store/assignmentSlice';
 import type { AppDispatch, RootState } from '../store';
 import { calculateDemandMap } from './useDemandMap';
-import { calculateUnitGroups, UnitGroupData } from './useUnitGroups'; 
+import { calculateUnitGroups, UnitGroupData } from './useUnitGroups';
 
 const timeToMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
 const isWithinContract = (staff: IStaff, start: string, end: string): boolean => {
@@ -66,30 +66,29 @@ export const useDailyGanttLogic = (
   const recalculatedDemandMap = useMemo(() => {
     if (!target) return demandMap;
     // @ts-ignore
-    return calculateDemandMap(unitList, mergedAssignments, patternMap, allStaffMap, monthDays, "Modal");
+    return calculateDemandMap(unitList, mergedAssignments, patternMap, allStaffMap, monthDays); // ★ 修正: "Modal" 引数を削除
   }, [unitList, mergedAssignments, patternMap, allStaffMap, monthDays, target, demandMap]);
 
   const baseUnitGroups = useMemo(() => {
     return calculateUnitGroups(target, unitList, allAssignments, patternMap, allStaffMap);
   }, [target, unitList, allAssignments, patternMap, allStaffMap]);
 
-  // ★★★ 修正: localUnitGroups 生成ロジック (日付またぎ表示補正の強化) ★★★
   const localUnitGroups = useMemo(() => {
     if (!target) return [];
     const deletionIdSet = new Set(pendingDeletions);
-    
+
     const updatedGroups = baseUnitGroups.map(group => ({
       ...group,
       rows: group.rows
         .filter(row => {
-           if (deletionIdSet.has(row.assignmentId)) return false;
-           if (!pendingChanges.has(row.assignmentId)) {
-              const currentAssignment = allAssignmentsMap.get(row.assignmentId);
-              if (!currentAssignment) return false;
-              const currentPattern = patternMap.get(currentAssignment.patternId);
-              if (!currentPattern || currentPattern.workType !== 'Work') return false; 
-           }
-           return true;
+          if (deletionIdSet.has(row.assignmentId)) return false;
+          if (!pendingChanges.has(row.assignmentId)) {
+            const currentAssignment = allAssignmentsMap.get(row.assignmentId);
+            if (!currentAssignment) return false;
+            const currentPattern = patternMap.get(currentAssignment.patternId);
+            if (!currentPattern || currentPattern.workType !== 'Work') return false;
+          }
+          return true;
         })
         .map(row => {
           const change = pendingChanges.get(row.assignmentId);
@@ -99,47 +98,37 @@ export const useDailyGanttLogic = (
 
           const overrideStart = assignment?.overrideStartTime;
           const timeBase = (pattern.isFlex && overrideStart) ? overrideStart : pattern.startTime;
-          
+
           let displayDuration = pattern.durationHours;
           if (pattern.isFlex && overrideStart && assignment?.overrideEndTime) {
-            const s = parseInt(overrideStart.split(':')[0]) + (parseInt(overrideStart.split(':')[1]) || 0)/60;
-            const e = parseInt(assignment.overrideEndTime.split(':')[0]) + (parseInt(assignment.overrideEndTime.split(':')[1]) || 0)/60;
+            const s = parseInt(overrideStart.split(':')[0]) + (parseInt(overrideStart.split(':')[1]) || 0) / 60;
+            const e = parseInt(assignment.overrideEndTime.split(':')[0]) + (parseInt(assignment.overrideEndTime.split(':')[1]) || 0) / 60;
             displayDuration = (e < s ? e + 24 : e) - s;
           }
 
           const startH_raw = parseInt(timeBase.split(':')[0]);
           let displayStart = startH_raw;
 
-          // ★★★ 修正: 日付比較による表示位置の決定 ★★★
           const isSameDay = (assignment?.date === target.date);
 
           if (!isSameDay) {
-             // 前日からのシフト: 常に0時から開始
-             displayStart = 0;
-             
-             // 長さの計算: 「終了時刻」まで
-             // FlexかつOverrideがあればそれを使う、なければパターン定義
-             if (pattern.isFlex && assignment?.overrideEndTime) {
-                 const [eh, em] = assignment.overrideEndTime.split(':').map(Number);
-                 displayDuration = eh + (em/60);
-             } else {
-                 // パターン定義の終了時刻をパースして使用
-                 // ※日付またぎ前提なので、endTimeがそのまま翌日の終了時刻になる
-                 const [eh, em] = pattern.endTime.split(':').map(Number);
-                 displayDuration = eh + (em/60);
-             }
-             
-             // 24時を超える場合はカット (念のため)
-             if (displayDuration > 24) displayDuration = 24;
+            displayStart = 0;
+            if (pattern.isFlex && assignment?.overrideEndTime) {
+              const [eh, em] = assignment.overrideEndTime.split(':').map(Number);
+              displayDuration = eh + (em / 60);
+            } else {
+              const [eh, em] = pattern.endTime.split(':').map(Number);
+              displayDuration = eh + (em / 60);
+            }
+            if (displayDuration > 24) displayDuration = 24;
 
           } else {
-             // 当日のシフト: はみ出し防止のみ
-             if (pattern.crossesMidnight || startH_raw + displayDuration > 24) {
-                const overflow = (startH_raw + displayDuration) - 24;
-                if (overflow > 0) {
-                  displayDuration -= overflow;
-                }
-             }
+            if (pattern.crossesMidnight || startH_raw + displayDuration > 24) {
+              const overflow = (startH_raw + displayDuration) - 24;
+              if (overflow > 0) {
+                displayDuration -= overflow;
+              }
+            }
           }
 
           return {
@@ -167,14 +156,14 @@ export const useDailyGanttLogic = (
         const timeBase = (pattern.isFlex && overrideStart) ? overrideStart : pattern.startTime;
         const startH = parseInt(timeBase.split(':')[0]);
         let displayStart = startH;
-        
+
         let displayDuration = pattern.durationHours;
         if (pattern.isFlex && overrideStart && newAssignment.overrideEndTime) {
-           const s = parseInt(overrideStart.split(':')[0]) + (parseInt(overrideStart.split(':')[1]) || 0)/60;
-           const e = parseInt(newAssignment.overrideEndTime.split(':')[0]) + (parseInt(newAssignment.overrideEndTime.split(':')[1]) || 0)/60;
-           displayDuration = (e < s ? e + 24 : e) - s;
+          const s = parseInt(overrideStart.split(':')[0]) + (parseInt(overrideStart.split(':')[1]) || 0) / 60;
+          const e = parseInt(newAssignment.overrideEndTime.split(':')[0]) + (parseInt(newAssignment.overrideEndTime.split(':')[1]) || 0) / 60;
+          displayDuration = (e < s ? e + 24 : e) - s;
         }
-        
+
         if (displayStart + displayDuration > 24) {
           const overflow = (displayStart + displayDuration) - 24;
           if (overflow > 0) displayDuration -= overflow;

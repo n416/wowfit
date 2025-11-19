@@ -1,27 +1,41 @@
 import React, { useState } from 'react';
-import { Paper, TextField, Button } from '@mui/material';
+import {
+  Paper, TextField, Button,
+  Box
+} from '@mui/material';
 import { useDispatch } from 'react-redux';
 import type { AppDispatch } from '../../store';
 import { addNewUnit } from '../../store/unitSlice';
-import { getDefaultDemand } from '../../db/dexie'; // ★ 変更: getDefaultDemand を db からインポート
+import { getDefaultDemand } from '../../db/dexie';
 
-// (DataManagementPage.tsx から NewUnitForm のコードをそのまま移動)
-// ★ 変更: getDefaultDemand を引数から削除 (dexie.ts からインポートするため)
 export default function NewUnitForm() {
   const dispatch: AppDispatch = useDispatch();
   const [name, setName] = useState('');
-  
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
-    dispatch(addNewUnit({ name: name.trim(), demand: getDefaultDemand() })); 
+
+    // 新規作成時はデフォルトのデマンド(全て0)で作成
+    dispatch(addNewUnit({
+      name: name.trim(),
+      demand: getDefaultDemand()
+    }));
     setName('');
   };
 
   return (
-    <Paper component="form" onSubmit={handleSubmit} sx={{ p: 2, display: 'flex', gap: 2, alignItems: 'center' }}>
-      <TextField label="ユニット名" value={name} onChange={(e) => setName(e.target.value)} required size="small" />
-      <Button type="submit" variant="contained">ユニット追加</Button>
-    </Paper>
+    <Box component="form" onSubmit={handleSubmit} sx={{ p: 2, display: 'flex', gap: 2, justifyContent: 'center' }}>
+      <TextField
+        label="新規ユニット名"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        required
+        size="small"
+        sx={{ width: 300 }}
+        placeholder="例: 部屋A, 部屋B"
+      />
+      <Button type="submit" variant="contained">ユニットを追加</Button>
+    </Box>
   );
 };

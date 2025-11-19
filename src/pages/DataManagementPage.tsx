@@ -1,75 +1,45 @@
-import { useState, useEffect } from 'react';
-import { 
-  Box, Paper, Typography, Tabs, Tab, 
-  // ★ 未使用のMUIコンポーネント (TextField, Button, Select, Dialog 等) を削除
-  Table, TableBody, TableCell, 
-  TableContainer, TableHead, TableRow, IconButton, 
+import { useState, useEffect, useCallback } from 'react';
+import {
+  Box, Paper, Typography, Tabs, Tab,
+  Table, TableBody, TableCell,
+  TableContainer, TableHead, TableRow, IconButton,
   Alert,
-  Chip, // ★★★ Chip をインポート (未使用警告の修正)
-  // ★ 削除
+  Chip,
+  Stack, Divider, TextField // ★ 追加
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
-import EditIcon from '@mui/icons-material/Edit'; 
-// import AddIcon from '@mui/icons-material/Add'; // ★ 未使用のため削除
-import ContentCopyIcon from '@mui/icons-material/ContentCopy'; // ★ アイコンをインポート
+import EditIcon from '@mui/icons-material/Edit';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { useSelector, useDispatch } from 'react-redux';
 import type { AppDispatch, RootState } from '../store';
-// v5 スキーマの型をインポート
-import { 
-  db, 
-  IStaff, 
-  // ★ 未使用の型 (IStaffConstraints, CrossUnitWorkType, WorkType) を削除
-  IShiftPattern, IUnit, 
-  // ★ 未使用の関数 (getDefaultDemand) を削除
-} from '../db/dexie'; 
-// v5 スライスの Action をインポート
-// ★★★ copyStaff をインポート ★★★
-// ★ 未使用のアクション (addNewStaff, parseAndSaveConstraints) を削除
-import { deleteStaff, updateStaff, setStaffList, copyStaff } from '../store/staffSlice'; 
-// ★ 未使用のアクション (addNewPattern) を削除
-import { deletePattern, updatePattern, setPatterns } from '../store/patternSlice'; 
-// (※ timeSlotRuleSlice はインポートしない)
-// ★ 未使用のアクション (addNewUnit) を削除
-import { deleteUnit, updateUnit, setUnits } from '../store/unitSlice';
-import Dexie from 'dexie'; // (Dexieエラー型判定用)
 
-// ★★★↓ インポートを修正 ↓★★★
+import {
+  db,
+  IStaff,
+  IShiftPattern, IUnit,
+} from '../db/dexie';
+
+import { deleteStaff, updateStaff, setStaffList, copyStaff } from '../store/staffSlice';
+import { deletePattern, updatePattern, setPatterns } from '../store/patternSlice';
+import { deleteUnit, updateUnit, setUnits } from '../store/unitSlice';
+import Dexie from 'dexie';
+
+// コンポーネント
 import NewUnitForm from '../components/data/NewUnitForm';
-import EditUnitModal from '../components/data/EditUnitModal';
+// import EditUnitModal from '../components/data/EditUnitModal'; // ★ 削除 (リスト内編集に変更のため)
+import { DemandGraphEditor } from '../components/data/DemandGraphEditor'; // ★ 追加
 import NewPatternForm from '../components/data/NewPatternForm';
 import EditPatternModal from '../components/data/EditPatternModal';
 import NewStaffForm from '../components/data/NewStaffForm';
 import EditStaffModal from '../components/data/EditStaffModal';
-// ★★★↓ v5.9 モックデータをインポート ↓★★★
-import { MOCK_PATTERNS_V5, MOCK_UNITS_V5, MOCK_STAFF_V4 } from '../db/mockData';
-// ★★★ 変更点 1: 汎用 TabPanel をインポート ★★★
 import TabPanel from '../components/TabPanel';
+import { MOCK_PATTERNS_V5, MOCK_UNITS_V5, MOCK_STAFF_V4 } from '../db/mockData';
 
-
-// ★★★ 変更点 2: ローカルの TabPanel 定義 (約13行) を削除 ★★★
-/*
-... (削除済み) ...
-*/
-// ★★★ 変更点 2 ここまで ★★★
-
-// (getDefaultDemand は削除済み)
-
-// ★★★ v5.9 修正: モックデータの定義 (約200行) をすべて削除 ★★★
-/*
-... (削除済み) ...
-*/
-// ★★★ v5.9 修正ここまで ★★★
-
-
-// (NewUnitForm, EditUnitModal, NewPatternForm, EditPatternModal, NewStaffForm, EditStaffModal は削除済み)
-
-
-// ★★★ データ管理ページ本体 (v5.2) ★★★
+// --- メインコンポーネント ---
 function DataManagementPage() {
   const [tabValue, setTabValue] = useState(0);
   const dispatch: AppDispatch = useDispatch();
-  
-  // v5 スライスのデータを取得
+
   const unitList = useSelector((state: RootState) => state.unit.units);
   const patternList = useSelector((state: RootState) => state.pattern.patterns);
   const staffList = useSelector((state: RootState) => state.staff.staff);
@@ -77,10 +47,9 @@ function DataManagementPage() {
   // 編集モーダルのState
   const [editingStaff, setEditingStaff] = useState<IStaff | null>(null);
   const [editingPattern, setEditingPattern] = useState<IShiftPattern | null>(null);
-  // (※ v5では editingRule は不要)
-  const [editingUnit, setEditingUnit] = useState<IUnit | null>(null);
+  // const [editingUnit, setEditingUnit] = useState<IUnit | null>(null); // ★ 削除 (直接編集のため)
 
-  // v5 スキーマのデータを読み込む
+  // データ読み込み (変更なし)
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -89,35 +58,32 @@ function DataManagementPage() {
           db.shiftPatterns.toArray(),
           db.staffList.toArray()
         ]);
-        
-        // (※ v5では timeSlotRules はロードしない)
-        // dispatch(setTimeSlotRules([]));
 
         if (patterns.length === 0) {
           console.log("v5: 勤務パターンが空のため、初期データを書き込みます。");
-          await db.shiftPatterns.bulkPut(MOCK_PATTERNS_V5); 
+          await db.shiftPatterns.bulkPut(MOCK_PATTERNS_V5);
           dispatch(setPatterns(MOCK_PATTERNS_V5));
         } else {
           dispatch(setPatterns(patterns));
         }
-        
+
         if (units.length === 0) {
           console.log("v5: ユニットが空のため、初期データを書き込みます。");
-          await db.units.bulkPut(MOCK_UNITS_V5); 
+          await db.units.bulkPut(MOCK_UNITS_V5);
           dispatch(setUnits(MOCK_UNITS_V5));
         } else {
           dispatch(setUnits(units));
         }
-        
+
         if (staff.length === 0) {
-           console.log("v5: スタッフが空のため、初期データ (MOCK_STAFF_V4) を書き込みます。");
-           await db.staffList.bulkPut(MOCK_STAFF_V4); 
-           dispatch(setStaffList(MOCK_STAFF_V4));
+          console.log("v5: スタッフが空のため、初期データ (MOCK_STAFF_V4) を書き込みます。");
+          await db.staffList.bulkPut(MOCK_STAFF_V4);
+          dispatch(setStaffList(MOCK_STAFF_V4));
         } else {
           console.log("v5: 既存のスタッフデータを読み込みます。");
           dispatch(setStaffList(staff));
         }
-        
+
       } catch (e) {
         console.error("v5: DBデータの読み込み/初期化に失敗:", e);
         if (e instanceof Dexie.UpgradeError) {
@@ -130,8 +96,21 @@ function DataManagementPage() {
 
 
   // --- ハンドラ ---
+
+  // ユニット更新ハンドラ (即時保存)
+  const handleUnitChange = useCallback((unit: IUnit, field: keyof IUnit, value: any) => {
+    const updatedUnit = { ...unit, [field]: value };
+    dispatch(updateUnit(updatedUnit));
+  }, [dispatch]);
+
+  const handleUnitDelete = (unitId: string) => {
+    if (window.confirm('このユニットを削除してもよろしいですか？')) {
+      dispatch(deleteUnit(unitId));
+    }
+  };
+
+  // Staff, Pattern用のハンドラ (変更なし)
   const handleStaffDelete = (staffId: string) => dispatch(deleteStaff(staffId));
-  // ★★★ スタッフコピーハンドラを追加 ★★★
   const handleStaffCopy = (staffId: string) => {
     if (window.confirm('このスタッフをコピーして新しいスタッフを作成しますか？')) {
       dispatch(copyStaff(staffId));
@@ -146,20 +125,19 @@ function DataManagementPage() {
     dispatch(updatePattern(updatedPattern));
     setEditingPattern(null);
   };
-  const handleUnitDelete = (unitId: string) => dispatch(deleteUnit(unitId));
-  const handleUnitUpdate = (updatedUnit: IUnit) => { 
-    dispatch(updateUnit(updatedUnit));
-    setEditingUnit(null);
-  };
-  // (※ v5では TimeSlotRule のハンドラは不要)
 
 
   return (
-    // ★★★ 修正: p: '0 24px 24px 24px' -> p: '24px' に変更 (ShiftCalendarPageと合わせる) ★★★
-    <Box sx={{ flexGrow: 1, p: '24px' }}>
-      <Paper sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 'calc(100vh - 120px)' }}>
-        <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-          {/* ★★★ 未使用の引数 'e' を '_' に変更 ★★★ */}
+    // ★★★ 修正: コンテナの高さを確保し、スクロール可能にする ★★★
+    <Box sx={{ flexGrow: 1, p: '24px', height: '100%', overflow: 'hidden' }}>
+      <Paper sx={{
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        overflow: 'hidden' // はみ出し防止
+      }}>
+        <Box sx={{ borderBottom: 1, borderColor: 'divider', flexShrink: 0 }}>
           <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)}>
             <Tab label="ユニット・デマンド管理" />
             <Tab label="勤務パターン管理" />
@@ -167,132 +145,144 @@ function DataManagementPage() {
             <Tab label="インポート/エクスポート (未)" />
           </Tabs>
         </Box>
-        
-        {/* ★★★ v5.2: ユニット・デマンド管理タブ (★ 汎用コンポーネントを使用) ★★★ */}
-        <TabPanel value={tabValue} index={0}>
-          <Typography variant="h6" gutterBottom>ユニットの登録</Typography>
-          {/* ★★★↓ コンポーネント呼び出しに変更 ↓★★★ */}
-          <NewUnitForm />
-          <Typography variant="h6" gutterBottom sx={{ mt: 3 }}>ユニット一覧・デマンド設定</Typography>
-          <Alert severity="info" sx={{ mb: 2 }}>
-            ユニットの「編集」ボタンから、各ユニットの「24時間デマンド（時間帯ごとの必要人数）」をブロック単位で設定できます。
-          </Alert>
-          <TableContainer component={Paper} variant="outlined">
-            <Table size="small">
-              <TableHead><TableRow><TableCell>ID</TableCell><TableCell>ユニット名</TableCell><TableCell>デマンド(0-3時)</TableCell><TableCell>操作</TableCell></TableRow></TableHead>
-              <TableBody>
-                {unitList.map((u: IUnit) => (
-                  <TableRow key={u.unitId}>
-                    <TableCell>{u.unitId}</TableCell>
-                    <TableCell>{u.name}</TableCell>
-                    <TableCell>
-                      {(u.demand || []).slice(0, 4).join(', ')}...
-                    </TableCell>
-                    <TableCell>
-                      <IconButton size="small" onClick={() => setEditingUnit(u)} color="primary"><EditIcon /></IconButton>
-                      <IconButton size="small" onClick={() => handleUnitDelete(u.unitId)} color="error"><DeleteIcon /></IconButton>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        </TabPanel>
 
-        {/* ★★★ v5: 勤務パターン管理タブ (★ 汎用コンポーネントを使用) ★★★ */}
-        <TabPanel value={tabValue} index={1}>
-          <Typography variant="h6" gutterBottom>勤務パターンの登録</Typography>
-          {/* ★★★↓ コンポーネント呼び出しに変更 ↓★★★ */}
-          <NewPatternForm />
-          <TableContainer component={Paper} variant="outlined" sx={{ mt: 2, maxHeight: 600 }}>
-            <Table size="small" stickyHeader>
-              <TableHead><TableRow><TableCell>ID</TableCell><TableCell>名称</TableCell><TableCell>カテゴリ</TableCell><TableCell>時間</TableCell><TableCell>実働</TableCell><TableCell>他ユニット</TableCell><TableCell>タイプ</TableCell><TableCell>操作</TableCell></TableRow></TableHead>
-              <TableBody>
-                {patternList.map((p: IShiftPattern) => (
-                  <TableRow key={p.patternId}>
-                    <TableCell>{p.patternId}</TableCell>
-                    <TableCell>{p.name}</TableCell>
-                    <TableCell>{p.mainCategory}</TableCell>
-                    <TableCell>{p.startTime}-{p.endTime}</TableCell>
-                    <TableCell>{p.durationHours}h</TableCell>
-                    <TableCell>{p.crossUnitWorkType}</TableCell>
-                    <TableCell>{p.workType}</TableCell>
-                    <TableCell>
-                      <IconButton size="small" onClick={() => setEditingPattern(p)} color="primary"><EditIcon /></IconButton>
-                      <IconButton size="small" onClick={() => handlePatternDelete(p.patternId)} color="error"><DeleteIcon /></IconButton>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        </TabPanel>
+        {/* コンテンツエリア全体をスクロール可能にする */}
+        <Box sx={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
 
-        {/* ★★★ v5: スタッフ管理タブ (★ 汎用コンポーネントを使用) ★★★ */}
-        <TabPanel value={tabValue} index={2}>
-          <Typography variant="h6" gutterBottom>新規スタッフの登録</Typography>
-          {/* ★★★↓ コンポーポーネント呼び出しに変更 ↓★★★ */}
-          <NewStaffForm />
-          <TableContainer component={Paper} variant="outlined" sx={{ mt: 2, maxHeight: 600 }}>
-            <Table size="small" stickyHeader>
-              {/* ★★★ 「ステータス」列を追加 ★★★ */}
-              <TableHead><TableRow><TableCell>氏名</TableCell><TableCell>ステータス</TableCell><TableCell>雇用形態</TableCell><TableCell>所属ユニット</TableCell><TableCell>勤務可能パターン</TableCell><TableCell>操作</TableCell></TableRow></TableHead>
-              <TableBody>
-                {staffList.map((staff: IStaff) => (
-                  <TableRow key={staff.staffId}>
-                    <TableCell>{staff.name}</TableCell>
-                    {/* ★★★ ステータス列のセルを追加 ★★★ */}
-                    <TableCell>
-                      {staff.status === 'OnLeave' ? (
-                        <Chip label="休職中" color="error" size="small" />
-                      ) : (
-                        <Chip label="勤務中" color="success" size="small" variant="outlined" />
-                      )}
-                    </TableCell>
-                    <TableCell>{staff.employmentType}</TableCell>
-                    <TableCell>{staff.unitId}</TableCell>
-                    <TableCell sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {(staff.availablePatternIds || []).join(', ')}
-                    </TableCell>
-                    <TableCell>
-                      <IconButton size="small" onClick={() => setEditingStaff(staff)} color="primary"><EditIcon /></IconButton>
-                      {/* ★★★ コピーボタンを追加 ★★★ */}
-                      <IconButton size="small" onClick={() => handleStaffCopy(staff.staffId)} color="default" title="このスタッフをコピー">
-                        <ContentCopyIcon />
-                      </IconButton>
-                      <IconButton size="small" onClick={() => handleStaffDelete(staff.staffId)} color="error"><DeleteIcon /></IconButton>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        </TabPanel>
-        
-        {/* ★ 汎用コンポーネントを使用 */}
-        <TabPanel value={tabValue} index={3}><Typography>インポート/エクスポート（未実装）</Typography></TabPanel>
-        
+          {/* ★★★ Tab 1: ユニット・デマンド管理 (ここを変更) ★★★ */}
+          <TabPanel value={tabValue} index={0}>
+            <Typography variant="h6" gutterBottom>ユニット一覧・デマンド設定</Typography>
+            <Alert severity="info" sx={{ mb: 3 }}>
+              各ユニットのグラフをドラッグして範囲選択し、ボタンで必要人数を設定してください。変更は即座に保存されます。
+            </Alert>
+
+            <NewUnitForm />
+            {/* ユニットごとの編集カードをループ表示 */}
+            <Stack spacing={4} sx={{ pb: 10 }}>
+              {unitList.map((unit: IUnit) => (
+                <Paper key={unit.unitId} variant="outlined" sx={{ p: 3, backgroundColor: '#fcfcfc' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+                    {/* ユニット名編集 */}
+                    <TextField
+                      label="ユニット名"
+                      value={unit.name}
+                      onChange={(e) => handleUnitChange(unit, 'name', e.target.value)}
+                      size="small"
+                      sx={{ width: 300, backgroundColor: '#fff' }}
+                    />
+                    <Typography variant="caption" color="text.secondary">ID: {unit.unitId}</Typography>
+
+                    <Box sx={{ flexGrow: 1 }} />
+
+                    <IconButton onClick={() => handleUnitDelete(unit.unitId)} color="error" title="ユニットを削除">
+                      <DeleteIcon />
+                    </IconButton>
+                  </Box>
+
+                  {/* ★ ここにグラフエディタを直接配置 ★ */}
+                  <Box sx={{ pl: 1 }}>
+                    <DemandGraphEditor
+                      initialDemand={unit.demand || []}
+                      onChange={(newDemand) => handleUnitChange(unit, 'demand', newDemand)}
+                    />
+                  </Box>
+                </Paper>
+              ))}
+
+              {unitList.length === 0 && (
+                <Typography color="text.secondary" align="center" sx={{ py: 5 }}>
+                  ユニットがありません。上のフォームから追加してください。
+                </Typography>
+              )}
+            </Stack>
+          </TabPanel>
+
+
+          {/* ★★★ Tab 2: 勤務パターン管理 (元のコードを維持) ★★★ */}
+          <TabPanel value={tabValue} index={1}>
+            <Typography variant="h6" gutterBottom>勤務パターンの登録</Typography>
+            <NewPatternForm />
+            <TableContainer component={Paper} variant="outlined" sx={{ mt: 2, maxHeight: 600 }}>
+              <Table size="small" stickyHeader>
+                <TableHead><TableRow><TableCell>ID</TableCell><TableCell>名称</TableCell><TableCell>カテゴリ</TableCell><TableCell>時間</TableCell><TableCell>実働</TableCell><TableCell>他ユニット</TableCell><TableCell>タイプ</TableCell><TableCell>操作</TableCell></TableRow></TableHead>
+                <TableBody>
+                  {patternList.map((p: IShiftPattern) => (
+                    <TableRow key={p.patternId}>
+                      <TableCell>{p.patternId}</TableCell>
+                      <TableCell>{p.name}</TableCell>
+                      <TableCell>{p.mainCategory}</TableCell>
+                      <TableCell>{p.startTime}-{p.endTime}</TableCell>
+                      <TableCell>{p.durationHours}h</TableCell>
+                      <TableCell>{p.crossUnitWorkType}</TableCell>
+                      <TableCell>{p.workType}</TableCell>
+                      <TableCell>
+                        <IconButton size="small" onClick={() => setEditingPattern(p)} color="primary"><EditIcon /></IconButton>
+                        <IconButton size="small" onClick={() => handlePatternDelete(p.patternId)} color="error"><DeleteIcon /></IconButton>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </TabPanel>
+
+          {/* ★★★ Tab 3: スタッフ管理 (元のコードを維持) ★★★ */}
+          <TabPanel value={tabValue} index={2}>
+            <Typography variant="h6" gutterBottom>新規スタッフの登録</Typography>
+            <NewStaffForm />
+            <TableContainer component={Paper} variant="outlined" sx={{ mt: 2, maxHeight: 600 }}>
+              <Table size="small" stickyHeader>
+                {/* ★★★ 「ステータス」列を追加 ★★★ */}
+                <TableHead><TableRow><TableCell>氏名</TableCell><TableCell>ステータス</TableCell><TableCell>雇用形態</TableCell><TableCell>所属ユニット</TableCell><TableCell>勤務可能パターン</TableCell><TableCell>操作</TableCell></TableRow></TableHead>
+                <TableBody>
+                  {staffList.map((staff: IStaff) => (
+                    <TableRow key={staff.staffId}>
+                      <TableCell>{staff.name}</TableCell>
+                      {/* ★★★ ステータス列のセルを追加 ★★★ */}
+                      <TableCell>
+                        {staff.status === 'OnLeave' ? (
+                          <Chip label="休職中" color="error" size="small" />
+                        ) : (
+                          <Chip label="勤務中" color="success" size="small" variant="outlined" />
+                        )}
+                      </TableCell>
+                      <TableCell>{staff.employmentType}</TableCell>
+                      <TableCell>{staff.unitId}</TableCell>
+                      <TableCell sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {(staff.availablePatternIds || []).join(', ')}
+                      </TableCell>
+                      <TableCell>
+                        <IconButton size="small" onClick={() => setEditingStaff(staff)} color="primary"><EditIcon /></IconButton>
+                        {/* ★★★ コピーボタンを追加 ★★★ */}
+                        <IconButton size="small" onClick={() => handleStaffCopy(staff.staffId)} color="default" title="このスタッフをコピー">
+                          <ContentCopyIcon />
+                        </IconButton>
+                        <IconButton size="small" onClick={() => handleStaffDelete(staff.staffId)} color="error"><DeleteIcon /></IconButton>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </TabPanel>
+
+          <TabPanel value={tabValue} index={3}><Typography>インポート/エクスポート（未実装）</Typography></TabPanel>
+
+        </Box>
       </Paper>
 
       {/* 編集モーダルをレンダリング */}
-      {/* ★★★↓ コンポーネント呼び出しに変更 ↓★★★ */}
-      <EditStaffModal 
+      <EditStaffModal
         staff={editingStaff}
         onClose={() => setEditingStaff(null)}
         onSave={handleStaffUpdate}
       />
-      {/* ★★★↓ コンポーネント呼び出しに変更 ↓★★★ */}
       <EditPatternModal
         pattern={editingPattern}
         onClose={() => setEditingPattern(null)}
         onSave={handlePatternUpdate}
       />
-      {/* ★★★↓ コンポーネント呼び出しに変更 ↓★★★ */}
-      <EditUnitModal 
-        unit={editingUnit}
-        onClose={() => setEditingUnit(null)}
-        onSave={handleUnitUpdate}
-      />
+      {/* EditUnitModal は削除しました */}
     </Box>
   );
 }

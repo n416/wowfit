@@ -168,6 +168,7 @@ function ShiftCalendarPage() {
   
   const unitGroups = useUnitGroups(showingGanttTarget, monthDays);
 
+  // ★★★ 修正箇所: 引数を追加して、フック内での再計算を防ぐ ★★★
   const {
     aiInstruction,
     setAiInstruction,
@@ -179,7 +180,15 @@ function ShiftCalendarPage() {
     handleResetClick,
     handleClearError,
     handleClearAnalysis
-  } = useShiftCalendarLogic(currentYear, currentMonth, monthDays);
+  } = useShiftCalendarLogic(
+    currentYear, 
+    currentMonth, 
+    monthDays,
+    // ▼▼▼ 追加: 計算済みのデータを渡す ▼▼▼
+    activeStaffList, 
+    staffHolidayRequirements,
+    demandMap
+  );
 
   // (キーボードショートカットフック)
   useUndoRedoKeyboard(invalidateSyncLock); // ★ 修正済みフックを呼び出す

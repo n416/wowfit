@@ -5,7 +5,7 @@ import {
   TableContainer, TableHead, TableRow, IconButton,
   Alert,
   Chip,
-  Stack, Divider, TextField // ★ 追加
+  Stack, TextField // ★ 追加
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';

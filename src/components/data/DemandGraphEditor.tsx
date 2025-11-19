@@ -1,12 +1,10 @@
-import React, { useState, useRef, useEffect } from 'react'; // useEffectを追加(念のため)
+import React, { useState, useRef, } from 'react'; // useEffectを追加(念のため)
 import {
   Box, Paper, Typography, Button, ButtonGroup,
   IconButton, Tooltip, Divider, Stack
 } from '@mui/material';
 import UndoIcon from '@mui/icons-material/Undo';
 import RedoIcon from '@mui/icons-material/Redo';
-import AddIcon from '@mui/icons-material/Add';
-import RemoveIcon from '@mui/icons-material/Remove';
 import DeleteIcon from '@mui/icons-material/Delete';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';

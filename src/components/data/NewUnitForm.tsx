@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  Paper, TextField, Button,
+  TextField, Button,
   Box
 } from '@mui/material';
 import { useDispatch } from 'react-redux';

@@ -1,4 +1,3 @@
-// src/components/calendar/StaffCalendarView.tsx
 import React, { CSSProperties, useMemo, useCallback, useRef, useEffect } from 'react';
 import {
   IconButton,
@@ -12,6 +11,7 @@ import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
 import { TableVirtuoso, TableComponents } from 'react-virtuoso'; 
 import { CellCoords, ClickMode } from '../../hooks/useCalendarInteractions';
+import { getPrevDateStr } from '../../utils/dateUtils'; // ★ 追加
 
 type MonthDay = {
   dateStr: string;
@@ -28,7 +28,7 @@ interface StaffCalendarViewProps {
   onStaffNameClick: (staff: IStaff) => void;
   onDateHeaderClick: (date: string) => void;
   clickMode: ClickMode;
-  activeCell: CellCoords | null;
+  // activeCell 削除
   selectionRange: { start: CellCoords, end: CellCoords } | null;
   onCellMouseDown: (e: React.MouseEvent, date: string, staffId: string, staffIndex: number, dateIndex: number) => void;
   onCellMouseMove: (date: string, staffId: string, staffIndex: number, dateIndex: number) => void;
@@ -46,6 +46,7 @@ const BORDER_COLOR = '#e0e0e0';
 const CELL_BORDER = `1px solid ${BORDER_COLOR}`;
 
 const styles: { [key: string]: CSSProperties } = {
+  // ... (既存のスタイル定義)
   th: {
     padding: '4px',
     borderBottom: CELL_BORDER,
@@ -144,7 +145,7 @@ const styles: { [key: string]: CSSProperties } = {
   },
 };
 
-// --- Cell Component (Strictly Memoized) ---
+// --- Cell Component ---
 interface StaffCellProps {
   staffId: string;
   dateStr: string;
@@ -159,16 +160,83 @@ interface StaffCellProps {
   onCellMouseDown: (e: React.MouseEvent, date: string, staffId: string, sIdx: number, dIdx: number) => void;
   onCellMouseMove: (date: string, staffId: string, sIdx: number, dIdx: number) => void;
   onCellMouseUp: () => void;
+  // ★ 追加: 前日のアサイン
+  prevAssignments?: IAssignment[];
 }
 
 const StaffCell = React.memo(({
   staffId, dateStr, staffIndex, dayIndex,
   assignments, patternMap,
   isWeekend, clickMode, rowBorderStyle,
-  onCellClick, onCellMouseDown, onCellMouseMove, onCellMouseUp
+  onCellClick, onCellMouseDown, onCellMouseMove, onCellMouseUp,
+  prevAssignments // ★ 追加
 }: StaffCellProps) => {
 
   const cellStyle = clickMode === 'select' ? styles.cellSelectable : styles.cellClickable;
+
+  let contentNodes: React.ReactNode = null;
+
+  if (assignments.length > 0) {
+    contentNodes = assignments.map(assignment => {
+      const pattern = assignment.patternId ? patternMap.get(assignment.patternId) : null;
+      let bgColor = '#e0e0e0', textColor = 'rgba(0, 0, 0, 0.87)';
+      
+      const symbolText = pattern?.symbol || pattern?.patternId || '??';
+      let chipContent: React.ReactNode = symbolText;
+
+      if (pattern?.workType === 'StatutoryHoliday') { bgColor = '#ef9a9a'; }
+      else if (pattern?.workType === 'PaidLeave') { bgColor = '#90caf9'; }
+      else if (pattern?.workType === 'Holiday') { bgColor = '#ffcc80'; }
+      else if (pattern?.isNightShift) { bgColor = '#bdbdbd'; }
+      else if (pattern?.isFlex) {
+        bgColor = '#ffe082';
+        const timeStr = (assignment.overrideStartTime || pattern.startTime || "").replace(':', '');
+        chipContent = (
+          <>
+            <div>{symbolText}</div>
+            <div style={{ fontSize: '0.65rem', transform: 'scale(0.9)', lineHeight: 1, opacity: 0.8 }}>
+              {timeStr}
+            </div>
+          </>
+        );
+      }
+      
+      return (
+        <div
+          key={assignment.id}
+          style={{ 
+            ...styles.assignmentChip, 
+            backgroundColor: bgColor, 
+            color: textColor,
+          }}
+        >
+          {chipContent}
+        </div>
+      );
+    });
+  } else {
+    // アサインがない場合 -> 前日夜勤なら '/' を表示
+    let isHalfHoliday = false;
+    if (prevAssignments && prevAssignments.length > 0) {
+      const hasPrevNightShift = prevAssignments.some(a => {
+        const p = patternMap.get(a.patternId);
+        return p?.isNightShift === true;
+      });
+      if (hasPrevNightShift) {
+        isHalfHoliday = true;
+      }
+    }
+
+    if (isHalfHoliday) {
+      contentNodes = (
+        <div style={{ ...styles.assignmentChip, backgroundColor: 'transparent', color: '#757575', fontSize: '1.2rem', fontWeight: 'bold' }}>
+          /
+        </div>
+      );
+    } else {
+      contentNodes = <span style={{ color: '#e0e0e0', fontSize: '0.8rem' }}>-</span>;
+    }
+  }
 
   return (
     <TableCell
@@ -185,52 +253,11 @@ const StaffCell = React.memo(({
       onMouseUp={onCellMouseUp}
     >
       <div style={styles.assignmentChipContainer}>
-        {assignments.length === 0 ? (
-          <span style={{ color: '#e0e0e0', fontSize: '0.8rem' }}>-</span>
-        ) : (
-          assignments.map(assignment => {
-            const pattern = assignment.patternId ? patternMap.get(assignment.patternId) : null;
-            let bgColor = '#e0e0e0', textColor = 'rgba(0, 0, 0, 0.87)';
-            
-            const symbolText = pattern?.symbol || pattern?.patternId || '??';
-            let chipContent: React.ReactNode = symbolText;
-
-            if (pattern?.workType === 'StatutoryHoliday' || pattern?.workType === 'PaidLeave') {
-              bgColor = '#ef9a9a';
-            } else if (pattern?.isNightShift) {
-              bgColor = '#bdbdbd';
-            } else if (pattern?.isFlex) {
-              bgColor = '#ffcc80';
-              const timeStr = (assignment.overrideStartTime || pattern.startTime || "").replace(':', '');
-              chipContent = (
-                <>
-                  <div>{symbolText}</div>
-                  <div style={{ fontSize: '0.65rem', transform: 'scale(0.9)', lineHeight: 1, opacity: 0.8 }}>
-                    {timeStr}
-                  </div>
-                </>
-              );
-            }
-            
-            return (
-              <div
-                key={assignment.id}
-                style={{ 
-                  ...styles.assignmentChip, 
-                  backgroundColor: bgColor, 
-                  color: textColor,
-                }}
-              >
-                {chipContent}
-              </div>
-            );
-          })
-        )}
+        {contentNodes}
       </div>
     </TableCell>
   );
 }, (prev, next) => {
-  // ★ 独自の比較関数: アサインの内容が実質的に同じなら再レンダリングしない
   if (
     prev.staffId !== next.staffId ||
     prev.dateStr !== next.dateStr ||
@@ -240,7 +267,6 @@ const StaffCell = React.memo(({
     return false;
   }
 
-  // 配列の中身（IDとPatternID）が変わっていなければ同じとみなす
   if (prev.assignments.length !== next.assignments.length) return false;
   for (let i = 0; i < prev.assignments.length; i++) {
     if (
@@ -251,10 +277,21 @@ const StaffCell = React.memo(({
       return false;
     }
   }
+
+  // prevAssignments の比較も追加
+  const prevLen = prev.prevAssignments?.length || 0;
+  const nextLen = next.prevAssignments?.length || 0;
+  if (prevLen !== nextLen) return false;
+  if (prevLen > 0 && next.prevAssignments) {
+      for (let i = 0; i < prevLen; i++) {
+         if (prev.prevAssignments![i].patternId !== next.prevAssignments[i].patternId) return false;
+      }
+  }
+
   return true;
 });
 
-// --- Custom Scroller ---
+// --- Custom Scroller (変更なし) ---
 const ScrollerWithOverlay = React.forwardRef<HTMLDivElement, any>((props, ref) => (
   <div {...props} ref={ref} style={{ ...props.style, position: 'relative' }}>
     {props.children}
@@ -303,7 +340,6 @@ export default function StaffCalendarView({
   onStaffNameClick,
   onDateHeaderClick,
   clickMode,
-  activeCell,
   selectionRange,
   onCellMouseDown,
   onCellMouseMove,
@@ -325,35 +361,28 @@ export default function StaffCalendarView({
     return map;
   }, [assignments]);
 
-  // --- DOM直接操作による選択範囲描画 ---
   useEffect(() => {
     const overlay = document.getElementById('selection-overlay');
     if (!overlay) return;
-
     if (!selectionRange || clickMode !== 'select') {
       overlay.style.display = 'none';
       return;
     }
-
     const sIdx = Math.min(selectionRange.start.staffIndex, selectionRange.end.staffIndex);
     const eIdx = Math.max(selectionRange.start.staffIndex, selectionRange.end.staffIndex);
     const dStart = Math.min(selectionRange.start.dateIndex, selectionRange.end.dateIndex);
     const dEnd = Math.max(selectionRange.start.dateIndex, selectionRange.end.dateIndex);
-
     const top = HEADER_HEIGHT + (sIdx * ROW_HEIGHT);
     const height = (eIdx - sIdx + 1) * ROW_HEIGHT;
     const left = LEFT_COL_WIDTH + (dStart * COL_WIDTH);
     const width = (dEnd - dStart + 1) * COL_WIDTH;
-
     overlay.style.display = 'block';
     overlay.style.top = `${top}px`;
     overlay.style.left = `${left}px`;
     overlay.style.width = `${width}px`;
     overlay.style.height = `${height}px`;
-
   }, [selectionRange, clickMode]);
 
-  // ハンドラ固定化
   const onCellClickRef = useRef(onCellClick);
   const onCellMouseDownRef = useRef(onCellMouseDown);
   const onCellMouseMoveRef = useRef(onCellMouseMove);
@@ -453,6 +482,11 @@ export default function StaffCalendarView({
           const key = `${staff.staffId}_${dayInfo.dateStr}`;
           const assignmentsForCell = assignmentsMap.get(key) || [];
           const isWeekend = dayInfo.dayOfWeek === 0 || dayInfo.dayOfWeek === 6;
+          
+          // ★ 前日のアサインを取得してセルに渡す
+          const prevDateStr = getPrevDateStr(dayInfo.dateStr);
+          const prevKey = `${staff.staffId}_${prevDateStr}`;
+          const prevAssignments = assignmentsMap.get(prevKey) || [];
 
           return (
             <StaffCell
@@ -470,6 +504,7 @@ export default function StaffCalendarView({
               onCellMouseDown={stableOnCellMouseDown}
               onCellMouseMove={stableOnCellMouseMove}
               onCellMouseUp={stableOnCellMouseUp}
+              prevAssignments={prevAssignments} // ★ 追加
             />
           );
         })}

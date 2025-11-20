@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../store';
 import { IStaff, IAssignment, IShiftPattern } from '../db/dexie';
-import { getDefaultRequiredHolidays } from '../utils/dateUtils';
+import { getDefaultRequiredHolidays, getPrevDateStr } from '../utils/dateUtils';
 
 type MonthDay = {
   dateStr: string;
@@ -23,10 +23,12 @@ const calculateStaffBurdenData = (
       maxHours: number;
       holidayCount: number; 
       requiredHolidays: number; 
+      holidayDetails: Map<string, number>;
   }>();
 
   const defaultReq = getDefaultRequiredHolidays(monthDays); 
 
+  // 1. スタッフごとの初期化
   staffList.forEach((s: IStaff) => { 
     burdenMap.set(s.staffId, { 
       staffId: s.staffId, name: s.name, employmentType: s.employmentType,
@@ -34,51 +36,84 @@ const calculateStaffBurdenData = (
       maxHours: (s.constraints?.maxConsecutiveDays || 5) * 8 * 4,
       holidayCount: 0, 
       requiredHolidays: staffHolidayRequirements.get(s.staffId) || defaultReq, 
+      holidayDetails: new Map(),
     });
   });
 
-  const dateToDayOfWeekMap = new Map<string, number>(
-    monthDays.map(d => [d.dateStr, d.dayOfWeek])
-  );
+  // 2. アサインをスタッフ・日付で高速検索できるようにマップ化
+  const assignmentLookup = new Map<string, IAssignment>();
+  for (const a of assignments) {
+    assignmentLookup.set(`${a.staffId}_${a.date}`, a);
+  }
 
-  for (const assignment of assignments) {
-    if (assignment.staffId && assignment.patternId) {
-      const staffData = burdenMap.get(assignment.staffId);
-      const pattern = patternMap.get(assignment.patternId);
-      if (staffData && pattern) { 
+  // 3. 日付順に走査して集計
+  for (const staff of staffList) {
+    const staffData = burdenMap.get(staff.staffId)!;
+
+    for (const day of monthDays) {
+      const dateStr = day.dateStr;
+      const assignment = assignmentLookup.get(`${staff.staffId}_${dateStr}`);
+      const pattern = assignment ? patternMap.get(assignment.patternId) : null;
+
+      // --- 前日チェック (夜勤明け判定) ---
+      const prevDateStr = getPrevDateStr(dateStr);
+      const prevAssignment = assignmentLookup.get(`${staff.staffId}_${prevDateStr}`);
+      const prevPattern = prevAssignment ? patternMap.get(prevAssignment.patternId) : null;
+
+      const isPrevNightShift = prevPattern?.isNightShift === true;
+      const isTodayWork = pattern?.workType === 'Work';
+
+      // 前日が夜勤かつ、当日が勤務でない場合、半公休(0.5)を加算
+      if (isPrevNightShift && !isTodayWork) {
+        staffData.holidayCount += 0.5;
+        // ★ 修正: 半公休('/')は公休の一部として扱うため、内訳チップ(holidayDetails)には追加しない
+        // const key = '/';
+        // const current = staffData.holidayDetails.get(key) || 0;
+        // staffData.holidayDetails.set(key, current + 0.5);
+      }
+
+      // --- 当日のアサイン集計 ---
+      if (pattern) {
         if (pattern.workType === 'Work') { 
           staffData.assignmentCount++;
           
-          // ★★★ Flex計算ロジック ★★★
           let hours = pattern.durationHours;
-          if (pattern.isFlex && assignment.overrideStartTime && assignment.overrideEndTime) {
+          if (pattern.isFlex && assignment?.overrideStartTime && assignment?.overrideEndTime) {
              const [sh, sm] = assignment.overrideStartTime.split(':').map(Number);
              const [eh, em] = assignment.overrideEndTime.split(':').map(Number);
              const startVal = sh + (sm / 60);
              const endVal = eh + (em / 60);
-             // 休憩時間を引くならここで pattern.breakDurationMinutes を考慮するが、
-             // Flexの場合「実働」を指定している前提であればそのまま差分、
-             // 「枠」を指定しているなら休憩を引く。
-             // ここでは「枠内で実働X時間」という要件だが、overrideTimeは「確定した時間」とみなして単純差分とします。
-             // もし休憩が必要なら (diff - break) とする
              const diff = endVal - startVal;
              hours = diff > 0 ? diff : 0;
           }
-
           staffData.totalHours += hours;
 
           if (pattern.isNightShift) staffData.nightShiftCount++;
           
-          const dayOfWeek = dateToDayOfWeekMap.get(assignment.date);
-          if (dayOfWeek === 0 || dayOfWeek === 6) {
+          if (day.dayOfWeek === 0 || day.dayOfWeek === 6) {
             staffData.weekendCount++;
           }
-        } else if (pattern.workType === 'StatutoryHoliday') { 
+        } 
+        else if (pattern.workType === 'StatutoryHoliday') { 
           staffData.holidayCount++;
+        }
+        else if (pattern.workType === 'PaidLeave') {
+          staffData.holidayCount++; 
+          const key = pattern.symbol || '有';
+          const current = staffData.holidayDetails.get(key) || 0;
+          staffData.holidayDetails.set(key, current + 1);
+        }
+        else if (pattern.workType === 'Holiday') {
+          staffData.holidayCount++; 
+          // その他の休日(育休等)は内訳にも表示
+          const key = pattern.symbol || pattern.name;
+          const current = staffData.holidayDetails.get(key) || 0;
+          staffData.holidayDetails.set(key, current + 1);
         }
       }
     }
   }
+
   return burdenMap;
 };
 
@@ -87,7 +122,6 @@ export const useStaffBurdenData = (
   currentMonth: number, 
   monthDays: MonthDay[]
 ) => {
-  // (変更なし)
   const { staff: allStaff } = useSelector((state: RootState) => state.staff);
   const { assignments } = useSelector((state: RootState) => state.assignment.present);
   const shiftPatterns = useSelector((state: RootState) => state.pattern.patterns);

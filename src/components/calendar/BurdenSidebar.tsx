@@ -1,53 +1,53 @@
-// import React from 'react'; // ★★★ 削除 (TS6192)
 import { 
   Box, Paper, Typography, 
   List, ListItem, ListItemText, Avatar, Chip,
   Collapse,
   IconButton
-  // ★ ListItemButton, Stack, Add/Remove アイコンを削除
 } from '@mui/material';
-// import { IStaff } from '../../db/dexie'; // ★★★ 削除 (TS6133)
 
-// アイコンのインポート
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 
-// (ShiftCalendarPage.tsx からサイドバーのコードを移動)
-
-// ★ v5.9 staffBurdenData の型定義
-// type StaffBurdenData = { ... }; // (TS6196 解消のため削除済み)
-
-interface BurdenSidebarProps {
-  // ★ v5.9 サイドバーに必要な props を修正
-  isOpen: boolean;
-  onToggle: () => void;
-  staffBurdenData: Map<string, any>; 
-  // staffMap: Map<string, IStaff>; // ★★★ 削除 (TS2322)
-  // ★ v5.9 修正: onStaffClick と +/- ハンドラを削除
+// ★ 追加: 必要な型定義を行う
+interface BurdenDataValue {
+  staffId: string;
+  name: string;
+  assignmentCount: number;
+  nightShiftCount: number;
+  totalHours: number;
+  weekendCount: number;
+  maxHours: number;
+  holidayCount: number;
+  requiredHolidays: number;
+  holidayDetails: Map<string, number>; // ★ ここが重要
 }
 
-// export default を追加
-export default function BurdenSidebar({ 
-  isOpen, onToggle, staffBurdenData // ★ staffMap を削除 (TS6133)
-}: BurdenSidebarProps) {
+interface BurdenSidebarProps {
+  isOpen: boolean;
+  onToggle: () => void;
+  // ★ 修正: any ではなく具体的な型を指定
+  staffBurdenData: Map<string, BurdenDataValue>; 
+}
 
-  // ★★★ v5.101 で追加した useSelector, useState, useEffect, useMemo ロジックをすべて削除 ★★★
+export default function BurdenSidebar({ 
+  isOpen, onToggle, staffBurdenData 
+}: BurdenSidebarProps) {
 
   return (
     <Box sx={{ 
       display: 'flex',
-      flexDirection: 'column', // 縦に並べる
-      transition: 'width 0.2s, min-width 0.2s', // アニメーション
-      width: isOpen ? '20vw' : '56px', // 幅を変更
-      minWidth: isOpen ? '300px' : '56px', // 最小幅
+      flexDirection: 'column', 
+      transition: 'width 0.2s, min-width 0.2s', 
+      width: isOpen ? '20vw' : '56px', 
+      minWidth: isOpen ? '300px' : '56px', 
     }}>
       
       <Paper sx={{ 
-        flexGrow: 1, // Box の高さいっぱいに広がる
-        overflow: 'hidden', // 閉じたときにはみ出さないように
+        flexGrow: 1, 
+        overflow: 'hidden', 
         display: 'flex',
-        flexDirection: 'column', // 縦に並べる
-        p: isOpen ? 2 : 0, // 閉じている時はパディング削除
+        flexDirection: 'column', 
+        p: isOpen ? 2 : 0, 
       }}>
         {/* 開閉ボタンエリア */}
         <Box sx={{ 
@@ -70,17 +70,23 @@ export default function BurdenSidebar({
         {/* Collapse で中身を隠す */}
         <Collapse in={isOpen} sx={{ flexGrow: 1, overflowY: 'auto', minHeight: 0 }}>
           <List dense>
-            {/* ★ v5.9 修正: ListItemButton を解除し、通常の ListItem に変更 */}
             {Array.from(staffBurdenData.values()).map(staffData => {
               const hourViolation = staffData.totalHours > staffData.maxHours; 
               const holidayViolation = staffData.holidayCount < staffData.requiredHolidays; 
               
+              // ★ 型定義によりエラーが解消されます
+              const holidayDetailChips = Array.from(staffData.holidayDetails.entries()).map(([key, count]) => (
+                <Chip 
+                  key={key}
+                  label={`${key}: ${count}`} 
+                  size="small" 
+                  variant="outlined" 
+                  sx={{ borderColor: '#ffb74d', color: '#f57c00', bgcolor: '#fff3e0' }} 
+                />
+              ));
+
               return (
-                <ListItem 
-                  key={staffData.staffId} 
-                  divider
-                  // (onClick は削除)
-                >
+                <ListItem key={staffData.staffId} divider>
                   <Avatar sx={{ width: 32, height: 32, mr: 2, fontSize: '0.8rem' }}>
                     {staffData.name.charAt(0)}
                   </Avatar>
@@ -90,14 +96,14 @@ export default function BurdenSidebar({
                       <Box component="span" sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mt: 0.5, alignItems: 'center' }}>
                         <Chip label={`計: ${staffData.assignmentCount} 回`} size="small" variant="outlined" />
                         
-                        {/* ★ v5.9 修正: 公休調整ボタンを削除 */}
                         <Chip 
                           label={`公: ${staffData.holidayCount}/${staffData.requiredHolidays} 日`} 
                           size="small" 
                           variant="outlined" 
                           color={holidayViolation ? 'error' : 'default'} 
                         />
-                        {/* ★ v5.9 修正ここまで */}
+
+                        {holidayDetailChips}
 
                         <Chip label={`夜: ${staffData.nightShiftCount} 回`} size="small" variant="outlined" color={staffData.nightShiftCount > 0 ? 'secondary' : 'default'} />
                         <Chip label={`土日: ${staffData.weekendCount} 回`} size="small" variant="outlined" />

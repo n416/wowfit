@@ -3,13 +3,62 @@ import undoable, { ActionTypes } from 'redux-undo';
 import { IStaff, IShiftPattern, db, IAssignment, IUnit } from '../db/dexie'; 
 import { GeminiApiClient } from '../api/geminiApiClient'; 
 import { extractJson } from '../utils/jsonExtractor'; 
-import { getDefaultRequiredHolidays } from '../utils/dateUtils';
+import { getDefaultRequiredHolidays, getPrevDateStr } from '../utils/dateUtils'; // ★ getPrevDateStr 追加
 
 const timeToMin = (t: string) => {
   if (!t) return 0;
   const [h, m] = t.split(':').map(Number);
   return h * 60 + m;
 };
+
+// ★ ヘルパー: 現在の休日数を正確に計算する (useStaffBurdenDataと同じロジック)
+const calculateCurrentHolidayCounts = (
+  allStaff: IStaff[],
+  allAssignments: IAssignment[],
+  allPatterns: IShiftPattern[],
+  monthDays: { dateStr: string; }[]
+) => {
+  const patternMap = new Map(allPatterns.map(p => [p.patternId, p]));
+  const assignmentMap = new Map<string, IAssignment>();
+  allAssignments.forEach(a => assignmentMap.set(`${a.staffId}_${a.date}`, a));
+
+  const counts = new Map<string, number>();
+
+  allStaff.forEach(staff => {
+    let count = 0;
+    for (const day of monthDays) {
+      const dateStr = day.dateStr;
+      const assignment = assignmentMap.get(`${staff.staffId}_${dateStr}`);
+      const pattern = assignment ? patternMap.get(assignment.patternId) : undefined;
+
+      // 1. 明示的な休日パターンのカウント
+      if (pattern) {
+        if (pattern.workType === 'StatutoryHoliday' || 
+            pattern.workType === 'PaidLeave' || 
+            pattern.workType === 'Holiday') {
+          count += 1.0;
+        }
+      }
+
+      // 2. 夜勤明け(半公休)のカウント
+      const prevDateStr = getPrevDateStr(dateStr);
+      const prevAssignment = assignmentMap.get(`${staff.staffId}_${prevDateStr}`);
+      const prevPattern = prevAssignment ? patternMap.get(prevAssignment.patternId) : undefined;
+      
+      const isPrevNightShift = prevPattern?.isNightShift === true;
+      const isTodayWork = pattern?.workType === 'Work';
+
+      // 前日が夜勤 かつ 当日が労働でない場合、0.5日加算
+      if (isPrevNightShift && !isTodayWork) {
+        count += 0.5;
+      }
+    }
+    counts.set(staff.staffId, count);
+  });
+
+  return counts;
+};
+
 
 // (FetchAdviceArgs, fetchAssignmentAdvice は変更なし)
 interface FetchAdviceArgs {
@@ -118,6 +167,11 @@ ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
 # 指示 (最重要)
 1. **ロック維持**: \`"locked": true\` のアサインは変更しないでください。
 2. **公休数厳守**: \`"requiredHolidays"\` の日数を守ってください。
+   - **重要: 公休の記号は「*」です（パターンID: "公休"）。**
+   - **重要: 夜勤（isNightShift=true）の翌日は「半公休（/）」扱いとなり、0.5日の休日としてカウントされます。**
+   - 夜勤の翌日には、連続夜勤の場合を除き、シフトを割り当てないでください（空にしておけばシステムが半公休として扱います）。
+   - 例: 「夜勤」→「（空）」→「日勤」の場合、2日目は半公休(0.5日休)となります。
+   - 例: 「夜勤」→「夜勤」の場合、2日目は勤務日です。
 3. **0.5人ルール**: デマンド0.5には 'crossUnitWorkType' が有/サポートのスタッフを割り当ててください。
 4. **パート契約時間の遵守 (重要)**: 
    - \`employmentType: "PartTime"\` のスタッフには、必ず \`workableTimeRanges\` の範囲内に収まる時間を割り当ててください。
@@ -160,7 +214,7 @@ ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
           continue;
         }
 
-        if (pattern.workType === 'StatutoryHoliday' || pattern.workType === 'PaidLeave') {
+        if (pattern.workType === 'StatutoryHoliday' || pattern.workType === 'PaidLeave' || pattern.workType === 'Holiday') {
           validAssignments.push(assignment);
           continue;
         }
@@ -203,7 +257,7 @@ ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
       }
 
       // ---------------------------------------------------------
-      // ★★★ 修正: 保存処理の強化 (重複防止) ★★★
+      // ★★★ 保存処理 ★★★
       // ---------------------------------------------------------
       
       // 1. 対象月のアサインを「完全に」削除する
@@ -218,7 +272,6 @@ ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
             .delete();
             
           // 新しいデータを追加
-          // IDが含まれていると競合する可能性があるので、IDを除外して追加
           const assignmentsToSave = validAssignments.map(({ id, ...rest }) => rest);
           await db.assignments.bulkAdd(assignmentsToSave);
       });
@@ -238,7 +291,6 @@ ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
   }
 );
 
-// (fetchAiHolidayPatch, fetchAiAnalysis, Slice定義 は変更なし)
 interface FetchAiHolidayPatchArgs {
   allStaff: IStaff[];
   allPatterns: IShiftPattern[];
@@ -257,38 +309,70 @@ export const fetchAiHolidayPatch = createAsyncThunk(
       return rejectWithValue('Gemini APIが設定されていません。');
     }
     const defaultHolidayCount = getDefaultRequiredHolidays(monthInfo.days);
-    const staffWithHolidayReq = allStaff.map(staff => ({
-      ...staff,
-      requiredHolidays: staffHolidayRequirements.get(staff.staffId) || defaultHolidayCount 
-    }));
+    
+    // ★ 事前に休日過不足を計算する
+    const currentHolidayCounts = calculateCurrentHolidayCounts(allStaff, allAssignments, allPatterns, monthInfo.days);
+    
+    // 過不足情報をリスト化
+    const discrepancyList = allStaff.map(staff => {
+      const req = staffHolidayRequirements.get(staff.staffId) || defaultHolidayCount;
+      const cur = currentHolidayCounts.get(staff.staffId) || 0;
+      const diff = cur - req; // プラスなら過剰、マイナスなら不足
+      if (diff === 0) return null;
+      return {
+        staffId: staff.staffId,
+        name: staff.name,
+        current: cur,
+        required: req,
+        diff: diff, // 例: -1.0 (1日不足), +0.5 (0.5日過剰)
+        instruction: diff < 0 
+          ? `不足しています。${Math.abs(diff)}日分の公休（または半公休）を追加してください。` 
+          : `過剰です。${diff}日分の休日を労働に変更してください。`
+      };
+    }).filter(Boolean); // null除外
+
+    if (discrepancyList.length === 0) {
+      alert("公休数の過不足はありません。補正の必要はありません。");
+      return allAssignments;
+    }
+
     const holidayPatternId = allPatterns.find(p => p.workType === 'StatutoryHoliday')?.patternId || '公休';
+    
+    // ★ プロンプト修正: 具体的な過不足リストを提示
     const prompt = `あなたは勤務表の「差分補正」AIです。
-以下の「現在の勤務表」と「スタッフの必要公休数」を比較し、**公休数に過不足があるスタッフ**のみを修正してください。
-# 1. スタッフ一覧 (★必要公休数)
-${JSON.stringify(staffWithHolidayReq.filter(s => s.employmentType !== 'Rental'), null, 2)}
+以下の「公休過不足リスト」に基づき、**公休数に過不足があるスタッフのみ**アサインを修正してください。
+
+# 1. 公休過不足リスト (★これに従って修正してください)
+${JSON.stringify(discrepancyList, null, 2)}
+
 # 2. 勤務パターン定義
 ${JSON.stringify(allPatterns, null, 2)}
 # 3. ユニット別・24時間デマンド（必要人数）
 ${JSON.stringify(allUnits, null, 2)}
-# 4. 現在の勤務表 (※可能な限り維持してください)
+# 4. 現在の勤務表
 ${JSON.stringify(allAssignments, null, 2)}
 # 5. 対象月
 ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
+
 # 指示 (最重要)
-1. **最小限の変更 (最重要)**: 「現在の勤務表」(#4)は、**\`locked": true\`でなくても、可能な限り（99%）維持**してください。
-2. **公休数の過不足を計算**: スタッフごとに「必要公休数」(#1)と、「現在の勤務表」(#4)内の "workType": "StatutoryHoliday" の数を比較してください。
-3. **公休が不足している場合**:
-   - そのスタッフの「勤務（"workType": "Work"）」アサインのうち、デマンド（#3）への影響が最も少ない日（例：デマンドが0、または既に人員が充足している日）を探してください。
-   - その日の勤務アサインを、公休アサイン（例: \`{ "date": "...", "staffId": "...", "patternId": "${holidayPatternId}", "unitId": null }\`）に**置き換えて**ください。
-4. **公休が過剰な場合**:
-   - そのスタッフの「公休」アサインのうち、デマンド（#3）が**不足**している日（＝本当は出勤してほしい日）を探してください。
-   - その日の公休アサインを、そのスタッフが勤務可能な労働パターン（例: "A" や "N"）に**置き換えて**ください。
-5. **ロックされたアサインは変更不可**: \`"locked": true\` のアサインは絶対に変更しないでください。
+1. **過不足の解消**: 
+   - リストにある \`diff\` (差分) をゼロにすることが目標です。
+   - \`instruction\` に従い、公休の追加または削除を行ってください。
+   - **公休追加**: パターンID "${holidayPatternId}" ("*") を使用してください。
+   - **公休削除**: 公休アサインを、そのスタッフが可能な労働パターンに変更してください。
+
+2. **半公休の考慮**:
+   - **夜勤の翌日は自動的に「半公休（0.5日休）」としてカウントされています。**
+   - この「アサイン無し（空）」の状態を、労働で埋めると0.5日分の休日が減ります。
+   - 逆に、夜勤の翌日を空のままにしておけば0.5日休を確保できます。
+
+3. **影響の最小化**:
+   - デマンド（#3）への影響が最も少ない日（人員充足日など）を選んで変更してください。
+   - \`locked": true\` のアサインは絶対に変更しないでください。
+
 # 出力形式 (【厳守】)
 - **変更（置換）が必要なアサインのみ**を、IAssignment[] 形式のJSON配列で出力してください。
-- **変更が不要なアサインは、絶対に出力に含めないでください。**
-- **応答は必ず \`[\` で始まり、 \`]\` で終わる必要があります。**
-- もし変更が不要な場合（全員の公休数が一致している場合）は、空の配列 \`[]\` を返してください。
+- 変更がない場合は空配列 \`[]\` を返してください。
 \`\`\`json
 [
   { "date": "2025-11-10", "staffId": "s003", "patternId": "${holidayPatternId}", "unitId": null },
@@ -296,6 +380,7 @@ ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
 ]
 \`\`\`
 `;
+
     try {
       console.log("★ AI公休補正: APIにプロンプトを送信します");
       const resultText = await gemini.generateContent(prompt);
@@ -305,7 +390,7 @@ ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
         throw new Error("AIが不正な形式のJSON（配列）を返しませんでした。");
       }
       if (patchAssignments.length === 0) {
-        alert("AIによる公休数の診断が完了しました。\n（全員の公休数が既に一致しているため、変更はありませんでした）");
+        alert("AIによる補正の結果、変更案はありませんでした。");
         return allAssignments; 
       }
       
@@ -356,6 +441,8 @@ export const fetchAiAnalysis = createAsyncThunk(
     }));
     const defaultHolidayCount = getDefaultRequiredHolidays(monthInfo.days);
     const lockedAssignments = allAssignments.filter((a: IAssignment) => a.locked);
+    
+    // ★ プロンプト修正: 夜勤明けの仕様を明記
     const prompt = `あなたは勤務表システムのデータ診断医です。
 以下の「マスタデータ（スタッフ設定、デマンド設定）」と「固定されたアサイン（管理者による確定事項）」を診断し、**論理的な矛盾**や**物理的な達成不可能性**を指摘してください。
 # 1. スタッフ一覧 (制約と必要公休数)
@@ -379,6 +466,7 @@ ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
    - ロックされたアサインにより、特定の日の要員が不足確定になっていないか確認してください。
 3. **公休契約の実現可能性**
    - 各スタッフの \`requiredHolidays\` (公休数) を確保しつつ、他のスタッフでデマンドを回す余裕がシステム全体としてあるかを概算してください。
+   - **注意: 夜勤の翌日は「半公休（0.5日休日）」としてカウントされます。ただし連続夜勤の場合は勤務日です。**
 # 出力形式
 - 管理者への「データ修正のアドバイス」として、日本語の箇条書きで簡潔に出力してください。
 - 特定の日時のアサイン指示（「〇日にAさんを入れるべき」等）は不要です。
@@ -393,6 +481,7 @@ ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
   }
 );
 
+// ... (assignmentSlice, undoableAssignmentReducer は変更なし)
 interface AssignmentState {
   assignments: IAssignment[];
   isSyncing: boolean; 

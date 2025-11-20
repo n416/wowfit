@@ -1,7 +1,6 @@
-// src/pages/ShiftCalendarPage.tsx
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
-import {
-  Box, Paper, Tabs, Tab,
+import { 
+  Box, Paper, Tabs, Tab, 
   Button,
   ToggleButton, ToggleButtonGroup,
   Stack,
@@ -9,24 +8,24 @@ import {
 } from '@mui/material';
 import { useSelector, useDispatch, useStore } from 'react-redux';
 import { ActionCreators as UndoActionCreators } from 'redux-undo';
-import { db } from '../db/dexie';
-import { setStaffList } from '../store/staffSlice';
+import { db } from '../db/dexie'; 
+import { setStaffList } from '../store/staffSlice'; 
 import { setPatterns } from '../store/patternSlice';
 import { setUnits } from '../store/unitSlice';
-import { _syncAssignments } from '../store/assignmentSlice';
-import { goToNextMonth, goToPrevMonth, _setIsMonthLoading } from '../store/calendarSlice';
+import { _syncAssignments } from '../store/assignmentSlice'; 
+import { goToNextMonth, goToPrevMonth, _setIsMonthLoading } from '../store/calendarSlice'; 
 import type { AppDispatch, RootState } from '../store';
-import { getMonthDays } from '../utils/dateUtils';
+import { getMonthDays, getPrevDateStr } from '../utils/dateUtils'; // ★ 追加
 
 // コンポーネント
 import StaffCalendarView from '../components/calendar/StaffCalendarView';
 import WorkSlotCalendarView from '../components/calendar/WorkSlotCalendarView';
-import AssignPatternModal from '../components/calendar/AssignPatternModal';
-import AiSupportPane from '../components/calendar/AiSupportPane';
-import BurdenSidebar from '../components/calendar/BurdenSidebar';
+import AssignPatternModal from '../components/calendar/AssignPatternModal'; 
+import AiSupportPane from '../components/calendar/AiSupportPane'; 
+import BurdenSidebar from '../components/calendar/BurdenSidebar'; 
 import DailyUnitGanttModal from '../components/calendar/DailyUnitGanttModal';
-import ClearStaffAssignmentsModal from '../components/calendar/ClearStaffAssignmentsModal';
-import TabPanel from '../components/TabPanel';
+import ClearStaffAssignmentsModal from '../components/calendar/ClearStaffAssignmentsModal'; 
+import TabPanel from '../components/TabPanel'; 
 // ★ 追加: カレンダーナビゲーションコンポーネント
 import MonthNavigation from '../components/calendar/MonthNavigation';
 
@@ -35,55 +34,56 @@ import { MOCK_PATTERNS_V5, MOCK_UNITS_V5, MOCK_STAFF_V4 } from '../db/mockData';
 // カスタムフック
 import { useStaffBurdenData } from '../hooks/useStaffBurdenData';
 import { useDemandMap } from '../hooks/useDemandMap';
+import { useUnitGroups } from '../hooks/useUnitGroups';
 import { useUndoRedoKeyboard } from '../hooks/useUndoRedoKeyboard';
 import { useCalendarInteractions } from '../hooks/useCalendarInteractions';
 import { useShiftCalendarModals } from '../hooks/useShiftCalendarModals';
 import { useShiftCalendarLogic } from '../hooks/useShiftCalendarLogic';
 
 // アイコン
-import EditIcon from '@mui/icons-material/Edit'; // Normal
-import HolidayIcon from '@mui/icons-material/BeachAccess'; // Holiday
-import PaidLeaveIcon from '@mui/icons-material/FlightTakeoff'; // PaidLeave
-import SelectAllIcon from '@mui/icons-material/SelectAll'; // Select
-import UndoIcon from '@mui/icons-material/Undo';
-import RedoIcon from '@mui/icons-material/Redo';
-import RefreshIcon from '@mui/icons-material/Refresh';
+import EditIcon from '@mui/icons-material/Edit'; 
+import HolidayIcon from '@mui/icons-material/BeachAccess'; 
+import PaidLeaveIcon from '@mui/icons-material/FlightTakeoff'; 
+import SelectAllIcon from '@mui/icons-material/SelectAll'; 
+import UndoIcon from '@mui/icons-material/Undo'; 
+import RedoIcon from '@mui/icons-material/Redo'; 
+import RefreshIcon from '@mui/icons-material/Refresh'; 
 
 // --- メインコンポーネント ---
 function ShiftCalendarPage() {
   const [tabValue, setTabValue] = useState(0);
-  const dispatch: AppDispatch = useDispatch();
+  const dispatch: AppDispatch = useDispatch(); 
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-
+  
   const mainCalendarScrollerRef = useRef<HTMLElement | null>(null);
 
   // --- 1. グローバル状態の取得 ---
-  const {
-    past,
+  const { 
+    past, 
     future,
     present: {
-      assignments,
-      isSyncing,
-      adjustmentLoading,
+      assignments, 
+      isSyncing, 
+      adjustmentLoading, 
       adjustmentError,
-      analysisLoading,
-      analysisResult,
+      analysisLoading, 
+      analysisResult, 
       analysisError,
-      patchLoading,
+      patchLoading, 
       patchError,
       adviceLoading
     }
   } = useSelector((state: RootState) => state.assignment);
-
+  
   const { patterns: shiftPatterns } = useSelector((state: RootState) => state.pattern);
   const { units: unitList } = useSelector((state: RootState) => state.unit);
-  const { staff: staffList } = useSelector((state: RootState) => state.staff);
-
-  const {
-    currentYear,
-    currentMonth,
-    isMonthLoading
+  const { staff: staffList } = useSelector((state: RootState) => state.staff); 
+  
+  const { 
+    currentYear, 
+    currentMonth, 
+    isMonthLoading 
   } = useSelector((state: RootState) => state.calendar);
 
   const monthDays = useMemo(() => {
@@ -101,8 +101,8 @@ function ShiftCalendarPage() {
     staffHolidayRequirements,
     handleHolidayIncrement,
     handleHolidayDecrement
-  } = useStaffBurdenData(currentYear, currentMonth, monthDays);
-
+  } = useStaffBurdenData(currentYear, currentMonth, monthDays); 
+  
   const sortedStaffList = useMemo(() => {
     return [...activeStaffList].sort((a, b) => {
       const unitA = a.unitId || 'ZZZ';
@@ -113,24 +113,24 @@ function ShiftCalendarPage() {
       return unitA.localeCompare(unitB);
     });
   }, [activeStaffList]);
-
-  const demandMap = useDemandMap(monthDays);
+  
+  const demandMap = useDemandMap(monthDays); 
 
   const {
     clickMode,
-    setClickMode,
+    setClickMode, 
     activeCell,
     selectionRange,
-    handleCellClick: handleInteractionCellClick,
+    handleCellClick: handleInteractionCellClick, 
     handleCellMouseDown,
     handleCellMouseMove,
     handleCellMouseUp,
     invalidateSyncLock,
   } = useCalendarInteractions(
-    sortedStaffList,
-    mainCalendarScrollerRef,
+    sortedStaffList, 
+    mainCalendarScrollerRef, 
     monthDays
-  );
+  ); 
 
   const {
     editingTarget,
@@ -142,32 +142,34 @@ function ShiftCalendarPage() {
     closeModals,
     handleClearStaffAssignments,
   } = useShiftCalendarModals();
+  
+  const unitGroups = useUnitGroups(showingGanttTarget, monthDays);
 
   const {
     aiInstruction,
     setAiInstruction,
     handleFillRental,
     handleRunAiAdjustment,
-    handleRunAiDefault,
+    handleRunAiDefault, 
     handleRunAiAnalysis,
     handleRunAiHolidayPatch,
     handleResetClick,
     handleClearError,
     handleClearAnalysis
   } = useShiftCalendarLogic(
-    currentYear,
-    currentMonth,
+    currentYear, 
+    currentMonth, 
     monthDays,
-    activeStaffList,
+    activeStaffList, 
     staffHolidayRequirements,
     demandMap
   );
 
-  useUndoRedoKeyboard(invalidateSyncLock);
+  useUndoRedoKeyboard(invalidateSyncLock); 
 
   // ★ 4. ページ固有のロジック (データ読み込み)
-  const store = useStore<RootState>();
-
+  const store = useStore<RootState>(); 
+  
   useEffect(() => {
     const loadMasterData = async () => {
       try {
@@ -176,48 +178,51 @@ function ShiftCalendarPage() {
           db.shiftPatterns.toArray(),
           db.staffList.toArray()
         ]);
-
+        
         if (patterns.length === 0) {
-          await db.shiftPatterns.bulkPut(MOCK_PATTERNS_V5);
+          await db.shiftPatterns.bulkPut(MOCK_PATTERNS_V5); 
           dispatch(setPatterns(MOCK_PATTERNS_V5));
         } else {
           dispatch(setPatterns(patterns));
         }
-
+        
         if (units.length === 0) {
-          await db.units.bulkPut(MOCK_UNITS_V5);
+          await db.units.bulkPut(MOCK_UNITS_V5); 
           dispatch(setUnits(MOCK_UNITS_V5));
         } else {
           dispatch(setUnits(units));
         }
-
+        
         if (staff.length === 0) {
-          await db.staffList.bulkPut(MOCK_STAFF_V4);
-          dispatch(setStaffList(MOCK_STAFF_V4));
+           await db.staffList.bulkPut(MOCK_STAFF_V4); 
+           dispatch(setStaffList(MOCK_STAFF_V4));
         } else {
-          dispatch(setStaffList(staff));
+           dispatch(setStaffList(staff));
         }
       } catch (e) {
         console.error("DBマスタデータの読み込み/初期化に失敗:", e);
       }
     };
-
+    
     const loadAssignments = async () => {
       if (!monthDays || monthDays.length === 0 || store.getState().calendar.isMonthLoading) {
         return;
       }
-
+      
       try {
-        dispatch(_setIsMonthLoading(true));
+        dispatch(_setIsMonthLoading(true)); 
 
         const firstDay = monthDays[0].dateStr;
         const lastDay = monthDays[monthDays.length - 1].dateStr;
+        
+        // ★ 修正: 月初の「夜勤明け」判定のため、前月末日のデータも取得する
+        const prevDay = getPrevDateStr(firstDay);
 
         const assignmentsDB = await db.assignments
           .where('date')
-          .between(firstDay, lastDay, true, true)
+          .between(prevDay, lastDay, true, true) // ★ prevDay から取得
           .toArray();
-
+        
         if (staffList.length === 0) {
           dispatch(_syncAssignments(assignmentsDB));
         } else {
@@ -242,14 +247,14 @@ function ShiftCalendarPage() {
 
   const handleTabChange = useCallback((_: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
-    setClickMode('normal');
+    setClickMode('normal'); 
   }, [setClickMode]);
 
   const handleCellClick = useCallback((
-    e: React.MouseEvent,
-    date: string,
-    staffIdOrUnitId: string | null,
-    staffIndex?: number,
+    e: React.MouseEvent, 
+    date: string, 
+    staffIdOrUnitId: string | null, 
+    staffIndex?: number, 
     dateIndex?: number
   ) => {
     if (tabValue === 1) {
@@ -295,30 +300,30 @@ function ShiftCalendarPage() {
 
 
   return (
-    <Box sx={{
-      display: 'flex',
-      flexDirection: 'column',
-      height: '100%',
-      p: '24px',
-      gap: 2
+    <Box sx={{ 
+      display: 'flex', 
+      flexDirection: 'column', 
+      height: '100%', 
+      p: '24px', 
+      gap: 2 
     }}>
-
+      
       {/* --- ビューエリア (タブ + カレンダー) --- */}
       <Box sx={{
         display: 'flex',
-        flexGrow: 1,
+        flexGrow: 1, 
         gap: 2,
-        minHeight: 0
+        minHeight: 0 
       }}>
         {/* メインエリア */}
-        <Paper sx={{
-          flex: 1,
-          display: 'flex',
+        <Paper sx={{ 
+          flex: 1, 
+          display: 'flex', 
           flexDirection: 'column',
-          minWidth: 0,
+          minWidth: 0, 
           minHeight: 0,
         }}>
-
+          
           {/* タブヘッダー */}
           <Box sx={{ borderBottom: 1, borderColor: 'divider', pl: 2 }}>
             <Tabs value={tabValue} onChange={handleTabChange} sx={{ minHeight: 40, '& .MuiTab-root': { minHeight: 40, py: 1 } }}>
@@ -326,18 +331,18 @@ function ShiftCalendarPage() {
               <Tab label="勤務枠ビュー" />
             </Tabs>
           </Box>
-
+          
           {/* --- コンテンツ (Staff View) --- */}
           <TabPanel value={tabValue} index={0}>
-
-            {/* ★ ツールバー (画像のデザインに準拠) */}
-            <Box sx={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
+            
+            {/* ツールバー */}
+            <Box sx={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
               mb: 2,
+              bgcolor: 'background.paper'
             }}>
-              {/* 1. カレンダーコンポーネント (左) */}
               <MonthNavigation
                 currentYear={currentYear}
                 currentMonth={currentMonth}
@@ -346,17 +351,16 @@ function ShiftCalendarPage() {
                 isLoading={isOverallLoading}
               />
 
-              {/* 2. ツール (中央) */}
               <ToggleButtonGroup
                 value={clickMode}
                 exclusive
-                onChange={(_, newMode) => { if (newMode) setClickMode(newMode as any); }}
+                onChange={(_, newMode) => { if(newMode) setClickMode(newMode as any); }}
                 size="small"
                 disabled={isOverallLoading}
-                sx={{
-                  '& .MuiToggleButton-root': {
-                    px: 3,
-                    py: 1,
+                sx={{ 
+                  '& .MuiToggleButton-root': { 
+                    px: 2,
+                    py: 0.5,
                     border: 'none',
                     '&.Mui-selected': {
                       bgcolor: 'rgba(25, 118, 210, 0.1)',
@@ -367,7 +371,6 @@ function ShiftCalendarPage() {
                       bgcolor: 'rgba(0, 0, 0, 0.04)'
                     }
                   },
-                  // 区切り線を表示するためのボーダー設定
                   border: '1px solid #e0e0e0',
                   borderRadius: 1
                 }}
@@ -389,70 +392,72 @@ function ShiftCalendarPage() {
                 </ToggleButton>
               </ToggleButtonGroup>
 
-              {/* 3. モディファイ/履歴 (右) */}
               <Stack direction="row" spacing={1} alignItems="center">
-                <Button
-                  variant="text"
-                  size="small"
-                  onClick={() => dispatch(UndoActionCreators.undo())}
-                  disabled={past.length === 0 || isOverallLoading}
-                  startIcon={<UndoIcon fontSize="small" />}
-                  sx={{ minWidth: 'auto', px: 1 }}
-                >
-                </Button>
-                <Button
-                  variant="text"
-                  size="small"
-                  onClick={() => dispatch(UndoActionCreators.redo())}
-                  disabled={future.length === 0 || isOverallLoading}
-                  startIcon={<RedoIcon fontSize="small" />}
-                  sx={{ minWidth: 'auto', px: 1 }}
-                >
-                </Button>
+                 <Button 
+                    variant="text" 
+                    size="small"
+                    onClick={() => dispatch(UndoActionCreators.undo())} 
+                    disabled={past.length === 0 || isOverallLoading} 
+                    startIcon={<UndoIcon fontSize="small" />}
+                    sx={{ minWidth: 'auto', px: 1 }}
+                  >
+                  </Button>
+                  <Button 
+                    variant="text" 
+                    size="small"
+                    onClick={() => dispatch(UndoActionCreators.redo())} 
+                    disabled={future.length === 0 || isOverallLoading} 
+                    startIcon={<RedoIcon fontSize="small" />}
+                    sx={{ minWidth: 'auto', px: 1 }}
+                  >
+                  </Button>
+                  
+                  <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
 
-                <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
-
-                <Button
-                  variant="outlined"
-                  color="error"
-                  onClick={handleResetClick}
-                  size="small"
-                  startIcon={<RefreshIcon />}
-                  disabled={isOverallLoading}
-                  sx={{ fontSize: '0.75rem' }}
-                >
-                  リセット
-                </Button>
+                  <Button 
+                    variant="outlined" 
+                    color="error" 
+                    onClick={handleResetClick} 
+                    size="small"
+                    startIcon={<RefreshIcon />}
+                    disabled={isOverallLoading}
+                    sx={{ fontSize: '0.75rem' }}
+                  >
+                    リセット
+                  </Button>
               </Stack>
             </Box>
-
-            <StaffCalendarView
-              sortedStaffList={sortedStaffList}
-              onCellClick={handleCellClick}
-              staffHolidayRequirements={staffHolidayRequirements}
-              onHolidayIncrement={handleHolidayIncrement}
-              onHolidayDecrement={handleHolidayDecrement}
-              onStaffNameClick={openClearStaffModal}
-              onDateHeaderClick={handleDateHeaderClick}
+            
+            <StaffCalendarView 
+              sortedStaffList={sortedStaffList} 
+              onCellClick={handleCellClick} 
+              staffHolidayRequirements={staffHolidayRequirements} 
+              onHolidayIncrement={handleHolidayIncrement} 
+              onHolidayDecrement={handleHolidayDecrement} 
+              onStaffNameClick={openClearStaffModal} 
+              onDateHeaderClick={handleDateHeaderClick} 
               clickMode={clickMode}
-              activeCell={activeCell}
+              // activeCell, // 削除済み
               selectionRange={selectionRange}
               onCellMouseDown={handleCellMouseDown}
               onCellMouseMove={handleCellMouseMove}
               onCellMouseUp={handleCellMouseUp}
               mainCalendarScrollerRef={mainCalendarScrollerRef}
-              monthDays={monthDays}
+              monthDays={monthDays} 
             />
           </TabPanel>
-
+          
           {/* --- コンテンツ (Work Slot View) --- */}
           <TabPanel value={tabValue} index={1}>
-            {/* ★ 勤務枠ビューにもカレンダーコンポーネントを設置 */}
-            <Box sx={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
+             <Box sx={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
               mb: 2,
+              p: 1,
+              border: '1px solid #e0e0e0',
+              borderRadius: 2,
+              bgcolor: 'background.paper'
             }}>
               <MonthNavigation
                 currentYear={currentYear}
@@ -461,13 +466,12 @@ function ShiftCalendarPage() {
                 onNextMonth={handleGoToNextMonth}
                 isLoading={isOverallLoading}
               />
-              {/* 必要であればここに枠ビュー用のツールを追加 */}
             </Box>
 
             <Box sx={{ height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
-              <WorkSlotCalendarView
+              <WorkSlotCalendarView 
                 onCellClick={(date, unitId) => handleCellClick({ shiftKey: false } as React.MouseEvent, date, unitId)}
-                demandMap={demandMap}
+                demandMap={demandMap} 
                 monthDays={monthDays}
               />
             </Box>
@@ -478,51 +482,51 @@ function ShiftCalendarPage() {
         <BurdenSidebar
           isOpen={isSidebarOpen}
           onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
-          staffBurdenData={staffBurdenData}
+          staffBurdenData={staffBurdenData} 
         />
 
       </Box>
 
       {/* AIサポートパネル */}
       <AiSupportPane
-        instruction={aiInstruction}
-        onInstructionChange={setAiInstruction}
+        instruction={aiInstruction} 
+        onInstructionChange={setAiInstruction} 
         isLoading={adjustmentLoading || patchLoading}
         error={adjustmentError || patchError}
-        onClearError={handleClearError}
-        onExecuteDefault={handleRunAiDefault}
-        onExecuteCustom={handleRunAiAdjustment}
+        onClearError={handleClearError} 
+        onExecuteDefault={handleRunAiDefault}     
+        onExecuteCustom={handleRunAiAdjustment}  
         isAnalysisLoading={analysisLoading}
         analysisResult={analysisResult}
         analysisError={analysisError}
-        onClearAnalysis={handleClearAnalysis}
-        onExecuteAnalysis={handleRunAiAnalysis}
-        onFillRental={handleFillRental}
-        onForceAdjustHolidays={handleRunAiHolidayPatch}
+        onClearAnalysis={handleClearAnalysis} 
+        onExecuteAnalysis={handleRunAiAnalysis} 
+        onFillRental={handleFillRental} 
+        onForceAdjustHolidays={handleRunAiHolidayPatch} 
         isOverallDisabled={isOverallLoading}
       />
 
       {/* モーダル群 */}
       <AssignPatternModal
-        target={editingTarget}
-        allStaff={activeStaffList}
+        target={editingTarget} 
+        allStaff={activeStaffList} 
         allPatterns={shiftPatterns}
         allUnits={unitList}
-        allAssignments={assignments}
-        burdenData={Array.from(staffBurdenData.values())}
-        onClose={closeModals}
+        allAssignments={assignments} 
+        burdenData={Array.from(staffBurdenData.values())} 
+        onClose={closeModals} 
       />
       <DailyUnitGanttModal
-        target={showingGanttTarget}
-        onClose={closeModals}
-        allAssignments={assignments}
-        demandMap={demandMap}
-        monthDays={monthDays}
+        target={showingGanttTarget} 
+        onClose={closeModals} 
+        allAssignments={assignments} 
+        demandMap={demandMap} 
+        monthDays={monthDays} 
       />
       <ClearStaffAssignmentsModal
-        staff={clearingStaff}
-        onClose={closeModals}
-        onClear={handleClearStaffAssignments}
+        staff={clearingStaff} 
+        onClose={closeModals} 
+        onClear={handleClearStaffAssignments} 
       />
 
     </Box>

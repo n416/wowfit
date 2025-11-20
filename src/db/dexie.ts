@@ -10,7 +10,8 @@ export interface IUnit {
 
 // --- 3. 勤務パターン定義 ---
 export type CrossUnitWorkType = '-' | '有' | 'サポート';
-export type WorkType = 'Work' | 'StatutoryHoliday' | 'PaidLeave' | 'Meeting' | 'Other';
+// ★ 修正: 'Holiday' を追加 (ユーザー定義の休日用)
+export type WorkType = 'Work' | 'StatutoryHoliday' | 'PaidLeave' | 'Holiday' | 'Meeting' | 'Other';
 
 export interface IShiftPattern {
   patternId: string; // 表内名称 (例: "SA", "A", "N")
@@ -24,7 +25,7 @@ export interface IShiftPattern {
   breakDurationMinutes: number; // 休憩時間 (分)
   durationHours: number;
   isNightShift: boolean;
-  // ★ v7追加: 時間枠指定（フレックス）かどうか
+  // crossesMidnight は削除済み
   isFlex?: boolean;
 }
 

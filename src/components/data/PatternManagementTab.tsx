@@ -1,4 +1,3 @@
-// src/components/data/PatternManagementTab.tsx
 import React, { useState, useMemo } from 'react';
 import {
   Box, Paper, Typography, IconButton, Button,
@@ -58,11 +57,10 @@ export default function PatternManagementTab() {
 
   const [formData, setFormData] = useState<Partial<IShiftPattern>>({});
 
-  // ★ 動的に「日付またぎ」を判定
   const isCrossesMidnight = useMemo(() => {
     const start = formData.startTime || '00:00';
     const end = formData.endTime || '00:00';
-    return start > end; // 文字列比較で判定
+    return start > end; 
   }, [formData.startTime, formData.endTime]);
 
   const targetPattern = useMemo(() => {
@@ -99,7 +97,6 @@ export default function PatternManagementTab() {
       breakDurationMinutes: 60,
       durationHours: 8,
       isNightShift: false,
-      // crossesMidnight はデータとして持たない
       isFlex: false
     };
     setFormData(newInit);
@@ -135,7 +132,6 @@ export default function PatternManagementTab() {
       let startMin = v1;
       let endMin = v2;
 
-      // ★ 日付またぎ中（start > end）なら、スライダーの選択範囲は「勤務外」を意味するので反転して解釈
       if (isCrossesMidnight) {
         startMin = v2; 
         endMin = v1;
@@ -167,11 +163,7 @@ export default function PatternManagementTab() {
 
   const handleSave = () => {
     if (!formData.patternId || !formData.name) return;
-    // ★ crossesMidnight を含まないオブジェクトとして保存
     const patternToSave = formData as IShiftPattern;
-    
-    // (念のため削除しておくが、Partialで管理しているので元々ないはず)
-    // delete (patternToSave as any).crossesMidnight; 
 
     if (isEditingNew) {
       dispatch(addNewPattern(patternToSave));
@@ -183,16 +175,17 @@ export default function PatternManagementTab() {
   };
 
   const handleDelete = () => {
-    if (selectedPatternId && window.confirm("このパターンを削除しますか？")) {
+    if (selectedPatternId && window.confirm("このパターンを削除しますか？\n（使用中のアサインがある場合、表示がおかしくなる可能性があります）")) {
       dispatch(deletePattern(selectedPatternId));
       setSelectedPatternId(null);
       setFormData({});
     }
   };
 
+  // ★ 修正: 休日を除外して労働パターンのみを表示
   const sortedPatterns = useMemo(() => {
     return [...patternList]
-      .filter(p => p.workType !== 'StatutoryHoliday' && p.workType !== 'PaidLeave')
+      .filter(p => p.workType !== 'StatutoryHoliday' && p.workType !== 'PaidLeave' && p.workType !== 'Holiday')
       .sort((a, b) => {
         if (!!a.isFlex !== !!b.isFlex) {
           return a.isFlex ? 1 : -1;
@@ -213,11 +206,9 @@ export default function PatternManagementTab() {
     return [s, e].sort((a, b) => a - b);
   }, [formData.startTime, formData.endTime]);
 
-
   return (
     <Box sx={{ display: 'flex', height: '100%', gap: 2, overflow: 'hidden' }}>
       <Paper sx={{ flex: 2, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }} variant="outlined">
-        {/* (Left Pane: リスト表示部分は大きな変更なし。crossesMidnight参照箇所のみ動的判定に変更) */}
         {isEditingNew && (
           <Box sx={{ position: 'absolute', inset: 0, bgcolor: 'rgba(0, 0, 0, 0.5)', zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, backdropFilter: 'blur(2px)' }}>
             <Typography variant="subtitle1" sx={{ color: 'white', bgcolor: 'rgba(0,0,0,0.7)', px: 3, py: 1, borderRadius: 4 }}>右側のパネルで編集・保存してください</Typography>
@@ -225,7 +216,7 @@ export default function PatternManagementTab() {
           </Box>
         )}
         <Box sx={{ p: 2, borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Typography variant="h6">パターン一覧・俯瞰</Typography>
+          <Typography variant="h6">勤務パターン一覧 (労働)</Typography>
           <Button variant="contained" startIcon={<AddIcon />} onClick={handleCreateNew} disabled={isEditingNew}>新規作成</Button>
         </Box>
         <Box sx={{ display: 'flex', px: 2, py: 1, borderBottom: '1px solid #eee', bgcolor: '#fafafa' }}>
@@ -241,9 +232,7 @@ export default function PatternManagementTab() {
           {sortedPatterns.map((p, index) => {
             const startMin = timeToMin(p.startTime);
             const endMin = timeToMin(p.endTime);
-            // ★ リスト内でも動的に判定
             const pCrossesMidnight = startMin > endMin;
-
             let frameStartPercent = (startMin / (24 * 60)) * 100;
             let frameWidthPercent = 0;
             
@@ -367,7 +356,6 @@ export default function PatternManagementTab() {
                     min={0} max={1440} step={30}
                     valueLabelDisplay="auto"
                     valueLabelFormat={minToTime}
-                    // ★ 動的判定でトラック反転
                     track={isCrossesMidnight ? "inverted" : "normal"}
                   />
                 </Box>
@@ -376,6 +364,7 @@ export default function PatternManagementTab() {
                   <Grid size={6}>
                     <FormControl size="small" fullWidth>
                       <InputLabel>タイプ</InputLabel>
+                      {/* ★ 修正: Holidayを除外 */}
                       <Select value={formData.workType} label="タイプ" onChange={(e) => handleChange('workType', e.target.value)}>
                         <MenuItem value="Work">労働</MenuItem>
                         <MenuItem value="Meeting">会議</MenuItem>
@@ -401,7 +390,6 @@ export default function PatternManagementTab() {
 
                 <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
                   <FormControlLabel control={<Switch checked={formData.isNightShift || false} onChange={(e) => handleChange('isNightShift', e.target.checked)} />} label="夜勤扱い" sx={{ mr: 0 }} />
-                  {/* ★ 日付またぎスイッチを削除 */}
                   <FormControlLabel control={<Switch checked={formData.isFlex || false} onChange={(e) => handleChange('isFlex', e.target.checked)} />} label="Flex(枠のみ)" />
                 </Stack>
 
@@ -418,7 +406,6 @@ export default function PatternManagementTab() {
             </Box>
             {/* (Pattern Usage List - unchanged) */}
             <Box sx={{ flex: 1, overflowY: 'auto', p: 2, bgcolor: '#fafafa', borderTop: '1px solid #eee' }}>
-               {/* 省略 (変更なし) */}
                <List dense>
                   {availableStaff.map(staff => (
                     <ListItem key={staff.staffId}>

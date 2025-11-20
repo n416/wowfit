@@ -22,6 +22,7 @@ import Dexie from 'dexie';
 import NewUnitForm from '../components/data/NewUnitForm';
 import { DemandGraphEditor } from '../components/data/DemandGraphEditor';
 import PatternManagementTab from '../components/data/PatternManagementTab'; 
+import LeavePatternManagementTab from '../components/data/LeavePatternManagementTab'; // ★ 追加
 import StaffManagementTab from '../components/data/StaffManagementTab';
 import ImportExportTab from '../components/data/ImportExportTab';
 
@@ -34,7 +35,6 @@ function DataManagementPage() {
   const dispatch: AppDispatch = useDispatch();
 
   const unitList = useSelector((state: RootState) => state.unit.units);
-  // staffList は StaffManagementTab 内で取得するため不要
 
   // データ読み込み
   useEffect(() => {
@@ -105,6 +105,7 @@ function DataManagementPage() {
           <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)}>
             <Tab label="ユニット・デマンド管理" />
             <Tab label="勤務パターン管理" />
+            <Tab label="休暇パターン管理" /> {/* ★ 追加 */}
             <Tab label="スタッフ管理" />
             <Tab label="インポート/エクスポート" />
           </Tabs>
@@ -113,7 +114,7 @@ function DataManagementPage() {
         {/* コンテンツエリア全体をスクロール可能にする */}
         <Box sx={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
 
-          {/* Tab 1: ユニット・デマンド管理 */}
+          {/* Tab 0: ユニット・デマンド管理 */}
           <TabPanel value={tabValue} index={0}>
             <Typography variant="h6" gutterBottom>ユニット一覧・デマンド設定</Typography>
             <Alert severity="info" sx={{ mb: 3 }}>
@@ -154,18 +155,23 @@ function DataManagementPage() {
             </Stack>
           </TabPanel>
 
-          {/* Tab 2: 勤務パターン管理 */}
+          {/* Tab 1: 勤務パターン管理 */}
           <TabPanel value={tabValue} index={1}>
             <PatternManagementTab />
           </TabPanel>
 
-          {/* Tab 3: スタッフ管理 */}
+          {/* Tab 2: 休暇パターン管理 (新規) */}
           <TabPanel value={tabValue} index={2}>
+            <LeavePatternManagementTab />
+          </TabPanel>
+
+          {/* Tab 3: スタッフ管理 (インデックス移動) */}
+          <TabPanel value={tabValue} index={3}>
             <StaffManagementTab />
           </TabPanel>
 
-          {/* Tab 4: インポート/エクスポート (実装完了) */}
-          <TabPanel value={tabValue} index={3}>
+          {/* Tab 4: インポート/エクスポート (インデックス移動) */}
+          <TabPanel value={tabValue} index={4}>
             <ImportExportTab />
           </TabPanel>
 

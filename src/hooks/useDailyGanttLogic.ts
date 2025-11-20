@@ -1,3 +1,4 @@
+// src/hooks/useDailyGanttLogic.ts
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { IStaff, IShiftPattern, IAssignment, db } from '../db/dexie';
@@ -65,10 +66,10 @@ export const useDailyGanttLogic = (
 
   const recalculatedDemandMap = useMemo(() => {
     if (!target) return demandMap;
-    // @ts-ignore
-    return calculateDemandMap(unitList, mergedAssignments, patternMap, allStaffMap, monthDays); // ★ 修正: "Modal" 引数を削除
+    return calculateDemandMap(unitList, mergedAssignments, patternMap, allStaffMap, monthDays);
   }, [unitList, mergedAssignments, patternMap, allStaffMap, monthDays, target, demandMap]);
 
+  // calculateUnitGroups は hooks/useUnitGroups.ts にあるため、そちらも修正が必要です（後述）
   const baseUnitGroups = useMemo(() => {
     return calculateUnitGroups(target, unitList, allAssignments, patternMap, allStaffMap);
   }, [target, unitList, allAssignments, patternMap, allStaffMap]);
@@ -110,6 +111,9 @@ export const useDailyGanttLogic = (
           let displayStart = startH_raw;
 
           const isSameDay = (assignment?.date === target.date);
+          
+          // ★ 動的判定
+          const crossesMidnight = pattern.startTime > pattern.endTime;
 
           if (!isSameDay) {
             displayStart = 0;
@@ -123,7 +127,8 @@ export const useDailyGanttLogic = (
             if (displayDuration > 24) displayDuration = 24;
 
           } else {
-            if (pattern.crossesMidnight || startH_raw + displayDuration > 24) {
+            // ★ プロパティではなく判定結果を使用
+            if (crossesMidnight || startH_raw + displayDuration > 24) {
               const overflow = (startH_raw + displayDuration) - 24;
               if (overflow > 0) {
                 displayDuration -= overflow;

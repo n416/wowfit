@@ -24,7 +24,6 @@ export interface IShiftPattern {
   breakDurationMinutes: number; // 休憩時間 (分)
   durationHours: number;
   isNightShift: boolean;
-  crossesMidnight: boolean;
   // ★ v7追加: 時間枠指定（フレックス）かどうか
   isFlex?: boolean;
 }

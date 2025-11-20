@@ -16,7 +16,6 @@ export const calculateDemandMap = (
   patternMap: Map<string, IShiftPattern>,
   staffMap: Map<string, IStaff>, 
   monthDays: MonthDay[]
-  // ★ 修正: caller 引数を削除
 ) => {
   const map = new Map<string, { required: number; actual: number }>(); 
 
@@ -38,21 +37,33 @@ export const calculateDemandMap = (
     if (!staff || staff.status === 'OnLeave') continue; 
     
     if (assignment.unitId && pattern && pattern.workType === 'Work') {
-      // Flex対応
-      const timeBase = (pattern.isFlex && assignment.overrideStartTime) ? assignment.overrideStartTime : pattern.startTime;
-      const startH = parseInt(timeBase.split(':')[0]);
+      // Flex対応 & 時間計算修正
+      const overrideStart = assignment.overrideStartTime;
+      const overrideEnd = assignment.overrideEndTime;
+
+      const startTimeStr = (pattern.isFlex && overrideStart) ? overrideStart : pattern.startTime;
+      const endTimeStr = (pattern.isFlex && overrideEnd) ? overrideEnd : pattern.endTime;
+
+      const [sH, sM] = startTimeStr.split(':').map(Number);
+      const [eH, eM] = endTimeStr.split(':').map(Number);
+      const startFloat = sH + sM / 60;
+      const endFloat = eH + eM / 60;
+
+      // 拘束時間を計算
+      let duration = endFloat - startFloat;
+      if (duration < 0) {
+        duration += 24; // 日付またぎ
+      } 
+      // ★ 修正: duration === 0 && pattern.crossesMidnight のチェックを削除
       
-      let duration = pattern.durationHours;
-      if (pattern.isFlex && assignment.overrideStartTime && assignment.overrideEndTime) {
-         const s = parseInt(assignment.overrideStartTime.split(':')[0]) + (parseInt(assignment.overrideStartTime.split(':')[1]) || 0)/60;
-         const e = parseInt(assignment.overrideEndTime.split(':')[0]) + (parseInt(assignment.overrideEndTime.split(':')[1]) || 0)/60;
-         duration = e - s;
-         if (duration < 0) duration += 24;
-      }
-      
+      const startH = Math.floor(startFloat);
       const endH_calc = startH + Math.ceil(duration);
+      
       const endH_today = endH_calc > 24 ? 24 : endH_calc;
       const endH_nextDay = endH_calc > 24 ? endH_calc - 24 : 0;
+      
+      // ★ 日またぎ判定 (時刻比較)
+      const crossesMidnight = startFloat > endFloat;
 
       // 当日分
       for (let hour = startH; hour < endH_today; hour++) { 
@@ -62,7 +73,7 @@ export const calculateDemandMap = (
       }
 
       // 翌日分 (日付またぎ)
-      if (pattern.crossesMidnight || endH_calc > 24) {
+      if (crossesMidnight || endH_calc > 24) {
         const nextDateObj = new Date(assignment.date.replace(/-/g, '/'));
         nextDateObj.setDate(nextDateObj.getDate() + 1);
         const nextDateStr = `${nextDateObj.getFullYear()}-${String(nextDateObj.getMonth() + 1).padStart(2, '0')}-${String(nextDateObj.getDate()).padStart(2, '0')}`;
@@ -97,7 +108,6 @@ export const calculateDemandMap = (
         const missing = entry.required - entry.actual;
         if (missing > 0 && missing <= 0.5) {
           const supporters = assignments.filter(a => {
-            // 1. 自分自身は除外
             if (a.unitId === unit.unitId) return false; 
             const staff = staffMap.get(a.staffId);
             if (!staff || staff.status === 'OnLeave') return false; 
@@ -106,26 +116,30 @@ export const calculateDemandMap = (
             const isShareable = p.crossUnitWorkType === '有' || p.crossUnitWorkType === 'サポート';
             if (!isShareable) return false;
             
-            // 時間帯チェック (当日 or 前日)
-            const timeBase = (p.isFlex && a.overrideStartTime) ? a.overrideStartTime : p.startTime;
-            const startH = parseInt(timeBase.split(':')[0]);
-            let duration = p.durationHours;
-            if (p.isFlex && a.overrideStartTime && a.overrideEndTime) {
-               const s = parseInt(a.overrideStartTime.split(':')[0]) + (parseInt(a.overrideStartTime.split(':')[1]) || 0)/60;
-               const e = parseInt(a.overrideEndTime.split(':')[0]) + (parseInt(a.overrideEndTime.split(':')[1]) || 0)/60;
-               duration = e - s;
-               if (duration < 0) duration += 24;
-            }
+            const overrideStart = a.overrideStartTime;
+            const overrideEnd = a.overrideEndTime;
+            const startTimeStr = (p.isFlex && overrideStart) ? overrideStart : p.startTime;
+            const endTimeStr = (p.isFlex && overrideEnd) ? overrideEnd : p.endTime;
+
+            const [sH, sM] = startTimeStr.split(':').map(Number);
+            const [eH, eM] = endTimeStr.split(':').map(Number);
+            const startFloat = sH + sM / 60;
+            const endFloat = eH + eM / 60;
+
+            let duration = endFloat - startFloat;
+            if (duration < 0) duration += 24;
+
+            const startH = Math.floor(startFloat);
             const endH_calc = startH + Math.ceil(duration);
             const endH_today = endH_calc > 24 ? 24 : endH_calc;
             const endH_nextDay = endH_calc > 24 ? endH_calc - 24 : 0;
+            // ★ 日またぎ判定
+            const crossesMidnight = startFloat > endFloat;
 
-            // ★ 当日のシフト
             if (a.date === day.dateStr) {
-              return (h >= startH && h < endH_today) || (h < endH_nextDay && p.crossesMidnight);
+              return (h >= startH && h < endH_today) || (h < endH_nextDay && crossesMidnight);
             }
-            // ★ 前日からのシフト
-            if (a.date === prevDateStr && (p.crossesMidnight || endH_calc > 24)) {
+            if (a.date === prevDateStr && (crossesMidnight || endH_calc > 24)) {
               return h < endH_nextDay;
             }
             return false;
@@ -136,7 +150,6 @@ export const calculateDemandMap = (
           }
         }
         
-        // 余剰計算
         if (entry.actual > entry.required) {
           const surplusInThisUnit = entry.actual - entry.required;
           if (surplusInThisUnit >= 0.5) {
@@ -145,7 +158,6 @@ export const calculateDemandMap = (
         }
       }
 
-      // 余剰分配
       if (shareableSurplusPool > 0 && deficitUnits.length > 0) {
         deficitUnits.sort((a, b) => (b.entry.required - b.entry.actual) - (a.entry.required - a.entry.actual));
         for (const target of deficitUnits) {
@@ -181,7 +193,6 @@ export const useDemandMap = (
       patternMap,
       staffMap,
       monthDays
-      // ★ 修正: "Background" 引数を削除
     );
   }, [assignments, unitList, patternMap, staffMap, monthDays]);
 

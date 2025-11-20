@@ -10,7 +10,6 @@ type MonthDay = {
   dayOfWeek: number;
 };
 
-// ★ 修正: UI用フィールド(isNew, displayStartTime等)を型定義に追加
 export type UnitGroupData = {
   unit: IUnit;
   rows: { 
@@ -21,7 +20,6 @@ export type UnitGroupData = {
     duration: number; 
     assignmentId: number; 
     unitId: string | null; 
-    // 追加フィールド (Optional)
     isNew?: boolean;
     displayStartTime?: string;
     displayEndTime?: string;
@@ -42,14 +40,20 @@ export const calculateUnitGroups = (
   const prevDateStr = getPrevDateStr(date);
 
   unitList.forEach(currentUnit => {
-    const rows: UnitGroupData['rows'] = []; // 型指定
+    const rows: UnitGroupData['rows'] = []; 
 
     assignments.forEach(assignment => {
       if (!assignment.id) return; 
       if (assignment.date !== date && assignment.date !== prevDateStr) return;
       const pattern = patternMap.get(assignment.patternId);
       if (!pattern || pattern.workType !== 'Work') return;
-      if (assignment.date === prevDateStr && !pattern.crossesMidnight) return;
+
+      // ★ 修正: 動的に日またぎ判定
+      const crossesMidnight = pattern.startTime > pattern.endTime;
+
+      // ★ プロパティ参照を修正
+      if (assignment.date === prevDateStr && !crossesMidnight) return;
+      
       const staff = staffMap.get(assignment.staffId);
       if (!staff) return;
       if (staff.status === 'OnLeave') return; 
@@ -60,7 +64,8 @@ export const calculateUnitGroups = (
       let displayStart = startH;
       let displayDuration = endH - startH;
 
-      if (pattern.crossesMidnight) {
+      // ★ プロパティ参照を修正
+      if (crossesMidnight) {
           if (assignment.date === date) {
             displayDuration = 24 - startH; 
           } else {

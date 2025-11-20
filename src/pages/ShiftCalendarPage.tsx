@@ -35,7 +35,6 @@ import { MOCK_PATTERNS_V5, MOCK_UNITS_V5, MOCK_STAFF_V4 } from '../db/mockData';
 // カスタムフック
 import { useStaffBurdenData } from '../hooks/useStaffBurdenData';
 import { useDemandMap } from '../hooks/useDemandMap';
-import { useUnitGroups } from '../hooks/useUnitGroups';
 import { useUndoRedoKeyboard } from '../hooks/useUndoRedoKeyboard';
 import { useCalendarInteractions } from '../hooks/useCalendarInteractions';
 import { useShiftCalendarModals } from '../hooks/useShiftCalendarModals';
@@ -143,8 +142,6 @@ function ShiftCalendarPage() {
     closeModals,
     handleClearStaffAssignments,
   } = useShiftCalendarModals();
-
-  const unitGroups = useUnitGroups(showingGanttTarget, monthDays);
 
   const {
     aiInstruction,

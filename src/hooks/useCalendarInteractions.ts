@@ -502,6 +502,7 @@ export const useCalendarInteractions = (
 
         if (!activeCell) return;
         
+        // 1. クリップボード読み取り
         let tsvString = "";
         try {
           tsvString = await navigator.clipboard.readText();
@@ -509,58 +510,83 @@ export const useCalendarInteractions = (
           console.error('OSクリップボードの読み取りに失敗:', err);
           return;
         }
-        
         if (!tsvString) return;
 
+        // 2. TSVパース & クリップボードサイズ取得
+        // (Windowsの改行コード対応)
+        const tsvRows = tsvString.split(/\r?\n/).map(row => row.split('\t'));
+        const clipRowCount = tsvRows.length;
+        const clipColCount = tsvRows[0]?.length || 0;
+        if (clipRowCount === 0 || clipColCount === 0) return;
+
+        // 3. 貼り付け先範囲の決定 (Excelライクな連続貼り付け)
+        let startStaffIdx: number, endStaffIdx: number;
+        let startDateIdx: number, endDateIdx: number;
+
+        // 選択範囲があるかどうか (1セルより大きい範囲)
+        const isRangeSelection = selectionRange && 
+            (selectionRange.start.staffIndex !== selectionRange.end.staffIndex || 
+             selectionRange.start.dateIndex !== selectionRange.end.dateIndex);
+
+        if (isRangeSelection) {
+            // 範囲選択あり -> 選択範囲全体を埋める (タイリング)
+            const rangeIndices = getRangeIndices(selectionRange);
+            if (!rangeIndices) return; // Should not happen
+            startStaffIdx = rangeIndices.minStaff;
+            endStaffIdx = rangeIndices.maxStaff;
+            startDateIdx = rangeIndices.minDate;
+            endDateIdx = rangeIndices.maxDate;
+        } else {
+            // 範囲選択なし (単一セル) -> クリップボードのサイズ分だけ貼り付け
+            startStaffIdx = activeCell.staffIndex;
+            endStaffIdx = activeCell.staffIndex + clipRowCount - 1;
+            startDateIdx = activeCell.dateIndex;
+            endDateIdx = activeCell.dateIndex + clipColCount - 1;
+        }
+
         const currentAssignments = latestAssignmentsRef.current;
-        
-        const tsvRows = tsvString.split('\n').map(row => row.split('\t'));
-        const rowCount = tsvRows.length;
-        let colCount = 0;
-        
         const newAssignmentsToPaste: Omit<IAssignment, 'id'>[] = [];
         const keysToOverwrite = new Set<string>(); 
 
-        for (let r = 0; r < tsvRows.length; r++) {
-          const tsvCols = tsvRows[r];
-          if (tsvCols.length > colCount) colCount = tsvCols.length; 
+        // 4. 貼り付け先範囲をループ (タイリングロジック)
+        for (let sIdx = startStaffIdx; sIdx <= endStaffIdx; sIdx++) {
+          // スタッフ範囲チェック
+          if (sIdx >= sortedStaffList.length) continue;
+          
+          for (let dIdx = startDateIdx; dIdx <= endDateIdx; dIdx++) {
+            // 日付範囲チェック
+            if (dIdx >= monthDays.length) continue;
 
-          for (let c = 0; c < tsvCols.length; c++) {
-            const rawText = tsvCols[c].trim(); 
+            // タイリング: 貼り付け先の相対位置から、クリップボード内の参照位置を計算 (剰余)
+            const relativeRow = sIdx - startStaffIdx;
+            const relativeCol = dIdx - startDateIdx;
+            const sourceRow = relativeRow % clipRowCount;
+            const sourceCol = relativeCol % clipColCount;
+
+            const rawText = tsvRows[sourceRow][sourceCol]?.trim();
             
-            let targetStaffId: string | null = null;
-            let targetDate: string | null = null;
-            let targetStaff: IStaff | undefined | null = null; 
-
-            const staffIndex = activeCell.staffIndex + r;
-            const dateIndex = activeCell.dateIndex + c;
-            if (staffIndex >= sortedStaffList.length || dateIndex >= monthDays.length) { 
-              continue; 
-            }
-            targetStaff = sortedStaffList[staffIndex];
-            const targetDay = monthDays[dateIndex]; 
+            // ターゲット情報の取得
+            const targetStaff = sortedStaffList[sIdx];
+            const targetDay = monthDays[dIdx];
+            
             if (!targetStaff || !targetDay) continue;
-            targetStaffId = targetStaff.staffId;
-            targetDate = targetDay.dateStr;
             
-            if (!targetStaffId || !targetDate) continue;
-            const key = `${targetStaffId}_${targetDate}`;
-            keysToOverwrite.add(key); 
+            const key = `${targetStaff.staffId}_${targetDay.dateStr}`;
+            keysToOverwrite.add(key); // 上書きリストに追加
 
-            if (rawText) { 
-              // ★ 修正: ID検索 -> なければSymbol検索 (Map使用で高速)
+            if (rawText) {
+              // ID検索 -> なければSymbol検索
               let matchedPattern = patternMap.get(rawText);
-              
               if (!matchedPattern) {
                 matchedPattern = symbolMap.get(rawText);
               }
 
               if (matchedPattern) {
                 newAssignmentsToPaste.push({
-                  date: targetDate, 
-                  staffId: targetStaffId, 
+                  date: targetDay.dateStr, 
+                  staffId: targetStaff.staffId, 
                   patternId: matchedPattern.patternId,
-                  unitId: (matchedPattern.workType === 'Work' && targetStaff) ? targetStaff.unitId : null,
+                  unitId: (matchedPattern.workType === 'Work') ? targetStaff.unitId : null,
                   locked: true,
                   overrideStartTime: matchedPattern.isFlex ? matchedPattern.startTime : undefined,
                   overrideEndTime: matchedPattern.isFlex ? matchedPattern.endTime : undefined
@@ -586,38 +612,23 @@ export const useCalendarInteractions = (
         dispatch(setAssignments(finalOptimisticState)); 
         dispatch(_setIsSyncing(true));
         
-        if (keysToOverwrite.size > 0 && activeCell) {
-          const endStaffIndex = activeCell.staffIndex + rowCount - 1;
-          const endDateIndex = activeCell.dateIndex + colCount - 1;
-          const maxStaffIndex = sortedStaffList.length - 1;
-          const maxDateIndex = monthDays.length - 1; 
-
-          const clampedEndStaffIndex = Math.min(endStaffIndex, maxStaffIndex);
-          const clampedEndDateIndex = Math.min(endDateIndex, maxDateIndex);
-          if (clampedEndStaffIndex >= activeCell.staffIndex && clampedEndDateIndex >= activeCell.dateIndex) {
-            let endStaffId: string | null = null;
-            let endDate: string | null = null;
-            
-            const endStaff = sortedStaffList[clampedEndStaffIndex];
-            const endDay = monthDays[clampedEndDateIndex]; 
-            if (endStaff && endDay) {
-              endStaffId = endStaff.staffId;
-              endDate = endDay.dateStr;
-            }
-
-            if (endStaffId && endDate) {
-              const newEndCell: CellCoords = {
-                staffId: endStaffId,
-                date: endDate,
-                staffIndex: clampedEndStaffIndex,
-                dateIndex: clampedEndDateIndex,
-              };
-              setSelectionRange({ start: activeCell, end: newEndCell });
-            } else {
-              setSelectionRange({ start: activeCell, end: activeCell });
-            }
-          } else {
-            setSelectionRange({ start: activeCell, end: activeCell });
+        // 選択範囲の更新 (単一セル選択からの貼り付け時のみ、貼り付けた範囲を選択状態にする)
+        if (!isRangeSelection && activeCell) {
+          // 実際に貼り付けが行われた範囲に選択範囲を拡張
+          const maxSIdx = Math.min(endStaffIdx, sortedStaffList.length - 1);
+          const maxDIdx = Math.min(endDateIdx, monthDays.length - 1);
+          
+          const endStaff = sortedStaffList[maxSIdx];
+          const endDay = monthDays[maxDIdx];
+          
+          if (endStaff && endDay) {
+             const newEndCell: CellCoords = {
+                staffId: endStaff.staffId,
+                date: endDay.dateStr,
+                staffIndex: maxSIdx,
+                dateIndex: maxDIdx
+             };
+             setSelectionRange({ start: activeCell, end: newEndCell });
           }
         }
         

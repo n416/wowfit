@@ -355,8 +355,8 @@ function ShiftCalendarPage() {
                 disabled={isOverallLoading}
                 sx={{
                   '& .MuiToggleButton-root': {
-                    px: 2,
-                    py: 0.5,
+                    px: 3,
+                    py: 1,
                     border: 'none',
                     '&.Mui-selected': {
                       bgcolor: 'rgba(25, 118, 210, 0.1)',
@@ -375,15 +375,15 @@ function ShiftCalendarPage() {
                 <ToggleButton value="normal" title="通常モード（詳細編集）">
                   <EditIcon fontSize="small" sx={{ mr: 0.5 }} /> 通常
                 </ToggleButton>
-                <Divider flexItem orientation="vertical" sx={{ mx: 0.5, my: 0.5 }} />
+                <Divider flexItem orientation="vertical" sx={{ mx: 0, my: 0 }} />
                 <ToggleButton value="holiday" title="公休ポチポチモード">
                   <HolidayIcon fontSize="small" sx={{ mr: 0.5 }} /> 公休
                 </ToggleButton>
-                <Divider flexItem orientation="vertical" sx={{ mx: 0.5, my: 0.5 }} />
+                <Divider flexItem orientation="vertical" sx={{ mx: 0, my: 0 }} />
                 <ToggleButton value="paid_leave" title="有給ポチポチモード">
                   <PaidLeaveIcon fontSize="small" sx={{ mr: 0.5 }} /> 有給
                 </ToggleButton>
-                <Divider flexItem orientation="vertical" sx={{ mx: 0.5, my: 0.5 }} />
+                <Divider flexItem orientation="vertical" sx={{ mx: 0, my: 0 }} />
                 <ToggleButton value="select" title="セル選択モード (Ctrl+C, V, X)">
                   <SelectAllIcon fontSize="small" sx={{ mr: 0.5 }} /> 選択
                 </ToggleButton>

@@ -1,3 +1,4 @@
+// src/components/calendar/DailyUnitGanttModal.tsx
 import { CSSProperties, useState, useRef, MouseEvent, useEffect } from 'react'; 
 import { Popover, Button } from '@mui/material'; 
 import { IShiftPattern, IAssignment, IStaff } from '../../db/dexie'; 
@@ -348,7 +349,13 @@ export default function DailyUnitGanttModal({
       style={styles.backdrop} 
       onMouseMove={handleDragMove}
       onMouseUp={handleDragEnd}
-      onMouseLeave={handleDragEnd} 
+      onMouseLeave={handleDragEnd}
+      // ★ 修正: 背景クリックで閉じる
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
+      }}
     >
       <div style={styles.modal}>
         <div style={styles.header}>

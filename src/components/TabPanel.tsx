@@ -14,18 +14,14 @@ export default function TabPanel(props: TabPanelProps) {
     <div 
       hidden={value !== index}
       {...other}
-      // ★★★ 変更点 1: TabPanelのdiv自体に高さを継承させる ★★★
-      // (親コンポーネント(Paper)のflex: 1の高さを引き継ぐため)
       style={{ height: '100%' }} 
     >
       {value === index && (
-        // ★★★ 変更点 2: flexコンテナに変更 + p: 3 を追加 ★★★
-        // (中の子要素(ToggleBoxやStaffCalendarView)を縦に並べるため)
         <Box sx={{ 
           height: '100%', 
           display: 'flex', 
           flexDirection: 'column',
-          p: 2 // ★★★ 修正: ここに p: 3 (24px) を追加 ★★★
+          p: 3 // ★ 修正: p: 2 -> p: 3 (24px) に統一
         }}> 
           {children}
         </Box>

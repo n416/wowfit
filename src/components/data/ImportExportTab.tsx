@@ -1,4 +1,3 @@
-// src/components/data/ImportExportTab.tsx
 import React, { useState } from 'react';
 import {
   Box, Paper, Typography, Button, Alert, Stack,
@@ -21,7 +20,6 @@ export default function ImportExportTab() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
-  // --- エクスポート処理 ---
   const handleExport = async () => {
     setLoading(true);
     try {
@@ -58,13 +56,12 @@ export default function ImportExportTab() {
     }
   };
 
-  // --- インポート処理 ---
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     if (!window.confirm('【警告】\n現在のデータはすべて消去され、ファイルの内容で上書きされます。\n本当によろしいですか？\n(必要であれば先に現在のデータをバックアップしてください)')) {
-      e.target.value = ''; // ファイル選択をリセット
+      e.target.value = '';
       return;
     }
 
@@ -76,14 +73,11 @@ export default function ImportExportTab() {
         const text = event.target?.result as string;
         const data = JSON.parse(text);
 
-        // 簡易バリデーション
         if (!data.units || !data.shiftPatterns || !data.staffList || !data.assignments) {
           throw new Error('無効なファイル形式です。必要なデータが含まれていません。');
         }
 
-        // DBトランザクションで一括更新
         await db.transaction('rw', db.units, db.shiftPatterns, db.staffList, db.assignments, async () => {
-          // 全消去
           await Promise.all([
             db.units.clear(),
             db.shiftPatterns.clear(),
@@ -91,7 +85,6 @@ export default function ImportExportTab() {
             db.assignments.clear()
           ]);
 
-          // 一括登録
           await Promise.all([
             db.units.bulkAdd(data.units),
             db.shiftPatterns.bulkAdd(data.shiftPatterns),
@@ -100,7 +93,6 @@ export default function ImportExportTab() {
           ]);
         });
 
-        // Reduxストアも更新して画面に反映
         dispatch(setUnits(data.units));
         dispatch(setPatterns(data.shiftPatterns));
         dispatch(setStaffList(data.staffList));
@@ -112,7 +104,7 @@ export default function ImportExportTab() {
         setMessage({ type: 'error', text: `インポートに失敗しました: ${err.message}` });
       } finally {
         setLoading(false);
-        e.target.value = ''; // ファイル選択をリセット
+        e.target.value = '';
       }
     };
 
@@ -120,17 +112,18 @@ export default function ImportExportTab() {
   };
 
   return (
-    <Box sx={{ p: 3, height: '100%', overflowY: 'auto' }}>
+    // ★ 修正: コンポーネント自体の p: 3 を削除（TabPanelの p: 3 に任せる）
+    <Box sx={{ height: '100%', overflowY: 'auto' }}>
       <Typography variant="h6" gutterBottom>データのバックアップと復元</Typography>
-      <Alert severity="info" sx={{ mb: 4 }}>
+      
+      {/* ★ 修正: mb: 4 -> mb: 3 (他のタブと統一) */}
+      <Alert severity="info" sx={{ mb: 3 }}>
         ブラウザに保存されているすべてのデータ（ユニット、勤務パターン、スタッフ、シフト表）をJSONファイルとして保存・復元できます。
         <br />
         別のPCにデータを移行したい場合や、万が一のデータ消失に備えて定期的にバックアップを取ることをお勧めします。
       </Alert>
 
       <Stack spacing={4} maxWidth={600} mx="auto">
-        
-        {/* エクスポートエリア */}
         <Paper sx={{ p: 3 }} variant="outlined">
           <Stack spacing={2} alignItems="center">
             <StorageIcon sx={{ fontSize: 48, color: 'primary.main' }} />
@@ -150,7 +143,6 @@ export default function ImportExportTab() {
           </Stack>
         </Paper>
 
-        {/* インポートエリア */}
         <Paper sx={{ p: 3, bgcolor: '#fff5f5', borderColor: '#ffcdd2' }} variant="outlined">
           <Stack spacing={2} alignItems="center">
             <UploadIcon sx={{ fontSize: 48, color: 'error.main' }} />
@@ -179,7 +171,6 @@ export default function ImportExportTab() {
         </Paper>
       </Stack>
 
-      {/* 通知スナックバー */}
       <Snackbar
         open={!!message}
         autoHideDuration={6000}

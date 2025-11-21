@@ -271,6 +271,15 @@ export const useCalendarInteractions = (
 
   const handleCellMouseMove = useCallback((date: string, staffId: string, staffIndex: number, dateIndex: number) => {
     if (_clickMode !== 'select' || !isDragging || !selectionRange || !activeCell) return;
+    
+    // ★★★ 修正: 同じセル内での移動なら更新しないガードを追加 ★★★
+    if (
+      selectionRange.end.staffIndex === staffIndex &&
+      selectionRange.end.dateIndex === dateIndex
+    ) {
+      return;
+    }
+
     const cell: CellCoords = { date, staffId, staffIndex, dateIndex };
     setSelectionRange({ ...selectionRange, end: cell });
   }, [_clickMode, isDragging, selectionRange, activeCell]);
@@ -281,9 +290,6 @@ export const useCalendarInteractions = (
     stopAutoScroll();
   }, [_clickMode, stopAutoScroll]);
 
-  // --------------------------------------------------------------------------------
-  // ★★★ 自動スクロールロジックを抽出してエクスポートする ★★★
-  // --------------------------------------------------------------------------------
   const handleAutoScroll = useCallback((clientX: number, clientY: number) => {
     if (!isDragging || _clickMode !== 'select' || !activeCell) {
       stopAutoScroll();
@@ -296,8 +302,6 @@ export const useCalendarInteractions = (
       return;
     }
     const rect = container.getBoundingClientRect();
-    // const clientX = e.clientX; // 引数で受け取る
-    // const clientY = e.clientY; // 引数で受け取る
     const threshold = 40;
     const scrollSpeed = 20;
     const interval = 50;
@@ -329,17 +333,264 @@ export const useCalendarInteractions = (
 
 
   // --- C/X/V/矢印キー イベント ---
-  useEffect(() => {
-    const latestAssignmentsRef = {
-      current: store.getState().assignment.present.assignments
-    };
-    const unsubscribe = store.subscribe(() => {
-      const newAssignments = store.getState().assignment.present.assignments;
-      if (latestAssignmentsRef.current !== newAssignments) {
-        latestAssignmentsRef.current = newAssignments;
-      }
-    });
+  const handleCopy = useCallback(async (isCut = false) => {
+    if (!selectionRange) return;
+    const currentAssignments = store.getState().assignment.present.assignments;
+    const rangeIndices = getRangeIndices(selectionRange);
+    if (!rangeIndices) return;
+    const { minStaff, maxStaff, minDate, maxDate } = rangeIndices;
 
+    const tsvRows: string[][] = [];
+    const keysToCut = new Set<string>();
+
+    for (let sIdx = minStaff; sIdx <= maxStaff; sIdx++) {
+      const row: string[] = [];
+      for (let dIdx = minDate; dIdx <= maxDate; dIdx++) {
+        let key: string | null = null;
+        const staff = sortedStaffList[sIdx];
+        const day = monthDays[dIdx];
+        if (staff && day) {
+          key = `${staff.staffId}_${day.dateStr}`;
+        }
+
+        if (!key) {
+          row.push("");
+          continue;
+        }
+
+        if (isCut) {
+          keysToCut.add(key);
+        }
+
+        const cellAssignments = assignmentsMap.get(key) || [];
+        const firstAssignment = cellAssignments[0];
+        if (firstAssignment) {
+          row.push(firstAssignment.patternId);
+        } else {
+          row.push("");
+        }
+      }
+      tsvRows.push(row);
+    }
+
+    const tsvString = tsvRows.map(row => row.join('\t')).join('\n');
+    try {
+      await navigator.clipboard.writeText(tsvString);
+    } catch (err) {
+      console.error('OSクリップボードへの書き込みに失敗:', err);
+      return;
+    }
+
+    if (isCut) {
+      const newOptimisticAssignments = currentAssignments.filter(a => !keysToCut.has(`${a.staffId}_${a.date}`));
+
+      const currentSyncId = Date.now();
+      syncLockRef.current = currentSyncId;
+
+      dispatch(setAssignments(newOptimisticAssignments));
+      dispatch(_setIsSyncing(true));
+
+      (async () => {
+        try {
+          if (!monthDays || monthDays.length === 0) throw new Error("カレンダーの月情報がありません。");
+          const firstDay = monthDays[0].dateStr;
+          const lastDay = monthDays[monthDays.length - 1].dateStr;
+
+          await db.transaction('rw', db.assignments, async () => {
+            const assignmentsToRemoveDB = await db.assignments
+              .where('date')
+              .between(firstDay, lastDay, true, true)
+              .primaryKeys();
+            if (assignmentsToRemoveDB.length > 0) {
+              await db.assignments.bulkDelete(assignmentsToRemoveDB);
+            }
+            const assignmentsToSave = newOptimisticAssignments
+              .filter(a => a.date >= firstDay && a.date <= lastDay)
+              .map(({ id, ...rest }) => rest);
+            if (assignmentsToSave.length > 0) {
+              await db.assignments.bulkAdd(assignmentsToSave);
+            }
+          });
+
+          if (syncLockRef.current === currentSyncId) {
+            dispatch(_setIsSyncing(false));
+          } else {
+            if (syncLockRef.current === 0) { dispatch(_setIsSyncing(false)); }
+          }
+        } catch (e) {
+          console.error("カット(DB削除)に失敗:", e);
+          if (syncLockRef.current === currentSyncId) {
+            db.assignments.toArray().then(dbAssignments => dispatch(_syncAssignments(dbAssignments)));
+          } else {
+            if (syncLockRef.current === 0) { dispatch(_setIsSyncing(false)); }
+          }
+        }
+      })();
+    }
+  }, [selectionRange, getRangeIndices, sortedStaffList, monthDays, assignmentsMap, store, dispatch]);
+
+  const handlePaste = useCallback(async () => {
+    if (!activeCell) return;
+
+    let tsvString = "";
+    try {
+      tsvString = await navigator.clipboard.readText();
+    } catch (err) {
+      console.error('OSクリップボードの読み取りに失敗:', err);
+      alert('クリップボードの読み取りに失敗しました。ブラウザの権限を確認してください。');
+      return;
+    }
+    if (!tsvString) return;
+
+    const tsvRows = tsvString
+      .replace(/\r\n/g, '\n')
+      .split('\n')
+      .filter(row => row.trim() !== '')
+      .map(row => row.split('\t'));
+    const clipRowCount = tsvRows.length;
+    const clipColCount = tsvRows[0]?.length || 0;
+    if (clipRowCount === 0 || clipColCount === 0) return;
+
+    let startStaffIdx: number, endStaffIdx: number;
+    let startDateIdx: number, endDateIdx: number;
+
+    const isRangeSelection = selectionRange &&
+      (selectionRange.start.staffIndex !== selectionRange.end.staffIndex ||
+        selectionRange.start.dateIndex !== selectionRange.end.dateIndex);
+
+    if (isRangeSelection) {
+      const rangeIndices = getRangeIndices(selectionRange);
+      if (!rangeIndices) return;
+      startStaffIdx = rangeIndices.minStaff;
+      endStaffIdx = rangeIndices.maxStaff;
+      startDateIdx = rangeIndices.minDate;
+      endDateIdx = rangeIndices.maxDate;
+    } else {
+      startStaffIdx = activeCell.staffIndex;
+      endStaffIdx = activeCell.staffIndex + clipRowCount - 1;
+      startDateIdx = activeCell.dateIndex;
+      endDateIdx = activeCell.dateIndex + clipColCount - 1;
+    }
+
+    const currentAssignments = store.getState().assignment.present.assignments;
+    const newAssignmentsToPaste: Omit<IAssignment, 'id'>[] = [];
+    const keysToOverwrite = new Set<string>();
+
+    for (let sIdx = startStaffIdx; sIdx <= endStaffIdx; sIdx++) {
+      if (sIdx >= sortedStaffList.length) continue;
+
+      for (let dIdx = startDateIdx; dIdx <= endDateIdx; dIdx++) {
+        if (dIdx >= monthDays.length) continue;
+
+        const relativeRow = sIdx - startStaffIdx;
+        const relativeCol = dIdx - startDateIdx;
+        const sourceRow = relativeRow % clipRowCount;
+        const sourceCol = relativeCol % clipColCount;
+
+        const rawText = tsvRows[sourceRow][sourceCol]?.trim();
+
+        const targetStaff = sortedStaffList[sIdx];
+        const targetDay = monthDays[dIdx];
+
+        if (!targetStaff || !targetDay) continue;
+
+        const key = `${targetStaff.staffId}_${targetDay.dateStr}`;
+        keysToOverwrite.add(key);
+
+        if (rawText) {
+          let matchedPattern = patternMap.get(rawText);
+          if (!matchedPattern) {
+            matchedPattern = symbolMap.get(rawText);
+          }
+
+          if (matchedPattern) {
+            newAssignmentsToPaste.push({
+              date: targetDay.dateStr,
+              staffId: targetStaff.staffId,
+              patternId: matchedPattern.patternId,
+              unitId: (matchedPattern.workType === 'Work') ? targetStaff.unitId : null,
+              locked: true,
+              overrideStartTime: matchedPattern.isFlex ? matchedPattern.startTime : undefined,
+              overrideEndTime: matchedPattern.isFlex ? matchedPattern.endTime : undefined
+            });
+          }
+        }
+      }
+    }
+
+    const assignmentsBeforePaste = currentAssignments.filter(a => {
+      const key = `${a.staffId}_${a.date}`;
+      return !keysToOverwrite.has(key);
+    });
+    const tempAssignments = newAssignmentsToPaste.map((a, i) => ({
+      ...a,
+      id: Date.now() + i
+    }));
+    const finalOptimisticState = [...assignmentsBeforePaste, ...tempAssignments];
+
+    const currentSyncId = Date.now();
+    syncLockRef.current = currentSyncId;
+
+    dispatch(setAssignments(finalOptimisticState));
+    dispatch(_setIsSyncing(true));
+
+    if (!isRangeSelection && activeCell) {
+      const maxSIdx = Math.min(endStaffIdx, sortedStaffList.length - 1);
+      const maxDIdx = Math.min(endDateIdx, monthDays.length - 1);
+
+      const endStaff = sortedStaffList[maxSIdx];
+      const endDay = monthDays[maxDIdx];
+
+      if (endStaff && endDay) {
+        const newEndCell: CellCoords = {
+          staffId: endStaff.staffId,
+          date: endDay.dateStr,
+          staffIndex: maxSIdx,
+          dateIndex: maxDIdx
+        };
+        setSelectionRange({ start: activeCell, end: newEndCell });
+      }
+    }
+
+    (async () => {
+      try {
+        if (!monthDays || monthDays.length === 0) throw new Error("カレンダーの月情報がありません。");
+        const firstDay = monthDays[0].dateStr;
+        const lastDay = monthDays[monthDays.length - 1].dateStr;
+
+        await db.transaction('rw', db.assignments, async () => {
+          const assignmentsToRemoveDB = await db.assignments
+            .where('date')
+            .between(firstDay, lastDay, true, true)
+            .primaryKeys();
+          if (assignmentsToRemoveDB.length > 0) {
+            await db.assignments.bulkDelete(assignmentsToRemoveDB);
+          }
+          const assignmentsToSave = finalOptimisticState
+            .filter(a => a.date >= firstDay && a.date <= lastDay)
+            .map(({ id, ...rest }) => rest);
+          if (assignmentsToSave.length > 0) {
+            await db.assignments.bulkAdd(assignmentsToSave);
+          }
+        });
+
+        if (syncLockRef.current === currentSyncId) {
+          dispatch(_setIsSyncing(false));
+        } else {
+          if (syncLockRef.current === 0) { dispatch(_setIsSyncing(false)); }
+        }
+      } catch (e) {
+        console.error("ペースト(DB操作)に失敗:", e);
+        if (syncLockRef.current === currentSyncId) {
+          db.assignments.toArray().then(dbAssignments => dispatch(_syncAssignments(dbAssignments)));
+        } else {
+          if (syncLockRef.current === 0) { dispatch(_setIsSyncing(false)); }
+        }
+      }
+    })();
+  }, [activeCell, selectionRange, getRangeIndices, sortedStaffList, monthDays, patternMap, symbolMap, store, dispatch]);
+
+  useEffect(() => {
     const handleKeyDown = async (event: KeyboardEvent) => {
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
         return;
@@ -451,265 +702,14 @@ export const useCalendarInteractions = (
         return;
       }
 
-
-      // CUT / COPY
+      // コピー・カット・ペースト
       if (ctrlKey && (event.key === 'c' || event.key === 'x')) {
         event.preventDefault();
-        const currentAssignments = latestAssignmentsRef.current;
-
-        const rangeIndices = getRangeIndices(selectionRange);
-        if (!rangeIndices) return;
-        const { minStaff, maxStaff, minDate, maxDate } = rangeIndices;
-
-        const tsvRows: string[][] = [];
-        const keysToCut = new Set<string>();
-
-        for (let sIdx = minStaff; sIdx <= maxStaff; sIdx++) {
-          const row: string[] = [];
-          for (let dIdx = minDate; dIdx <= maxDate; dIdx++) {
-            let key: string | null = null;
-            const staff = sortedStaffList[sIdx];
-            const day = monthDays[dIdx];
-            if (staff && day) {
-              key = `${staff.staffId}_${day.dateStr}`;
-            }
-
-            if (!key) {
-              row.push("");
-              continue;
-            }
-
-            if (event.key === 'x') {
-              keysToCut.add(key);
-            }
-
-            const cellAssignments = assignmentsMap.get(key) || [];
-            const firstAssignment = cellAssignments[0];
-            if (firstAssignment) {
-              row.push(firstAssignment.patternId);
-            } else {
-              row.push("");
-            }
-          }
-          tsvRows.push(row);
-        }
-
-        const tsvString = tsvRows.map(row => row.join('\t')).join('\n');
-        try {
-          await navigator.clipboard.writeText(tsvString);
-        } catch (err) {
-          console.error('OSクリップボードへの書き込みに失敗:', err);
-          return;
-        }
-
-        if (event.key === 'x') {
-          const newOptimisticAssignments = currentAssignments.filter(a => !keysToCut.has(`${a.staffId}_${a.date}`));
-
-          const currentSyncId = Date.now();
-          syncLockRef.current = currentSyncId;
-
-          dispatch(setAssignments(newOptimisticAssignments));
-          dispatch(_setIsSyncing(true));
-
-          (async () => {
-            try {
-              if (!monthDays || monthDays.length === 0) throw new Error("カレンダーの月情報がありません。");
-              const firstDay = monthDays[0].dateStr;
-              const lastDay = monthDays[monthDays.length - 1].dateStr;
-
-              await db.transaction('rw', db.assignments, async () => {
-                const assignmentsToRemoveDB = await db.assignments
-                  .where('date')
-                  .between(firstDay, lastDay, true, true)
-                  .primaryKeys();
-                if (assignmentsToRemoveDB.length > 0) {
-                  await db.assignments.bulkDelete(assignmentsToRemoveDB);
-                }
-                const assignmentsToSave = newOptimisticAssignments
-                  .filter(a => a.date >= firstDay && a.date <= lastDay)
-                  .map(({ id, ...rest }) => rest);
-                if (assignmentsToSave.length > 0) {
-                  await db.assignments.bulkAdd(assignmentsToSave);
-                }
-              });
-
-              if (syncLockRef.current === currentSyncId) {
-                dispatch(_setIsSyncing(false));
-              } else {
-                if (syncLockRef.current === 0) { dispatch(_setIsSyncing(false)); }
-              }
-            } catch (e) {
-              console.error("カット(DB削除)に失敗:", e);
-              if (syncLockRef.current === currentSyncId) {
-                db.assignments.toArray().then(dbAssignments => dispatch(_syncAssignments(dbAssignments)));
-              } else {
-                if (syncLockRef.current === 0) { dispatch(_setIsSyncing(false)); }
-              }
-            }
-          })();
-        }
+        handleCopy(event.key === 'x');
       }
-      // PASTE
       else if (ctrlKey && event.key === 'v') {
         event.preventDefault();
-
-        if (!activeCell) return;
-
-        let tsvString = "";
-        try {
-          tsvString = await navigator.clipboard.readText();
-        } catch (err) {
-          console.error('OSクリップボードの読み取りに失敗:', err);
-          return;
-        }
-        if (!tsvString) return;
-
-        const tsvRows = tsvString
-          .replace(/\r\n/g, '\n')           
-          .split('\n')                      
-          .filter(row => row.trim() !== '') 
-          .map(row => row.split('\t'));     
-        const clipRowCount = tsvRows.length;
-        const clipColCount = tsvRows[0]?.length || 0;
-        if (clipRowCount === 0 || clipColCount === 0) return;
-
-        let startStaffIdx: number, endStaffIdx: number;
-        let startDateIdx: number, endDateIdx: number;
-
-        const isRangeSelection = selectionRange &&
-          (selectionRange.start.staffIndex !== selectionRange.end.staffIndex ||
-            selectionRange.start.dateIndex !== selectionRange.end.dateIndex);
-
-        if (isRangeSelection) {
-          const rangeIndices = getRangeIndices(selectionRange);
-          if (!rangeIndices) return; 
-          startStaffIdx = rangeIndices.minStaff;
-          endStaffIdx = rangeIndices.maxStaff;
-          startDateIdx = rangeIndices.minDate;
-          endDateIdx = rangeIndices.maxDate;
-        } else {
-          startStaffIdx = activeCell.staffIndex;
-          endStaffIdx = activeCell.staffIndex + clipRowCount - 1;
-          startDateIdx = activeCell.dateIndex;
-          endDateIdx = activeCell.dateIndex + clipColCount - 1;
-        }
-
-        const currentAssignments = latestAssignmentsRef.current;
-        const newAssignmentsToPaste: Omit<IAssignment, 'id'>[] = [];
-        const keysToOverwrite = new Set<string>();
-
-        for (let sIdx = startStaffIdx; sIdx <= endStaffIdx; sIdx++) {
-          if (sIdx >= sortedStaffList.length) continue;
-
-          for (let dIdx = startDateIdx; dIdx <= endDateIdx; dIdx++) {
-            if (dIdx >= monthDays.length) continue;
-
-            const relativeRow = sIdx - startStaffIdx;
-            const relativeCol = dIdx - startDateIdx;
-            const sourceRow = relativeRow % clipRowCount;
-            const sourceCol = relativeCol % clipColCount;
-
-            const rawText = tsvRows[sourceRow][sourceCol]?.trim();
-
-            const targetStaff = sortedStaffList[sIdx];
-            const targetDay = monthDays[dIdx];
-
-            if (!targetStaff || !targetDay) continue;
-
-            const key = `${targetStaff.staffId}_${targetDay.dateStr}`;
-            keysToOverwrite.add(key); 
-
-            if (rawText) {
-              let matchedPattern = patternMap.get(rawText);
-              if (!matchedPattern) {
-                matchedPattern = symbolMap.get(rawText);
-              }
-
-              if (matchedPattern) {
-                newAssignmentsToPaste.push({
-                  date: targetDay.dateStr,
-                  staffId: targetStaff.staffId,
-                  patternId: matchedPattern.patternId,
-                  unitId: (matchedPattern.workType === 'Work') ? targetStaff.unitId : null,
-                  locked: true,
-                  overrideStartTime: matchedPattern.isFlex ? matchedPattern.startTime : undefined,
-                  overrideEndTime: matchedPattern.isFlex ? matchedPattern.endTime : undefined
-                });
-              }
-            }
-          }
-        }
-
-        const assignmentsBeforePaste = currentAssignments.filter(a => {
-          const key = `${a.staffId}_${a.date}`;
-          return !keysToOverwrite.has(key);
-        });
-        const tempAssignments = newAssignmentsToPaste.map((a, i) => ({
-          ...a,
-          id: Date.now() + i
-        }));
-        const finalOptimisticState = [...assignmentsBeforePaste, ...tempAssignments];
-
-        const currentSyncId = Date.now();
-        syncLockRef.current = currentSyncId;
-
-        dispatch(setAssignments(finalOptimisticState));
-        dispatch(_setIsSyncing(true));
-
-        if (!isRangeSelection && activeCell) {
-          const maxSIdx = Math.min(endStaffIdx, sortedStaffList.length - 1);
-          const maxDIdx = Math.min(endDateIdx, monthDays.length - 1);
-
-          const endStaff = sortedStaffList[maxSIdx];
-          const endDay = monthDays[maxDIdx];
-
-          if (endStaff && endDay) {
-            const newEndCell: CellCoords = {
-              staffId: endStaff.staffId,
-              date: endDay.dateStr,
-              staffIndex: maxSIdx,
-              dateIndex: maxDIdx
-            };
-            setSelectionRange({ start: activeCell, end: newEndCell });
-          }
-        }
-
-        (async () => {
-          try {
-            if (!monthDays || monthDays.length === 0) throw new Error("カレンダーの月情報がありません。");
-            const firstDay = monthDays[0].dateStr;
-            const lastDay = monthDays[monthDays.length - 1].dateStr;
-
-            await db.transaction('rw', db.assignments, async () => {
-              const assignmentsToRemoveDB = await db.assignments
-                .where('date')
-                .between(firstDay, lastDay, true, true)
-                .primaryKeys();
-              if (assignmentsToRemoveDB.length > 0) {
-                await db.assignments.bulkDelete(assignmentsToRemoveDB);
-              }
-              const assignmentsToSave = finalOptimisticState
-                .filter(a => a.date >= firstDay && a.date <= lastDay)
-                .map(({ id, ...rest }) => rest);
-              if (assignmentsToSave.length > 0) {
-                await db.assignments.bulkAdd(assignmentsToSave);
-              }
-            });
-
-            if (syncLockRef.current === currentSyncId) {
-              dispatch(_setIsSyncing(false));
-            } else {
-              if (syncLockRef.current === 0) { dispatch(_setIsSyncing(false)); }
-            }
-          } catch (e) {
-            console.error("ペースト(DB操作)に失敗:", e);
-            if (syncLockRef.current === currentSyncId) {
-              db.assignments.toArray().then(dbAssignments => dispatch(_syncAssignments(dbAssignments)));
-            } else {
-              if (syncLockRef.current === 0) { dispatch(_setIsSyncing(false)); }
-            }
-          }
-        })();
+        handlePaste();
       }
     };
 
@@ -723,24 +723,15 @@ export const useCalendarInteractions = (
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('mousemove', handleWindowMouseMove);
-      unsubscribe();
       stopAutoScroll();
     };
   }, [
-    _clickMode, isDragging, selectionRange, activeCell,
-    sortedStaffList,
-    dispatch, store,
-    getRangeIndices, setClickMode,
-    toggleHoliday,
-    holidayPatternId, paidLeavePatternId,
-    assignmentsMap,
-    patternMap,
-    symbolMap, 
-    stopAutoScroll,
-    mainCalendarScrollerRef,
-    handleCellMouseUp,
-    monthDays,
-    handleAutoScroll // ★ 追加
+    _clickMode, activeCell, selectionRange,
+    sortedStaffList, monthDays,
+    store, 
+    handleCopy, handlePaste,
+    handleAutoScroll, 
+    stopAutoScroll
   ]);
 
   useEffect(() => {
@@ -773,7 +764,9 @@ export const useCalendarInteractions = (
     handleCellMouseDown,
     handleCellMouseMove,
     handleCellMouseUp,
-    handleAutoScroll, // ★ 公開
+    handleAutoScroll,
+    handleCopy,
+    handlePaste,
     invalidateSyncLock: () => { },
   };
 };

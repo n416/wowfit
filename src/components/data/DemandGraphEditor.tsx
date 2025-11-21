@@ -1,4 +1,4 @@
-import React, { useState, useRef, } from 'react'; // useEffectを追加(念のため)
+import React, { useState, useRef, } from 'react'; 
 import {
   Box, Paper, Typography, Button, ButtonGroup,
   IconButton, Tooltip, Divider, Stack
@@ -15,9 +15,8 @@ interface DemandGraphEditorProps {
 }
 
 const MAX_HISTORY = 50;
-// ★ 定数定義: グラフの高さとラベル確保領域
 const GRAPH_HEIGHT_PX = 150;
-const LABEL_AREA_PX = 24; // ラベル表示に必要な高さ(px)
+const LABEL_AREA_PX = 24; 
 
 export const DemandGraphEditor: React.FC<DemandGraphEditorProps> = ({ initialDemand, onChange }) => {
   const [demand, setDemand] = useState<number[]>([...initialDemand]);
@@ -91,44 +90,56 @@ export const DemandGraphEditor: React.FC<DemandGraphEditorProps> = ({ initialDem
 
   const getPresetValue = (key: 'A' | 'B' | 'C') => baseValues[key] + presetBase;
 
-  // --- Mouse Interaction ---
+  // --- Mouse & Touch Interaction ---
   const getHourFromX = (x: number, rect: DOMRect) => {
     const widthPerSlot = rect.width / 24;
     const hour = Math.floor((x - rect.left) / widthPerSlot);
     return Math.max(0, Math.min(23, hour));
   };
 
-  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+  // ★ タッチ・マウス両対応の座標取得ヘルパー
+  const getClientX = (e: React.MouseEvent | React.TouchEvent) => {
+    if ('touches' in e && e.touches.length > 0) {
+      return e.touches[0].clientX;
+    }
+    return (e as React.MouseEvent).clientX;
+  };
+
+  const handleStart = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
+    // マウスの右クリックなどは無視
+    if ('button' in e && e.button !== 0) return;
+
     const rect = e.currentTarget.getBoundingClientRect();
-    const hour = getHourFromX(e.clientX, rect);
+    const clientX = getClientX(e);
+    const hour = getHourFromX(clientX, rect);
+    
     setIsDragging(true);
     dragStartRef.current = hour;
     setSelection({ start: hour, end: hour });
   };
 
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleMove = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
     if (!isDragging || dragStartRef.current === null) return;
+    
     const rect = e.currentTarget.getBoundingClientRect();
-    const hour = getHourFromX(e.clientX, rect);
+    const clientX = getClientX(e);
+    const hour = getHourFromX(clientX, rect);
+    
     const start = Math.min(dragStartRef.current, hour);
     const end = Math.max(dragStartRef.current, hour);
+    
     if (!selection || selection.start !== start || selection.end !== end) {
       setSelection({ start, end });
     }
   };
 
-  const handleMouseUp = () => {
+  const handleEnd = () => {
     setIsDragging(false);
     dragStartRef.current = null;
   };
 
-  // --- Rendering Calculation (修正箇所) ---
+  // --- Rendering Calculation ---
   const dataMax = Math.max(3, ...demand);
-
-  // 論理上のY軸最大値を計算する
-  // 「データ最大値(dataMax)」が、「グラフ全体の高さ(GRAPH_HEIGHT_PX)」から「ラベルエリア(LABEL_AREA_PX)」を引いた高さに収まるようにする
-  // 式: (dataMax / maxVal) * GRAPH_HEIGHT_PX = GRAPH_HEIGHT_PX - LABEL_AREA_PX
-  // 変形: maxVal = dataMax * (GRAPH_HEIGHT_PX / (GRAPH_HEIGHT_PX - LABEL_AREA_PX))
   const maxVal = dataMax * (GRAPH_HEIGHT_PX / (GRAPH_HEIGHT_PX - LABEL_AREA_PX));
 
   return (
@@ -154,18 +165,24 @@ export const DemandGraphEditor: React.FC<DemandGraphEditorProps> = ({ initialDem
         variant="outlined"
         sx={{
           position: 'relative',
-          height: GRAPH_HEIGHT_PX, // ★ 定数を使用
+          height: GRAPH_HEIGHT_PX, 
           display: 'flex',
           alignItems: 'flex-end',
           cursor: 'crosshair',
           overflow: 'hidden',
           bgcolor: '#fafafa',
-          mb: 1
+          mb: 1,
+          touchAction: 'none' // ★ タッチ操作時のスクロール防止
         }}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
+        // ★ マウスイベント
+        onMouseDown={handleStart}
+        onMouseMove={handleMove}
+        onMouseUp={handleEnd}
+        onMouseLeave={handleEnd}
+        // ★ タッチイベント
+        onTouchStart={handleStart}
+        onTouchMove={handleMove}
+        onTouchEnd={handleEnd}
       >
         {/* Grid Lines */}
         <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none', display: 'flex' }}>
@@ -180,7 +197,6 @@ export const DemandGraphEditor: React.FC<DemandGraphEditorProps> = ({ initialDem
         <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'flex-end', pointerEvents: 'none' }}>
           {demand.map((val, i) => {
             const isSelected = selection && i >= selection.start && i <= selection.end;
-            // 高さ(%)の計算: 逆算した maxVal を分母にするため、必ず安全圏内に収まる
             const heightPercent = (val / maxVal) * 100;
 
             return (
@@ -209,7 +225,6 @@ export const DemandGraphEditor: React.FC<DemandGraphEditorProps> = ({ initialDem
                       variant="caption"
                       sx={{
                         position: 'absolute',
-                        // バーの上端(-18px)に配置しても、計算済みなので見切れない
                         top: -18,
                         left: '50%',
                         transform: 'translateX(-50%)',

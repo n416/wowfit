@@ -1,3 +1,4 @@
+// src/components/calendar/StaffCalendarView.tsx
 import React, { CSSProperties, useMemo, useCallback, useRef, useEffect } from 'react';
 import {
   IconButton,
@@ -30,11 +31,11 @@ interface StaffCalendarViewProps {
   clickMode: ClickMode;
   selectionRange: { start: CellCoords, end: CellCoords } | null;
   onCellMouseDown: (e: React.MouseEvent | React.TouchEvent, date: string, staffId: string, staffIndex: number, dateIndex: number) => void;
-  onCellMouseMove: (date: string, staffId: string, staffIndex: number, dateIndex: number) => void;
+  onCellMouseMove: (date: string, staffId: string, sIdx: number, dIdx: number) => void;
   onCellMouseUp: () => void;
   mainCalendarScrollerRef: React.RefObject<HTMLElement | null>;
   monthDays: MonthDay[];
-  onAutoScroll: (x: number, y: number) => void; // ★ 追加
+  onAutoScroll: (x: number, y: number) => void;
 }
 
 const COL_WIDTH = 80;
@@ -49,10 +50,10 @@ const styles: { [key: string]: CSSProperties } = {
     padding: '4px',
     borderBottom: CELL_BORDER,
     borderRight: CELL_BORDER,
-    backgroundColor: '#fff',
-    position: 'sticky',
-    top: 0,
-    zIndex: 11,
+    backgroundColor: '#fff', 
+    position: 'sticky',      
+    top: 0,                  
+    zIndex: 40,              // ★修正: ヘッダー行は Lv2 (40)
     textAlign: 'left',
     fontWeight: 'bold',
     overflow: 'hidden',
@@ -61,7 +62,8 @@ const styles: { [key: string]: CSSProperties } = {
     maxHeight: `${HEADER_HEIGHT}px`,
     boxSizing: 'border-box',
     display: 'table-cell',
-    verticalAlign: 'middle'
+    verticalAlign: 'middle',
+    backgroundClip: 'padding-box'
   },
   td: {
     padding: 0,
@@ -81,7 +83,7 @@ const styles: { [key: string]: CSSProperties } = {
     position: 'sticky',
     left: 0,
     backgroundColor: '#fff',
-    zIndex: 10,
+    zIndex: 30, // ★修正: 左列(スタッフ名)は Lv1 (30)。ヘッダー(40)より低くする。
     textAlign: 'left',
     paddingLeft: '12px'
   },
@@ -307,6 +309,7 @@ const ScrollerWithOverlay = React.forwardRef<HTMLDivElement, any>((props, ref) =
   </div>
 ));
 
+// ★★★ 修正: TableHead に zIndex を強制してコンテキストを形成する ★★★
 const VirtuosoTableComponents: TableComponents<any> = {
   Scroller: ScrollerWithOverlay,
   Table: (props) => (
@@ -322,7 +325,11 @@ const VirtuosoTableComponents: TableComponents<any> = {
       }} 
     />
   ),
-  TableHead: TableHead,
+  // ★重要修正: TableHead 自体にも sticky と高 zIndex を設定し、
+  // tbody の sticky 要素（左列）よりも確実に上に来るように構造化する。
+  TableHead: React.forwardRef((props, ref) => (
+    <TableHead {...props} ref={ref} style={{ position: 'sticky', top: 0, zIndex: 40 }} />
+  )),
   TableRow: TableRow,
   TableBody: React.forwardRef((props, ref) => <TableBody {...props} ref={ref} />),
 };
@@ -342,7 +349,7 @@ export default function StaffCalendarView({
   onCellMouseUp,
   mainCalendarScrollerRef,
   monthDays,
-  onAutoScroll // ★ 追加
+  onAutoScroll
 }: StaffCalendarViewProps) {
 
   const { patterns: shiftPatterns } = useSelector((state: RootState) => state.pattern);
@@ -406,6 +413,7 @@ export default function StaffCalendarView({
   }, []);
 
   const touchStartRef = useRef<{ x: number, y: number } | null>(null);
+  const lastTouchMoveTimeRef = useRef<number>(0);
   
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
     if (clickMode !== 'select') return;
@@ -428,7 +436,12 @@ export default function StaffCalendarView({
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
     if (clickMode !== 'select') return;
     
-    // ★ タッチ位置で自動スクロールを判定
+    const now = Date.now();
+    if (now - lastTouchMoveTimeRef.current < 30) {
+      return;
+    }
+    lastTouchMoveTimeRef.current = now;
+
     const touch = e.touches[0];
     onAutoScroll(touch.clientX, touch.clientY);
     
@@ -444,17 +457,18 @@ export default function StaffCalendarView({
         stableOnCellMouseMove(dateStr, staffId, sIdx, dIdx);
       }
     }
-  }, [clickMode, stableOnCellMouseMove, onAutoScroll]); // ★ depsに追加
+  }, [clickMode, stableOnCellMouseMove, onAutoScroll]);
 
-  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+  const handleTouchEnd = useCallback(() => {
     stableOnCellMouseUp();
     touchStartRef.current = null;
   }, [stableOnCellMouseUp]);
 
   const fixedHeaderContent = () => (
     <TableRow>
-      <TableCell style={{ ...styles.th, ...styles.stickyCell, ...styles.staffNameCell, zIndex: 12 }}>スタッフ</TableCell>
-      <TableCell style={{ ...styles.th, ...styles.stickyCell, ...styles.holidayAdjustCell, zIndex: 12 }}>
+      {/* ★修正: 左上のコーナーセルは Lv3 (50) */}
+      <TableCell style={{ ...styles.th, ...styles.stickyCell, ...styles.staffNameCell, zIndex: 50 }}>スタッフ</TableCell>
+      <TableCell style={{ ...styles.th, ...styles.stickyCell, ...styles.holidayAdjustCell, zIndex: 50 }}>
         公休調整
       </TableCell>
       {monthDays.map(dayInfo => (

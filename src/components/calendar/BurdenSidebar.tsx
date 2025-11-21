@@ -1,3 +1,4 @@
+// src/components/calendar/BurdenSidebar.tsx
 import { 
   Box, Paper, Typography, 
   List, ListItem, ListItemText, Avatar, Chip,
@@ -19,13 +20,12 @@ interface BurdenDataValue {
   maxHours: number;
   holidayCount: number;
   requiredHolidays: number;
-  holidayDetails: Map<string, number>; // ★ ここが重要
+  holidayDetails: Map<string, number>; 
 }
 
 interface BurdenSidebarProps {
   isOpen: boolean;
   onToggle: () => void;
-  // ★ 修正: any ではなく具体的な型を指定
   staffBurdenData: Map<string, BurdenDataValue>; 
 }
 
@@ -42,27 +42,52 @@ export default function BurdenSidebar({
       minWidth: isOpen ? '300px' : '56px', 
     }}>
       
-      <Paper sx={{ 
-        flexGrow: 1, 
-        overflow: 'hidden', 
-        display: 'flex',
-        flexDirection: 'column', 
-        p: isOpen ? 2 : 0, 
-      }}>
+      <Paper 
+        sx={{ 
+          flexGrow: 1, 
+          overflow: 'hidden', 
+          display: 'flex',
+          flexDirection: 'column', 
+          p: isOpen ? 2 : 0, 
+          // ★ 修正: 閉じている時は全体をクリッカブルにする
+          cursor: !isOpen ? 'pointer' : 'default',
+          // ★ 修正: 閉じている時の背景色を少し変えて「押せる感」を出す（任意ですが、今回はホバーで表現）
+          '&:hover': {
+            bgcolor: !isOpen ? 'rgba(0, 0, 0, 0.04)' : undefined
+          }
+        }}
+        // ★ 修正: 閉じている時だけ、Paper全体をクリックで開くようにする
+        onClick={!isOpen ? onToggle : undefined}
+      >
         {/* 開閉ボタンエリア */}
-        <Box sx={{ 
-          display: 'flex', 
-          justifyContent: isOpen ? 'space-between' : 'center', 
-          alignItems: 'center',
-          mb: isOpen ? 1 : 0,
-          pl: isOpen ? 1 : 0, 
-        }}>
+        <Box 
+          // ★ 修正: 開いている時はヘッダーをクリックで閉じるようにする
+          onClick={isOpen ? onToggle : undefined}
+          sx={{ 
+            display: 'flex', 
+            justifyContent: isOpen ? 'space-between' : 'center', 
+            alignItems: 'center',
+            mb: isOpen ? 1 : 0,
+            pl: isOpen ? 1 : 0, 
+            // ★ 修正: 閉じている時の上下余白を増やして押しやすくする
+            py: isOpen ? 0 : 1.5,
+            // ★ 修正: 開いている時はヘッダーをクリッカブルにする
+            cursor: isOpen ? 'pointer' : 'inherit'
+          }}
+        >
           <Collapse in={isOpen} orientation="horizontal">
             <Typography variant="h6">
               負担の可視化
             </Typography>
           </Collapse>
-          <IconButton onClick={onToggle}>
+          
+          {/* ★ 修正: IconButton自体のonClickは削除し、親のイベントに委ねる */}
+          {/* pointerEvents: 'none' は指定せず、リップルエフェクトは残す */}
+          <IconButton onClick={(e) => {
+             // アイコンボタンを直接押した時もトグルさせる（念のため）
+             e.stopPropagation();
+             onToggle();
+          }}>
             {isOpen ? <ChevronRightIcon /> : <ChevronLeftIcon />}
           </IconButton>
         </Box>
@@ -74,7 +99,6 @@ export default function BurdenSidebar({
               const hourViolation = staffData.totalHours > staffData.maxHours; 
               const holidayViolation = staffData.holidayCount < staffData.requiredHolidays; 
               
-              // ★ 型定義によりエラーが解消されます
               const holidayDetailChips = Array.from(staffData.holidayDetails.entries()).map(([key, count]) => (
                 <Chip 
                   key={key}

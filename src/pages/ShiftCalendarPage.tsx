@@ -28,13 +28,13 @@ import DailyUnitGanttModal from '../components/calendar/DailyUnitGanttModal';
 import ClearStaffAssignmentsModal from '../components/calendar/ClearStaffAssignmentsModal'; 
 import TabPanel from '../components/TabPanel'; 
 import MonthNavigation from '../components/calendar/MonthNavigation';
+import FloatingActionMenu from '../components/calendar/FloatingActionMenu';
 
 import { MOCK_PATTERNS_V5, MOCK_UNITS_V5, MOCK_STAFF_V4 } from '../db/mockData';
 
 // カスタムフック
 import { useStaffBurdenData } from '../hooks/useStaffBurdenData';
 import { useDemandMap } from '../hooks/useDemandMap';
-import { useUnitGroups } from '../hooks/useUnitGroups';
 import { useUndoRedoKeyboard } from '../hooks/useUndoRedoKeyboard';
 import { useCalendarInteractions } from '../hooks/useCalendarInteractions';
 import { useShiftCalendarModals } from '../hooks/useShiftCalendarModals';
@@ -54,7 +54,16 @@ function ShiftCalendarPage() {
   const [tabValue, setTabValue] = useState(0);
   const dispatch: AppDispatch = useDispatch(); 
 
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  // ★ 修正: ローカルストレージから初期値を読み込む
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
+    const saved = localStorage.getItem('isBurdenSidebarOpen');
+    return saved !== null ? JSON.parse(saved) : true;
+  });
+
+  // ★ 追加: 状態変更時にローカルストレージへ保存
+  useEffect(() => {
+    localStorage.setItem('isBurdenSidebarOpen', JSON.stringify(isSidebarOpen));
+  }, [isSidebarOpen]);
   
   const mainCalendarScrollerRef = useRef<HTMLElement | null>(null);
 
@@ -119,13 +128,14 @@ function ShiftCalendarPage() {
   const {
     clickMode,
     setClickMode, 
-    activeCell,
     selectionRange,
     handleCellClick: handleInteractionCellClick, 
     handleCellMouseDown,
     handleCellMouseMove,
     handleCellMouseUp,
-    handleAutoScroll, // ★ ここで受け取る
+    handleAutoScroll,
+    handleCopy,
+    handlePaste,
     invalidateSyncLock,
   } = useCalendarInteractions(
     sortedStaffList, 
@@ -144,8 +154,6 @@ function ShiftCalendarPage() {
     handleClearStaffAssignments,
   } = useShiftCalendarModals();
   
-  const unitGroups = useUnitGroups(showingGanttTarget, monthDays);
-
   const {
     aiInstruction,
     setAiInstruction,
@@ -299,6 +307,8 @@ function ShiftCalendarPage() {
   }, [past.length, dispatch]);
 
 
+  const showFloatingMenu = clickMode === 'select' && !!selectionRange;
+
   return (
     <Box sx={{ 
       display: 'flex', 
@@ -443,7 +453,7 @@ function ShiftCalendarPage() {
               onCellMouseUp={handleCellMouseUp}
               mainCalendarScrollerRef={mainCalendarScrollerRef}
               monthDays={monthDays} 
-              onAutoScroll={handleAutoScroll} // ★ 追加
+              onAutoScroll={handleAutoScroll}
             />
           </TabPanel>
           
@@ -504,6 +514,13 @@ function ShiftCalendarPage() {
         onFillRental={handleFillRental} 
         onForceAdjustHolidays={handleRunAiHolidayPatch} 
         isOverallDisabled={isOverallLoading}
+      />
+
+      <FloatingActionMenu
+        visible={showFloatingMenu}
+        onCopy={() => handleCopy(false)}
+        onCut={() => handleCopy(true)}
+        onPaste={handlePaste}
       />
 
       {/* モーダル群 */}

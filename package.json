@@ -16,6 +16,7 @@
     "@mui/material": "^7.3.5",
     "@reduxjs/toolkit": "^2.10.1",
     "dexie": "^4.2.1",
+    "html2canvas": "^1.4.1",
     "japanese-holidays": "^1.0.10",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
@@ -26,6 +27,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
+    "@types/html2canvas": "^0.5.35",
     "@types/japanese-holidays": "^1.0.3",
     "@types/node": "^24.10.0",
     "@types/react": "^19.2.2",

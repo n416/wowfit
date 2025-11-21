@@ -1,39 +1,78 @@
 // src/utils/dateUtils.ts
 import JapaneseHolidays from 'japanese-holidays';
 
-// ★ 型定義を一元化してエクスポート（前回のスクリプトがこれを参照します）
 export type MonthDay = {
   dateStr: string;
   weekday: string;
   dayOfWeek: number;
-  holidayName?: string; // ★ 追加: 祝日名 (例: "元日")
+  holidayName?: string;
+};
+
+const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
+
+// 内部ヘルパー: DateオブジェクトからMonthDayを生成
+const createMonthDay = (date: Date): MonthDay => {
+  const y = date.getFullYear();
+  const m = date.getMonth() + 1;
+  const d = date.getDate();
+  const dateStr = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  const dayOfWeek = date.getDay();
+  const holidayName = JapaneseHolidays.isHoliday(date);
+  
+  return {
+    dateStr,
+    weekday: weekdays[dayOfWeek],
+    dayOfWeek,
+    holidayName: holidayName || undefined,
+  };
 };
 
 export const getMonthDays = (year: number, month: number): MonthDay[] => {
   const date = new Date(year, month - 1, 1);
   const days: MonthDay[] = [];
-  const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
   
   while (date.getMonth() === month - 1) {
-    const day = date.getDate();
-    const dayOfWeek = date.getDay();
-    
-    // ★ 祝日判定 (祝日なら名前が返る、そうでなければ undefined)
-    const holidayName = JapaneseHolidays.isHoliday(date);
-
-    days.push({
-      dateStr: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
-      weekday: weekdays[dayOfWeek],
-      dayOfWeek: dayOfWeek,
-      holidayName: holidayName || undefined,
-    });
-    date.setDate(day + 1);
+    days.push(createMonthDay(date));
+    date.setDate(date.getDate() + 1);
   }
   return days;
 };
 
+// ★ 追加: 月を含む「完全な週（日曜始まり〜土曜終わり）」の配列を生成
+export const getFullWeeksForMonth = (year: number, month: number): MonthDay[][] => {
+  const weeks: MonthDay[][] = [];
+  
+  // 月初 (1日)
+  const firstDateOfMonth = new Date(year, month - 1, 1);
+  // その週の日曜日まで戻る
+  const startDate = new Date(firstDateOfMonth);
+  startDate.setDate(firstDateOfMonth.getDate() - firstDateOfMonth.getDay());
+
+  // 月末
+  const lastDateOfMonth = new Date(year, month, 0);
+  // その週の土曜日まで進む
+  const endDate = new Date(lastDateOfMonth);
+  endDate.setDate(lastDateOfMonth.getDate() + (6 - lastDateOfMonth.getDay()));
+
+  let currentWeek: MonthDay[] = [];
+  let currentDate = new Date(startDate);
+
+  // startDate から endDate までループ
+  while (currentDate <= endDate) {
+    currentWeek.push(createMonthDay(currentDate));
+
+    if (currentWeek.length === 7) {
+      weeks.push(currentWeek);
+      currentWeek = [];
+    }
+    
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
+  
+  return weeks;
+};
+
 export const getDefaultRequiredHolidays = (monthDays: MonthDay[]): number => {
-  // ★ 修正: 土日 または 祝日 の数をカウント
   return monthDays.filter(d => d.dayOfWeek === 0 || d.dayOfWeek === 6 || d.holidayName).length;
 };
 

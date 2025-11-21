@@ -6,7 +6,9 @@ import {
   ToggleButton, ToggleButtonGroup,
   Stack,
   Divider,
-  SxProps, Theme // ★ 追加: 型定義用
+  SxProps, Theme,
+  IconButton, Tooltip,
+  Typography
 } from '@mui/material';
 import { useSelector, useDispatch, useStore } from 'react-redux';
 import { ActionCreators as UndoActionCreators } from 'redux-undo';
@@ -30,6 +32,7 @@ import ClearStaffAssignmentsModal from '../components/calendar/ClearStaffAssignm
 import TabPanel from '../components/TabPanel'; 
 import MonthNavigation from '../components/calendar/MonthNavigation';
 import FloatingActionMenu from '../components/calendar/FloatingActionMenu';
+import WeeklyShareModal from '../components/calendar/WeeklyShareModal';
 
 import { MOCK_PATTERNS_V5, MOCK_UNITS_V5, MOCK_STAFF_V4 } from '../db/mockData';
 
@@ -50,6 +53,7 @@ import SelectAllIcon from '@mui/icons-material/SelectAll';
 import UndoIcon from '@mui/icons-material/Undo'; 
 import RedoIcon from '@mui/icons-material/Redo'; 
 import RefreshIcon from '@mui/icons-material/Refresh'; 
+import ImageIcon from '@mui/icons-material/Image'; // ★ 修正: 画像アイコンに変更
 
 // ---------------------------------------------------------------------------
 // 1. カスタムフック: データ同期ロジックの抽出
@@ -140,7 +144,7 @@ const useDataSync = (
 };
 
 // ---------------------------------------------------------------------------
-// 2. サブコンポーネント: 共通ツールバー (修正版)
+// 2. サブコンポーネント: 共通ツールバー
 // ---------------------------------------------------------------------------
 interface ControlToolbarProps {
   currentYear: number;
@@ -156,7 +160,8 @@ interface ControlToolbarProps {
   canRedo?: boolean;
   onReset?: () => void;
   showTools?: boolean; 
-  sx?: SxProps<Theme>; // ★ 追加: スタイル上書き用
+  sx?: SxProps<Theme>; 
+  onShareClick?: () => void;
 }
 
 const ControlToolbar = React.memo(({
@@ -166,7 +171,8 @@ const ControlToolbar = React.memo(({
   onRedo, canRedo,
   onReset,
   showTools = false,
-  sx // ★ 受け取る
+  sx,
+  onShareClick
 }: ControlToolbarProps) => {
   return (
     <Box sx={{ 
@@ -174,8 +180,8 @@ const ControlToolbar = React.memo(({
       justifyContent: 'space-between', 
       alignItems: 'center', 
       mb: 2,
-      width: '100%', // ★ 重要: 幅を100%にして左右配置を有効にする
-      ...sx // ★ 親からのスタイルを適用
+      width: '100%', 
+      ...sx 
     }}>
       <MonthNavigation
         currentYear={currentYear}
@@ -212,6 +218,31 @@ const ControlToolbar = React.memo(({
           </ToggleButtonGroup>
 
           <Stack direction="row" spacing={1} alignItems="center">
+             <Tooltip title="週間シフト画像を保存">
+                <Button
+                  onClick={onShareClick}
+                  disabled={isLoading}
+                  color="primary"
+                  sx={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    minWidth: 'auto',
+                    p: 0.5,
+                    lineHeight: 1,
+                    textTransform: 'none'
+                  }}
+                >
+                  {/* ★ 修正: 画像アイコンに変更 */}
+                  <ImageIcon fontSize="small" />
+                  <Typography variant="caption" sx={{ fontSize: '0.6rem', mt: 0.5, fontWeight: 'bold' }}>
+                    Weekly
+                  </Typography>
+                </Button>
+             </Tooltip>
+
+             <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
+
              <Button variant="text" size="small" onClick={onUndo} disabled={!canUndo || isLoading} startIcon={<UndoIcon fontSize="small" />} sx={{ minWidth: 'auto', px: 1 }} />
              <Button variant="text" size="small" onClick={onRedo} disabled={!canRedo || isLoading} startIcon={<RedoIcon fontSize="small" />} sx={{ minWidth: 'auto', px: 1 }} />
              <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
@@ -239,6 +270,8 @@ function ShiftCalendarPage() {
     localStorage.setItem('isBurdenSidebarOpen', JSON.stringify(isSidebarOpen));
   }, [isSidebarOpen]);
   
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+
   const mainCalendarScrollerRef = useRef<HTMLElement | null>(null);
 
   // --- Redux Selectors ---
@@ -255,6 +288,7 @@ function ShiftCalendarPage() {
   
   const { patterns: shiftPatterns } = useSelector((state: RootState) => state.pattern);
   const { units: unitList } = useSelector((state: RootState) => state.unit);
+  const { staff: staffList } = useSelector((state: RootState) => state.staff);
   
   const { currentYear, currentMonth, isMonthLoading } = useSelector((state: RootState) => state.calendar);
 
@@ -292,7 +326,7 @@ function ShiftCalendarPage() {
 
   const {
     clickMode, setClickMode, 
-    activeCell, selectionRange,
+    selectionRange,
     handleCellClick: handleInteractionCellClick, 
     handleCellMouseDown, handleCellMouseMove, handleCellMouseUp,
     handleAutoScroll, handleCopy, handlePaste,
@@ -305,8 +339,6 @@ function ShiftCalendarPage() {
     closeModals, handleClearStaffAssignments,
   } = useShiftCalendarModals();
   
-  const unitGroups = useUnitGroups(showingGanttTarget, monthDays);
-
   const {
     aiInstruction, setAiInstruction,
     handleFillRental, handleRunAiAdjustment, handleRunAiDefault, 
@@ -380,7 +412,6 @@ function ShiftCalendarPage() {
           
           {/* Tab 0: Staff View */}
           <TabPanel value={tabValue} index={0}>
-            {/* ★ 修正: ラッパーBoxを削除し、sx で背景色を指定 */}
             <ControlToolbar
               currentYear={currentYear}
               currentMonth={currentMonth}
@@ -395,7 +426,8 @@ function ShiftCalendarPage() {
               onRedo={() => dispatch(UndoActionCreators.redo())}
               canRedo={future.length > 0}
               onReset={handleResetClick}
-              sx={{ bgcolor: 'background.paper' }} // スタッフビューのみ背景色
+              sx={{ bgcolor: 'background.paper' }} 
+              onShareClick={() => setIsShareModalOpen(true)}
             />
             
             <StaffCalendarView 
@@ -420,7 +452,6 @@ function ShiftCalendarPage() {
           
           {/* Tab 1: Work Slot View */}
           <TabPanel value={tabValue} index={1}>
-            {/* ★ 修正: ラッパーBoxを削除し、素の状態で配置 */}
             <ControlToolbar
               currentYear={currentYear}
               currentMonth={currentMonth}
@@ -476,6 +507,15 @@ function ShiftCalendarPage() {
       <AssignPatternModal target={editingTarget} allStaff={activeStaffList} allPatterns={shiftPatterns} allUnits={unitList} allAssignments={assignments} burdenData={Array.from(staffBurdenData.values())} onClose={closeModals} />
       <DailyUnitGanttModal target={showingGanttTarget} onClose={closeModals} allAssignments={assignments} demandMap={demandMap} monthDays={monthDays} />
       <ClearStaffAssignmentsModal staff={clearingStaff} onClose={closeModals} onClear={handleClearStaffAssignments} />
+      
+      <WeeklyShareModal 
+        open={isShareModalOpen} 
+        onClose={() => setIsShareModalOpen(false)}
+        monthDays={monthDays}
+        staffList={sortedStaffList}
+        assignments={assignments}
+        shiftPatterns={shiftPatterns}
+      />
 
     </Box>
   );

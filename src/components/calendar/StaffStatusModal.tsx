@@ -4,13 +4,9 @@ import {
   Dialog, DialogActions, DialogContent, DialogTitle
 } from '@mui/material';
 import { IStaff } from '../../db/dexie';
-import { getDefaultRequiredHolidays } from '../../utils/dateUtils'; 
+import { MonthDay,  getDefaultRequiredHolidays } from '../../utils/dateUtils'; 
 
 // ★ MonthDay型を定義（または共有型からインポート）
-type MonthDay = {
-  dayOfWeek: number;
-  // 他のプロパティはここでは必須ではないため省略可
-};
 
 interface StaffStatusModalProps {
   staff: IStaff | null;

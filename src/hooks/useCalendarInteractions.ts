@@ -5,12 +5,7 @@ import type { RootState, AppDispatch } from '../store';
 import { IStaff, IAssignment, IShiftPattern } from '../db/dexie'; 
 import { db } from '../db/dexie';
 import { setAssignments, _syncAssignments, _setIsSyncing } from '../store/assignmentSlice';
-
-type MonthDay = {
-  dateStr: string;
-  weekday: string;
-  dayOfWeek: number;
-};
+import { MonthDay } from '../utils/dateUtils';
 
 export type ClickMode = 'normal' | 'holiday' | 'paid_leave' | 'select';
 export type CellCoords = {
@@ -180,7 +175,6 @@ export const useCalendarInteractions = (
 
   }, [dispatch, store, monthDays, holidayPatternId, paidLeavePatternId]);
 
-
   const handleCellClick = useCallback((
     e: React.MouseEvent | React.TouchEvent,
     date: string,
@@ -330,7 +324,6 @@ export const useCalendarInteractions = (
       stopAutoScroll();
     }
   }, [isDragging, _clickMode, activeCell, mainCalendarScrollerRef, stopAutoScroll]);
-
 
   // --- C/X/V/矢印キー イベント ---
   const handleCopy = useCallback(async (isCut = false) => {
@@ -750,7 +743,6 @@ export const useCalendarInteractions = (
       }
     }
   }, [selectionRange, activeCell, isDragging]);
-
 
   return {
     clickMode: _clickMode,

@@ -139,7 +139,7 @@ const useDataSync = (
 };
 
 // ---------------------------------------------------------------------------
-// 2. サブコンポーネント: 共通ツールバー (修正版)
+// 2. サブコンポーネント: 共通ツールバー
 // ---------------------------------------------------------------------------
 interface ControlToolbarProps {
   currentYear: number;
@@ -166,14 +166,11 @@ const ControlToolbar = React.memo(({
   showTools = false
 }: ControlToolbarProps) => {
   return (
-    // ★ 修正: 余計な装飾（border, borderRadius, p:1）を削除。
-    // これにより、親コンポーネントのデザインに干渉せず、純粋なコンテナとして機能します。
     <Box sx={{ 
       display: 'flex', 
       justifyContent: 'space-between', 
       alignItems: 'center', 
       mb: 2,
-      // bgcolor も削除（必要な場合は親で指定するか、ここを透明にする）
     }}>
       <MonthNavigation
         currentYear={currentYear}
@@ -273,7 +270,8 @@ function ShiftCalendarPage() {
     staffBurdenData,
     staffHolidayRequirements,
     handleHolidayIncrement,
-    handleHolidayDecrement
+    handleHolidayDecrement,
+    handleHolidayReset // ★ 追加
   } = useStaffBurdenData(currentYear, currentMonth, monthDays); 
   
   const sortedStaffList = useMemo(() => {
@@ -377,21 +375,30 @@ function ShiftCalendarPage() {
           
           {/* Tab 0: Staff View */}
           <TabPanel value={tabValue} index={0}>
-            <ControlToolbar
-              currentYear={currentYear}
-              currentMonth={currentMonth}
-              onPrevMonth={handleGoToPrevMonth}
-              onNextMonth={handleGoToNextMonth}
-              isLoading={isOverallLoading}
-              showTools={true}
-              clickMode={clickMode}
-              setClickMode={setClickMode}
-              onUndo={() => dispatch(UndoActionCreators.undo())}
-              canUndo={past.length > 0}
-              onRedo={() => dispatch(UndoActionCreators.redo())}
-              canRedo={future.length > 0}
-              onReset={handleResetClick}
-            />
+            {/* スタッフビュー用: 背景色あり、ボーダーなし */}
+            <Box sx={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              mb: 2,
+              bgcolor: 'background.paper',
+            }}>
+              <ControlToolbar
+                currentYear={currentYear}
+                currentMonth={currentMonth}
+                onPrevMonth={handleGoToPrevMonth}
+                onNextMonth={handleGoToNextMonth}
+                isLoading={isOverallLoading}
+                showTools={true}
+                clickMode={clickMode}
+                setClickMode={setClickMode}
+                onUndo={() => dispatch(UndoActionCreators.undo())}
+                canUndo={past.length > 0}
+                onRedo={() => dispatch(UndoActionCreators.redo())}
+                canRedo={future.length > 0}
+                onReset={handleResetClick}
+              />
+            </Box>
             
             <StaffCalendarView 
               sortedStaffList={sortedStaffList} 
@@ -399,6 +406,7 @@ function ShiftCalendarPage() {
               staffHolidayRequirements={staffHolidayRequirements} 
               onHolidayIncrement={handleHolidayIncrement} 
               onHolidayDecrement={handleHolidayDecrement} 
+              onHolidayReset={handleHolidayReset} // ★ 追加
               onStaffNameClick={openClearStaffModal} 
               onDateHeaderClick={handleDateHeaderClick} 
               clickMode={clickMode}
@@ -414,6 +422,7 @@ function ShiftCalendarPage() {
           
           {/* Tab 1: Work Slot View */}
           <TabPanel value={tabValue} index={1}>
+            {/* 勤務枠ビュー用: シンプルなコンテナ */}
             <ControlToolbar
               currentYear={currentYear}
               currentMonth={currentMonth}

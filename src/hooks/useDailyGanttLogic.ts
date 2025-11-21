@@ -6,6 +6,7 @@ import { setAssignments } from '../store/assignmentSlice';
 import type { AppDispatch, RootState } from '../store';
 import { calculateDemandMap } from './useDemandMap';
 import { calculateUnitGroups, UnitGroupData } from './useUnitGroups';
+import { MonthDay } from '../utils/dateUtils';
 
 const timeToMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
 const isWithinContract = (staff: IStaff, start: string, end: string): boolean => {
@@ -15,7 +16,6 @@ const isWithinContract = (staff: IStaff, start: string, end: string): boolean =>
   return ranges.some(range => { const rStart = timeToMin(range.start); const rEnd = timeToMin(range.end); return sMin >= rStart && eMin <= rEnd; });
 };
 
-export type MonthDay = { dateStr: string; weekday: string; dayOfWeek: number; };
 export type GanttRowData = UnitGroupData['rows'][number];
 
 export const useDailyGanttLogic = (

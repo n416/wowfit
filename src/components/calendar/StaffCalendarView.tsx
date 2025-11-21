@@ -12,19 +12,14 @@ import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
 import { TableVirtuoso, TableComponents } from 'react-virtuoso'; 
 import { CellCoords, ClickMode } from '../../hooks/useCalendarInteractions';
-import { getPrevDateStr } from '../../utils/dateUtils';
-
-type MonthDay = {
-  dateStr: string;
-  weekday: string;
-  dayOfWeek: number;
-};
+import { getPrevDateStr, MonthDay } from '../../utils/dateUtils';
 
 interface StaffCalendarViewProps {
   sortedStaffList: IStaff[];
   onCellClick: (e: React.MouseEvent | React.TouchEvent, date: string, staffId: string, staffIndex: number, dateIndex: number) => void;
   onHolidayIncrement: (staffId: string) => void;
   onHolidayDecrement: (staffId: string) => void;
+  onHolidayReset: (staffId: string) => void; // ★ 追加
   staffHolidayRequirements: Map<string, number>;
   onStaffNameClick: (staff: IStaff) => void;
   onDateHeaderClick: (date: string) => void;
@@ -53,7 +48,7 @@ const styles: { [key: string]: CSSProperties } = {
     backgroundColor: '#fff', 
     position: 'sticky',      
     top: 0,                  
-    zIndex: 40,              // ★修正: ヘッダー行は Lv2 (40)
+    zIndex: 40,
     textAlign: 'left',
     fontWeight: 'bold',
     overflow: 'hidden',
@@ -83,7 +78,7 @@ const styles: { [key: string]: CSSProperties } = {
     position: 'sticky',
     left: 0,
     backgroundColor: '#fff',
-    zIndex: 30, // ★修正: 左列(スタッフ名)は Lv1 (30)。ヘッダー(40)より低くする。
+    zIndex: 30,
     textAlign: 'left',
     paddingLeft: '12px'
   },
@@ -114,6 +109,9 @@ const styles: { [key: string]: CSSProperties } = {
   },
   weekendBg: {
     backgroundColor: '#f5f5f5',
+  },
+  holidayBg: {
+    backgroundColor: '#ffebee', // 薄い赤
   },
   cellClickable: {
     cursor: 'pointer',
@@ -265,7 +263,8 @@ const StaffCell = React.memo(({
     prev.staffId !== next.staffId ||
     prev.dateStr !== next.dateStr ||
     prev.isWeekend !== next.isWeekend ||
-    prev.clickMode !== next.clickMode
+    prev.clickMode !== next.clickMode ||
+    prev.rowBorderStyle !== next.rowBorderStyle
   ) {
     return false;
   }
@@ -309,7 +308,6 @@ const ScrollerWithOverlay = React.forwardRef<HTMLDivElement, any>((props, ref) =
   </div>
 ));
 
-// ★★★ 修正: TableHead に zIndex を強制してコンテキストを形成する ★★★
 const VirtuosoTableComponents: TableComponents<any> = {
   Scroller: ScrollerWithOverlay,
   Table: (props) => (
@@ -325,8 +323,6 @@ const VirtuosoTableComponents: TableComponents<any> = {
       }} 
     />
   ),
-  // ★重要修正: TableHead 自体にも sticky と高 zIndex を設定し、
-  // tbody の sticky 要素（左列）よりも確実に上に来るように構造化する。
   TableHead: React.forwardRef((props, ref) => (
     <TableHead {...props} ref={ref} style={{ position: 'sticky', top: 0, zIndex: 40 }} />
   )),
@@ -339,6 +335,7 @@ export default function StaffCalendarView({
   onCellClick,
   onHolidayIncrement,
   onHolidayDecrement,
+  onHolidayReset,
   staffHolidayRequirements,
   onStaffNameClick,
   onDateHeaderClick,
@@ -466,25 +463,47 @@ export default function StaffCalendarView({
 
   const fixedHeaderContent = () => (
     <TableRow>
-      {/* ★修正: 左上のコーナーセルは Lv3 (50) */}
       <TableCell style={{ ...styles.th, ...styles.stickyCell, ...styles.staffNameCell, zIndex: 50 }}>スタッフ</TableCell>
       <TableCell style={{ ...styles.th, ...styles.stickyCell, ...styles.holidayAdjustCell, zIndex: 50 }}>
         公休調整
       </TableCell>
-      {monthDays.map(dayInfo => (
-        <TableCell
-          key={dayInfo.dateStr}
-          style={{
-            ...styles.th,
-            ...styles.dateHeaderCell,
-            backgroundColor: (dayInfo.dayOfWeek === 0 || dayInfo.dayOfWeek === 6) ? '#eeeeee' : '#fff',
-            cursor: 'pointer'
-          }}
-          onClick={() => onDateHeaderClick(dayInfo.dateStr)}
-        >
-          {dayInfo.dateStr.split('-')[2]}<br />({dayInfo.weekday})
-        </TableCell>
-      ))}
+      {monthDays.map(dayInfo => {
+        // ★ 祝日判定ロジック
+        const isHoliday = !!dayInfo.holidayName;
+        const isSunday = dayInfo.dayOfWeek === 0;
+        const isSaturday = dayInfo.dayOfWeek === 6;
+        
+        let color = 'inherit';
+        let bgColor = '#fff';
+        
+        if (isHoliday || isSunday) {
+          color = '#d32f2f'; // 赤
+          bgColor = '#ffebee'; // 薄い赤背景
+        } else if (isSaturday) {
+          color = '#1976d2'; // 青
+          bgColor = '#e3f2fd'; // 薄い青背景
+        } else {
+          bgColor = '#fff';
+        }
+
+        return (
+          <TableCell
+            key={dayInfo.dateStr}
+            style={{
+              ...styles.th,
+              ...styles.dateHeaderCell,
+              backgroundColor: bgColor,
+              color: color,
+              cursor: 'pointer'
+            }}
+            onClick={() => onDateHeaderClick(dayInfo.dateStr)}
+            title={dayInfo.holidayName}
+          >
+            {dayInfo.dateStr.split('-')[2]}<br />({dayInfo.weekday})
+            {dayInfo.holidayName && <div style={{fontSize: '0.6rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>{dayInfo.holidayName}</div>}
+          </TableCell>
+        );
+      })}
     </TableRow>
   );
 
@@ -526,9 +545,27 @@ export default function StaffCalendarView({
             <IconButton size="small" onClick={() => onHolidayDecrement(staff.staffId)}>
               <RemoveCircleOutlineIcon sx={{ fontSize: '1.25rem' }} />
             </IconButton>
-            <span style={{ padding: '0 4px', fontWeight: 'bold' }}>
+            
+            {/* ★ リセット用クリックハンドラ */}
+            <span 
+              style={{ 
+                padding: '0 4px', 
+                fontWeight: 'bold', 
+                cursor: 'pointer',
+                borderBottom: '1px dotted #ccc',
+                userSelect: 'none'
+              }}
+              title="クリックで自動計算（デフォルト）にリセット"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (window.confirm(`${staff.name}さんの必要公休数を、デフォルト（自動計算値）に戻しますか？`)) {
+                  onHolidayReset(staff.staffId);
+                }
+              }}
+            >
               {requiredHolidays} 日
             </span>
+
             <IconButton size="small" onClick={() => onHolidayIncrement(staff.staffId)}>
               <AddCircleOutlineIcon sx={{ fontSize: '1.25rem' }} />
             </IconButton>
@@ -539,6 +576,8 @@ export default function StaffCalendarView({
           const key = `${staff.staffId}_${dayInfo.dateStr}`;
           const assignmentsForCell = assignmentsMap.get(key) || [];
           const isWeekend = dayInfo.dayOfWeek === 0 || dayInfo.dayOfWeek === 6;
+          const isHoliday = !!dayInfo.holidayName;
+          
           const prevDateStr = getPrevDateStr(dayInfo.dateStr);
           const prevKey = `${staff.staffId}_${prevDateStr}`;
           const prevAssignments = assignmentsMap.get(prevKey) || [];
@@ -554,7 +593,10 @@ export default function StaffCalendarView({
               patternMap={patternMap}
               isWeekend={isWeekend}
               clickMode={clickMode}
-              rowBorderStyle={rowBorderStyle}
+              rowBorderStyle={{
+                ...rowBorderStyle,
+                ...(isHoliday ? styles.holidayBg : (isWeekend ? styles.weekendBg : {}))
+              }}
               onCellClick={stableOnCellClick}
               onCellMouseDown={stableOnCellMouseDown}
               onCellMouseMove={stableOnCellMouseMove}
@@ -567,7 +609,7 @@ export default function StaffCalendarView({
     );
   }, [
     sortedStaffList, staffHolidayRequirements, assignmentsMap, patternMap, monthDays,
-    onHolidayDecrement, onHolidayIncrement, onStaffNameClick,
+    onHolidayDecrement, onHolidayIncrement, onHolidayReset, onStaffNameClick,
     clickMode,
     stableOnCellClick, stableOnCellMouseDown, stableOnCellMouseMove, stableOnCellMouseUp
   ]);

@@ -2,13 +2,7 @@ import { useMemo } from 'react';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../store';
 import { IStaff, IShiftPattern, IUnit, IAssignment } from '../db/dexie';
-import { getPrevDateStr } from '../utils/dateUtils';
-
-type MonthDay = {
-  dateStr: string;
-  weekday: string;
-  dayOfWeek: number;
-};
+import { MonthDay,  getPrevDateStr } from '../utils/dateUtils';
 
 export type UnitGroupData = {
   unit: IUnit;

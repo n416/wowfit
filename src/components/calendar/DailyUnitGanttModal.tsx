@@ -1,22 +1,20 @@
-// src/components/calendar/DailyUnitGanttModal.tsx
-import { CSSProperties, useState, useRef, MouseEvent, TouchEvent, useEffect } from 'react'; 
+import { CSSProperties, useState, useRef, MouseEvent, useEffect } from 'react'; // TouchEvent削除 (React.TouchEventを使用)
 import { Popover, Button } from '@mui/material'; 
-import { IShiftPattern, IAssignment, IStaff } from '../../db/dexie'; 
+import { IShiftPattern, IAssignment, IStaff, IUnit } from '../../db/dexie'; // IUnit追加
 import { 
   useDailyGanttLogic, 
   GanttRowData, 
-  MonthDay 
 } from '../../hooks/useDailyGanttLogic'; 
+// ★ 修正: 正しいパスからインポート
+import { MonthDay } from '../../utils/dateUtils';
 
 // --- Constants (Moved to top level for calculation) ---
-// ★ 修正: スタイル計算用に定数を外に出しました
 const HOUR_WIDTH = 50; 
-const CHART_WIDTH = HOUR_WIDTH * 24; // 1200px
+const CHART_WIDTH = HOUR_WIDTH * 24; 
 const ROW_HEIGHT = 50; 
 const SIDEBAR_WIDTH = 150;
-const MODAL_PADDING_X = 48; // 左右のパディング(24px * 2)の概算
-// ★ 計算された理想的な幅 (約1400px)
-const IDEAL_MODAL_WIDTH = CHART_WIDTH + SIDEBAR_WIDTH + MODAL_PADDING_X + 20; // +20はスクロールバー等の余裕
+const MODAL_PADDING_X = 48; 
+const IDEAL_MODAL_WIDTH = CHART_WIDTH + SIDEBAR_WIDTH + MODAL_PADDING_X + 20;
 
 // --- Helper Functions ---
 
@@ -60,7 +58,7 @@ const getBarColor = (pattern: IShiftPattern, isSupport: boolean) => {
 const inlineFormStyles: { [key: string]: CSSProperties } = {
   container: { display: 'flex', gap: '8px', padding: '8px 0 12px 0', backgroundColor: '#f9f9f9', borderBottom: '1px solid #ddd' },
   select: { padding: '8px', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: '#fff', flex: 1 },
-  selectStaff: { padding: '8px', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: '#fff', flex: 1, marginLeft: `${SIDEBAR_WIDTH}px` }, // ★ 定数利用
+  selectStaff: { padding: '8px', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: '#fff', flex: 1, marginLeft: `${SIDEBAR_WIDTH}px` }, 
   button: { padding: '8px 12px', borderRadius: '4px', border: 'none', backgroundColor: '#1976d2', color: '#fff', cursor: 'pointer' },
   buttonDisabled: { padding: '8px 12px', borderRadius: '4px', border: 'none', backgroundColor: '#ccc', color: '#777', cursor: 'not-allowed' },
   buttonCancel: { padding: '8px 12px', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: '#fff', color: '#333', cursor: 'pointer' },
@@ -75,8 +73,6 @@ const styles: { [key: string]: CSSProperties } = {
     top: '50%', 
     left: '50%', 
     transform: 'translate(-50%, -50%)', 
-    // ★ 修正: 画面幅(98%) と 理想幅(IDEAL_MODAL_WIDTH) の小さい方採用する
-    // これにより、PCでは理想幅で止まり、タブレットでは画面いっぱいになる
     width: `min(98%, ${IDEAL_MODAL_WIDTH}px)`,
     maxWidth: '100vw', 
     height: 'auto', 
@@ -94,16 +90,16 @@ const styles: { [key: string]: CSSProperties } = {
   actions: { padding: '16px 24px', borderTop: '1px solid #e0e0e0', display: 'flex', justifyContent: 'flex-end', flexShrink: 0, gap: '8px' },
   button: { padding: '6px 16px', fontSize: '0.875rem', fontWeight: 500, borderRadius: '4px', border: '1px solid #1976d2', cursor: 'pointer', backgroundColor: 'transparent', color: '#1976d2', textTransform: 'uppercase' },
   buttonConfirm: { padding: '6px 16px', fontSize: '0.875rem', fontWeight: 500, borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: '#1976d2', color: '#fff', textTransform: 'uppercase' },
-  timeHeaderContainer: { display: 'flex', marginLeft: `${SIDEBAR_WIDTH}px`, borderBottom: '1px solid #ddd', position: 'sticky', top: 0, backgroundColor: '#fff', zIndex: 10 }, // ★ 定数利用
+  timeHeaderContainer: { display: 'flex', marginLeft: `${SIDEBAR_WIDTH}px`, borderBottom: '1px solid #ddd', position: 'sticky', top: 0, backgroundColor: '#fff', zIndex: 10 },
   timeHeaderCell: { flexShrink: 0, textAlign: 'center', fontSize: '0.7rem', borderRight: '1px solid #eee', color: '#666', backgroundColor: '#f5f5f5', padding: '4px 0', boxSizing: 'border-box' },
   unitBlock: { borderTop: '3px double #000', marginTop: '16px', paddingTop: '8px' },
   firstUnitBlock: { borderTop: 'none', marginTop: 0, paddingTop: '8px' },
   statusBarRow: { display: 'flex', marginBottom: '8px' },
-  unitNameCell: { width: `${SIDEBAR_WIDTH}px`, flexShrink: 0, padding: '0 8px', display: 'flex', alignItems: 'center', fontWeight: 'bold' }, // ★ 定数利用
+  unitNameCell: { width: `${SIDEBAR_WIDTH}px`, flexShrink: 0, padding: '0 8px', display: 'flex', alignItems: 'center', fontWeight: 'bold' }, 
   statusBarContainer: { display: 'flex', width: '100%', height: '16px', border: '1px solid #e0e0e0', backgroundColor: '#f5f5f5' },
   statusBarBlock: { flexShrink: 0, boxSizing: 'border-box' },
   staffRow: { display: 'flex', alignItems: 'center', borderBottom: '1px solid #eee' },
-  staffNameCell: { width: `${SIDEBAR_WIDTH}px`, flexShrink: 0, padding: '0 8px', borderRight: '1px solid #ddd', display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#fff', height: '100%', boxSizing: 'border-box', cursor: 'pointer' }, // ★ 定数利用
+  staffNameCell: { width: `${SIDEBAR_WIDTH}px`, flexShrink: 0, padding: '0 8px', borderRight: '1px solid #ddd', display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#fff', height: '100%', boxSizing: 'border-box', cursor: 'pointer' }, 
   staffName: { fontSize: '0.8rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
   supportChip: { display: 'inline-block', height: '18px', padding: '0 8px', fontSize: '0.6rem', borderRadius: '9px', border: '1px solid #1976d2', color: '#1976d2', backgroundColor: '#fff' },
   chartArea: { position: 'relative', height: '100%' },
@@ -120,6 +116,12 @@ interface DailyUnitGanttModalProps {
   demandMap: Map<string, { required: number; actual: number }>; 
   monthDays: MonthDay[]; 
 }
+
+// UnitGroupData型定義 (useDailyGanttLogicフック側でexportされていない場合の予備)
+type UnitGroupData = {
+  unit: IUnit;
+  rows: GanttRowData[];
+};
 
 export default function DailyUnitGanttModal({ 
   target, onClose, allAssignments, demandMap, monthDays 
@@ -143,8 +145,6 @@ export default function DailyUnitGanttModal({
     demandMap, 
     monthDays
   );
-
-  // 定数は外に出したので削除
 
   const dragStartPosRef = useRef<{ x: number, y: number } | null>(null);
 
@@ -175,14 +175,14 @@ export default function DailyUnitGanttModal({
 
   // --- Event Handlers ---
 
-  const getClientX = (e: MouseEvent | TouchEvent) => {
+  const getClientX = (e: MouseEvent | React.TouchEvent) => {
     if ('touches' in e && e.touches.length > 0) {
       return e.touches[0].clientX;
     }
     return (e as MouseEvent).clientX;
   };
   
-  const getClientY = (e: MouseEvent | TouchEvent) => {
+  const getClientY = (e: MouseEvent | React.TouchEvent) => {
     if ('touches' in e && e.touches.length > 0) {
       return e.touches[0].clientY;
     }
@@ -212,14 +212,14 @@ export default function DailyUnitGanttModal({
     if (clickedRow.pattern.isFlex) return;
 
     const staff = clickedRow.staff;
-    const availablePatterns = workPatterns.filter(p => 
+    const availablePatterns = workPatterns.filter((p: IShiftPattern) => 
       parseInt(p.startTime.split(':')[0]) === clickedHour && 
       staff.availablePatternIds.includes(p.patternId)
     );
     
     if (availablePatterns.length === 0) return; 
     const currentPatternId = clickedRow.pattern.patternId;
-    const currentIndex = availablePatterns.findIndex(p => p.patternId === currentPatternId);
+    const currentIndex = availablePatterns.findIndex((p: IShiftPattern) => p.patternId === currentPatternId);
     const nextIndex = (currentIndex + 1) % availablePatterns.length;
     const nextPattern = availablePatterns[nextIndex];
     
@@ -247,7 +247,7 @@ export default function DailyUnitGanttModal({
   };
 
   // --- Drag & Drop (Universal with Threshold) ---
-  const startDrag = (e: MouseEvent | TouchEvent, row: GanttRowData) => {
+  const startDrag = (e: MouseEvent | React.TouchEvent, row: GanttRowData) => {
     if ('button' in e && (e as MouseEvent).button !== 0) return; 
     
     handleCloseDeletePopover();
@@ -260,7 +260,7 @@ export default function DailyUnitGanttModal({
     setDraggingRow(row);
   };
   
-  const moveDrag = (e: MouseEvent | TouchEvent) => {
+  const moveDrag = (e: MouseEvent | React.TouchEvent) => {
     if (!dragStartPosRef.current || !draggingRow || !modalContentRef.current) return;
     
     e.stopPropagation();
@@ -272,7 +272,6 @@ export default function DailyUnitGanttModal({
       const diffX = Math.abs(mouseX - dragStartPosRef.current.x);
       const diffY = Math.abs(mouseY - dragStartPosRef.current.y);
       
-      // ★ 修正: 閾値を 13px (約10pt相当) に設定
       if (diffX > 13 || diffY > 13) {
         setIsDragging(true);
         document.body.style.cursor = 'grabbing'; 
@@ -285,7 +284,7 @@ export default function DailyUnitGanttModal({
     const scrollLeft = scrollContainer.scrollLeft;
     const containerRect = scrollContainer.getBoundingClientRect();
 
-    const xInContainer = mouseX - containerRect.left + scrollLeft - SIDEBAR_WIDTH; // ★ 定数利用
+    const xInContainer = mouseX - containerRect.left + scrollLeft - SIDEBAR_WIDTH; 
     let hoverHour = Math.round(xInContainer / HOUR_WIDTH);
     hoverHour = Math.max(0, Math.min(23, hoverHour)); 
     
@@ -319,7 +318,7 @@ export default function DailyUnitGanttModal({
     }
 
     const staff = draggingRow.staff;
-    const availablePatterns = workPatterns.filter(p => 
+    const availablePatterns = workPatterns.filter((p: IShiftPattern) => 
       parseInt(p.startTime.split(':')[0]) === hoverHour &&
       staff.availablePatternIds.includes(p.patternId)
     );
@@ -327,7 +326,7 @@ export default function DailyUnitGanttModal({
       setDragPreview(null); 
       return;
     }
-    availablePatterns.sort((a, b) => b.durationHours - a.durationHours);
+    availablePatterns.sort((a: IShiftPattern, b: IShiftPattern) => b.durationHours - a.durationHours);
     const longestPattern = availablePatterns[0];
 
     candidateStartStr = longestPattern.startTime;
@@ -354,16 +353,16 @@ export default function DailyUnitGanttModal({
     });
   };
   
-  const endDrag = (e: MouseEvent | TouchEvent) => {
+  const endDrag = (e: MouseEvent | React.TouchEvent) => {
     if (isDragging && draggingRow) {
       
       if (dragPreview) {
         if (draggingRow.pattern.isFlex) {
            const newStartHour = Math.round(dragPreview.left / HOUR_WIDTH);
-           const duration = draggingRow.duration; 
+           // const duration = draggingRow.duration; 
            
            const newStartStr = `${String(newStartHour).padStart(2, '0')}:00`;
-           const endH = newStartHour + duration;
+           const endH = newStartHour + draggingRow.duration;
            const endH_int = Math.floor(endH);
            const endM_int = (endH - endH_int) * 60;
            const newEndStr = `${String(endH_int).padStart(2, '0')}:${String(Math.round(endM_int)).padStart(2, '0')}`;
@@ -435,7 +434,7 @@ export default function DailyUnitGanttModal({
         
         <div style={styles.content}>
           <div style={styles.contentInnerScroll} ref={modalContentRef}>
-            <div style={{ minWidth: CHART_WIDTH + SIDEBAR_WIDTH, position: 'relative' }}> {/* ★ 定数利用 */}
+            <div style={{ minWidth: CHART_WIDTH + SIDEBAR_WIDTH, position: 'relative' }}> 
               
               <div style={styles.timeHeaderContainer}>
                 {Array.from({ length: 24 }).map((_, h) => (
@@ -445,7 +444,7 @@ export default function DailyUnitGanttModal({
                 ))}
               </div>
 
-              {localUnitGroups.map((group, groupIndex) => (
+              {localUnitGroups.map((group: UnitGroupData, groupIndex: number) => (
                 <div key={group.unit.unitId} style={groupIndex > 0 ? styles.unitBlock : styles.firstUnitBlock}>
                   
                   <div style={styles.statusBarRow}>
@@ -482,7 +481,7 @@ export default function DailyUnitGanttModal({
                   {group.rows.length === 0 ? (
                     <p style={styles.italicPlaceholder}>アサインなし</p>
                   ) : (
-                    group.rows.map((row) => ( 
+                    group.rows.map((row: GanttRowData) => ( 
                       <div key={row.assignmentId} style={{ 
                         ...styles.staffRow, height: ROW_HEIGHT,
                         backgroundColor: row.isSupport ? '#f0f7ff' : 'transparent'
@@ -534,14 +533,14 @@ export default function DailyUnitGanttModal({
                     <div style={inlineFormStyles.container}>
                       <select style={inlineFormStyles.selectStaff} value={selectedStaffId} onChange={(e) => { setSelectedStaffId(e.target.value); setSelectedPatternId(""); }}>
                         <option value="">(1. スタッフを選択)</option>
-                        {availableStaffForAdding.map(staff => (
+                        {availableStaffForAdding.map((staff: IStaff) => (
                           <option key={staff.staffId} value={staff.staffId}>{staff.name}</option>
                         ))}
                       </select>
                       
                       <select style={inlineFormStyles.select} value={selectedPatternId} onChange={(e) => setSelectedPatternId(e.target.value)} disabled={!selectedStaffId}>
                         <option value="">(2. 勤務パターンを選択)</option>
-                        {availablePatternsForSelectedStaff.map(pattern => (
+                        {availablePatternsForSelectedStaff.map((pattern: IShiftPattern) => (
                           <option key={pattern.patternId} value={pattern.patternId}>{pattern.name} ({pattern.startTime}-{pattern.endTime})</option>
                         ))}
                       </select>

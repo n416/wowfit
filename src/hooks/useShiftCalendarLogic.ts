@@ -11,8 +11,7 @@ import {
 } from '../store/assignmentSlice';
 import { db, IStaff } from '../db/dexie'; 
 import { allocateWork } from '../lib/placement/workAllocator';
-
-type MonthDay = { dateStr: string; weekday: string; dayOfWeek: number; };
+import { MonthDay } from '../utils/dateUtils';
 
 export const useShiftCalendarLogic = (
   currentYear: number,

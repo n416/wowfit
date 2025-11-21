@@ -7,12 +7,7 @@ import { useSelector } from 'react-redux';
 import type { RootState } from '../../store';
 import { IStaff, IShiftPattern, IAssignment, IUnit } from '../../db/dexie';
 import { TableVirtuoso } from 'react-virtuoso';
-
-type MonthDay = {
-  dateStr: string;
-  weekday: string;
-  dayOfWeek: number;
-};
+import { MonthDay } from '../../utils/dateUtils';
 
 interface WorkSlotCalendarViewProps {
   onCellClick: (date: string, unitId: string | null) => void;
@@ -76,7 +71,6 @@ const styles: { [key: string]: CSSProperties } = {
     backgroundColor: '#f5f5f5'
   }
 };
-
 
 export default function WorkSlotCalendarView({
   onCellClick,

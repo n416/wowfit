@@ -1,14 +1,9 @@
+// src/hooks/useStaffBurdenData.ts
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../store';
 import { IStaff, IAssignment, IShiftPattern } from '../db/dexie';
-import { getDefaultRequiredHolidays, getPrevDateStr } from '../utils/dateUtils';
-
-type MonthDay = {
-  dateStr: string;
-  weekday: string;
-  dayOfWeek: number;
-};
+import { getDefaultRequiredHolidays, getPrevDateStr, MonthDay } from '../utils/dateUtils';
 
 const calculateStaffBurdenData = (
   staffList: IStaff[], 
@@ -21,8 +16,8 @@ const calculateStaffBurdenData = (
       staffId: string; name: string; employmentType: 'FullTime' | 'PartTime' | 'Rental'; 
       assignmentCount: number; 
       nightShiftCount: number; 
-      earlyShiftCount: number; // ★ 追加
-      lateShiftCount: number;  // ★ 追加
+      earlyShiftCount: number; 
+      lateShiftCount: number;  
       totalHours: number; weekendCount: number;
       maxHours: number;
       holidayCount: number; 
@@ -38,8 +33,8 @@ const calculateStaffBurdenData = (
       staffId: s.staffId, name: s.name, employmentType: s.employmentType,
       assignmentCount: 0, 
       nightShiftCount: 0, 
-      earlyShiftCount: 0, // ★ 追加
-      lateShiftCount: 0,  // ★ 追加
+      earlyShiftCount: 0, 
+      lateShiftCount: 0,  
       totalHours: 0, weekendCount: 0,
       maxHours: (s.constraints?.maxConsecutiveDays || 5) * 8 * 4,
       holidayCount: 0, 
@@ -94,7 +89,7 @@ const calculateStaffBurdenData = (
 
           if (pattern.isNightShift) staffData.nightShiftCount++;
           
-          // ★ 追加: 早出・遅出の集計
+          // 早出・遅出の集計
           if (pattern.mainCategory.includes('早出')) staffData.earlyShiftCount++;
           if (pattern.mainCategory.includes('遅出')) staffData.lateShiftCount++;
           
@@ -189,13 +184,25 @@ export const useStaffBurdenData = (
       newMap.set(staffId, Math.max(0, currentReq - 1)); 
       return newMap;
     });
-  }, [monthDays]); 
+  }, [monthDays]);
+
+  // ★ 追加: リセット機能
+  const handleHolidayReset = useCallback((staffId: string) => {
+    setStaffHolidayRequirements(prevMap => {
+      const newMap = new Map(prevMap);
+      // デフォルト値（土日＋祝日）を再計算してセット
+      const defaultReq = getDefaultRequiredHolidays(monthDays);
+      newMap.set(staffId, defaultReq);
+      return newMap;
+    });
+  }, [monthDays]);
 
   return {
     staffList, 
     staffBurdenData,
     staffHolidayRequirements,
     handleHolidayIncrement,
-    handleHolidayDecrement
+    handleHolidayDecrement,
+    handleHolidayReset // ★ エクスポート
   };
 };

@@ -3,12 +3,7 @@ import {
 } from '../../db/dexie';
 import type { AppDispatch } from '../../store';
 import { setAssignments } from '../../store/assignmentSlice';
-
-type MonthDay = {
-  dateStr: string;
-  weekday: string;
-  dayOfWeek: number;
-};
+import { MonthDay } from '../../utils/dateUtils';
 
 interface WorkAllocatorArgs {
   assignments: IAssignment[];

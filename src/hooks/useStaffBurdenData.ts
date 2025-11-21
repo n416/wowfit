@@ -19,7 +19,11 @@ const calculateStaffBurdenData = (
 ) => {
   const burdenMap = new Map<string, {
       staffId: string; name: string; employmentType: 'FullTime' | 'PartTime' | 'Rental'; 
-      assignmentCount: number; nightShiftCount: number; totalHours: number; weekendCount: number;
+      assignmentCount: number; 
+      nightShiftCount: number; 
+      earlyShiftCount: number; // ★ 追加
+      lateShiftCount: number;  // ★ 追加
+      totalHours: number; weekendCount: number;
       maxHours: number;
       holidayCount: number; 
       requiredHolidays: number; 
@@ -32,7 +36,11 @@ const calculateStaffBurdenData = (
   staffList.forEach((s: IStaff) => { 
     burdenMap.set(s.staffId, { 
       staffId: s.staffId, name: s.name, employmentType: s.employmentType,
-      assignmentCount: 0, nightShiftCount: 0, totalHours: 0, weekendCount: 0,
+      assignmentCount: 0, 
+      nightShiftCount: 0, 
+      earlyShiftCount: 0, // ★ 追加
+      lateShiftCount: 0,  // ★ 追加
+      totalHours: 0, weekendCount: 0,
       maxHours: (s.constraints?.maxConsecutiveDays || 5) * 8 * 4,
       holidayCount: 0, 
       requiredHolidays: staffHolidayRequirements.get(s.staffId) || defaultReq, 
@@ -66,10 +74,6 @@ const calculateStaffBurdenData = (
       // 前日が夜勤かつ、当日が勤務でない場合、半公休(0.5)を加算
       if (isPrevNightShift && !isTodayWork) {
         staffData.holidayCount += 0.5;
-        // ★ 修正: 半公休('/')は公休の一部として扱うため、内訳チップ(holidayDetails)には追加しない
-        // const key = '/';
-        // const current = staffData.holidayDetails.get(key) || 0;
-        // staffData.holidayDetails.set(key, current + 0.5);
       }
 
       // --- 当日のアサイン集計 ---
@@ -90,6 +94,10 @@ const calculateStaffBurdenData = (
 
           if (pattern.isNightShift) staffData.nightShiftCount++;
           
+          // ★ 追加: 早出・遅出の集計
+          if (pattern.mainCategory.includes('早出')) staffData.earlyShiftCount++;
+          if (pattern.mainCategory.includes('遅出')) staffData.lateShiftCount++;
+          
           if (day.dayOfWeek === 0 || day.dayOfWeek === 6) {
             staffData.weekendCount++;
           }
@@ -105,7 +113,6 @@ const calculateStaffBurdenData = (
         }
         else if (pattern.workType === 'Holiday') {
           staffData.holidayCount++; 
-          // その他の休日(育休等)は内訳にも表示
           const key = pattern.symbol || pattern.name;
           const current = staffData.holidayDetails.get(key) || 0;
           staffData.holidayDetails.set(key, current + 1);

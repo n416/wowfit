@@ -235,7 +235,7 @@ const ControlToolbar = React.memo(({
                 >
                   {/* ★ 修正: 画像アイコンに変更 */}
                   <ImageIcon fontSize="small" />
-                  <Typography variant="caption" sx={{ fontSize: '0.6rem', mt: 0.5, fontWeight: 'bold' }}>
+                  <Typography variant="caption" sx={{ fontSize: '0.6rem', mt: 0.5, fontWeight: 'bold', ineHeight: 0}}>
                     Weekly
                   </Typography>
                 </Button>

@@ -2,10 +2,15 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useSelector, useDispatch, useStore } from 'react-redux';
 import type { RootState, AppDispatch } from '../store';
-import { IStaff, IAssignment, IShiftPattern } from '../db/dexie'; 
+import { IStaff, IAssignment, IShiftPattern } from '../db/dexie';
 import { db } from '../db/dexie';
 import { setAssignments, _syncAssignments, _setIsSyncing } from '../store/assignmentSlice';
-import { MonthDay } from '../utils/dateUtils';
+
+type MonthDay = {
+  dateStr: string;
+  weekday: string;
+  dayOfWeek: number;
+};
 
 export type ClickMode = 'normal' | 'holiday' | 'paid_leave' | 'select';
 export type CellCoords = {
@@ -175,6 +180,7 @@ export const useCalendarInteractions = (
 
   }, [dispatch, store, monthDays, holidayPatternId, paidLeavePatternId]);
 
+
   const handleCellClick = useCallback((
     e: React.MouseEvent | React.TouchEvent,
     date: string,
@@ -233,7 +239,7 @@ export const useCalendarInteractions = (
   ]);
 
   const handleCellMouseDown = useCallback((
-    e: React.MouseEvent | React.TouchEvent, 
+    e: React.MouseEvent | React.TouchEvent,
     date: string, staffId: string, staffIndex: number, dateIndex: number
   ) => {
     const state = store.getState();
@@ -246,11 +252,11 @@ export const useCalendarInteractions = (
     }
 
     if (_clickMode !== 'select') return;
-    
+
     if (e.type === 'mousedown') {
       e.preventDefault();
     }
-    
+
     const cell: CellCoords = { date, staffId, staffIndex, dateIndex };
     const isShiftKey = 'shiftKey' in e ? e.shiftKey : false;
 
@@ -265,8 +271,7 @@ export const useCalendarInteractions = (
 
   const handleCellMouseMove = useCallback((date: string, staffId: string, staffIndex: number, dateIndex: number) => {
     if (_clickMode !== 'select' || !isDragging || !selectionRange || !activeCell) return;
-    
-    // ★★★ 修正: 同じセル内での移動なら更新しないガードを追加 ★★★
+
     if (
       selectionRange.end.staffIndex === staffIndex &&
       selectionRange.end.dateIndex === dateIndex
@@ -302,13 +307,13 @@ export const useCalendarInteractions = (
     let scrollX = 0;
     let scrollY = 0;
     const buffer = threshold * 2;
-    
+
     if (clientY < rect.top + threshold && clientY > rect.top - buffer) scrollY = -scrollSpeed;
     else if (clientY > rect.bottom - threshold && clientY < rect.bottom + buffer) scrollY = scrollSpeed;
-    
+
     if (clientX < rect.left + threshold && clientX > rect.left - buffer) scrollX = -scrollSpeed;
     else if (clientX > rect.right - threshold && clientX < rect.right + buffer) scrollX = scrollSpeed;
-    
+
     if (scrollX !== 0 || scrollY !== 0) {
       if (!autoScrollIntervalRef.current) {
         autoScrollIntervalRef.current = setInterval(() => {
@@ -324,6 +329,7 @@ export const useCalendarInteractions = (
       stopAutoScroll();
     }
   }, [isDragging, _clickMode, activeCell, mainCalendarScrollerRef, stopAutoScroll]);
+
 
   // --- C/X/V/矢印キー イベント ---
   const handleCopy = useCallback(async (isCut = false) => {
@@ -487,9 +493,6 @@ export const useCalendarInteractions = (
 
         if (!targetStaff || !targetDay) continue;
 
-        const key = `${targetStaff.staffId}_${targetDay.dateStr}`;
-        keysToOverwrite.add(key);
-
         if (rawText) {
           let matchedPattern = patternMap.get(rawText);
           if (!matchedPattern) {
@@ -497,6 +500,10 @@ export const useCalendarInteractions = (
           }
 
           if (matchedPattern) {
+            // ★ 修正: パターンが一致した時だけ、上書きリストに追加する
+            const key = `${targetStaff.staffId}_${targetDay.dateStr}`;
+            keysToOverwrite.add(key);
+
             newAssignmentsToPaste.push({
               date: targetDay.dateStr,
               staffId: targetStaff.staffId,
@@ -510,6 +517,9 @@ export const useCalendarInteractions = (
         }
       }
     }
+
+    // 変更がない場合は何もしない
+    if (newAssignmentsToPaste.length === 0 && keysToOverwrite.size === 0) return;
 
     const assignmentsBeforePaste = currentAssignments.filter(a => {
       const key = `${a.staffId}_${a.date}`;
@@ -721,9 +731,9 @@ export const useCalendarInteractions = (
   }, [
     _clickMode, activeCell, selectionRange,
     sortedStaffList, monthDays,
-    store, 
+    store,
     handleCopy, handlePaste,
-    handleAutoScroll, 
+    handleAutoScroll,
     stopAutoScroll
   ]);
 
@@ -743,6 +753,7 @@ export const useCalendarInteractions = (
       }
     }
   }, [selectionRange, activeCell, isDragging]);
+
 
   return {
     clickMode: _clickMode,

@@ -1,5 +1,5 @@
 // src/components/calendar/StaffCalendarView.tsx
-import React, { CSSProperties, useMemo, useCallback, useRef, useEffect } from 'react';
+import React, { CSSProperties, useMemo, useCallback, useRef, useEffect, useState } from 'react'; // ★ useState 追加
 import {
   IconButton,
   Table, TableBody, TableCell, TableHead, TableRow,
@@ -19,7 +19,7 @@ interface StaffCalendarViewProps {
   onCellClick: (e: React.MouseEvent | React.TouchEvent, date: string, staffId: string, staffIndex: number, dateIndex: number) => void;
   onHolidayIncrement: (staffId: string) => void;
   onHolidayDecrement: (staffId: string) => void;
-  onHolidayReset: (staffId: string) => void; // ★ 追加
+  onHolidayReset: (staffId: string) => void;
   staffHolidayRequirements: Map<string, number>;
   onStaffNameClick: (staff: IStaff) => void;
   onDateHeaderClick: (date: string) => void;
@@ -35,7 +35,7 @@ interface StaffCalendarViewProps {
 
 const COL_WIDTH = 80;
 const ROW_HEIGHT = 48;
-const HEADER_HEIGHT = 50; 
+// HEADER_HEIGHT 定数は削除済み
 const LEFT_COL_WIDTH = 270; 
 const BORDER_COLOR = '#e0e0e0';
 const CELL_BORDER = `1px solid ${BORDER_COLOR}`;
@@ -53,8 +53,7 @@ const styles: { [key: string]: CSSProperties } = {
     fontWeight: 'bold',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
-    height: `${HEADER_HEIGHT}px`,
-    maxHeight: `${HEADER_HEIGHT}px`,
+    height: 'auto', 
     boxSizing: 'border-box',
     display: 'table-cell',
     verticalAlign: 'middle',
@@ -111,7 +110,7 @@ const styles: { [key: string]: CSSProperties } = {
     backgroundColor: '#f5f5f5',
   },
   holidayBg: {
-    backgroundColor: '#ffebee', // 薄い赤
+    backgroundColor: '#ffebee', 
   },
   cellClickable: {
     cursor: 'pointer',
@@ -362,6 +361,29 @@ export default function StaffCalendarView({
     return map;
   }, [assignments]);
 
+  // ★★★ 1. ヘッダーの高さを保持するStateを追加 ★★★
+  const [headerHeight, setHeaderHeight] = useState(50); // 初期値50px
+
+  // ★★★ 2. ResizeObserverでヘッダー高さを監視 ★★★
+  useEffect(() => {
+    const headerRow = document.getElementById('calendar-header-row');
+    if (!headerRow) return;
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.target instanceof HTMLElement) {
+          // 高さが変わった時だけStateを更新
+          setHeaderHeight(entry.target.offsetHeight);
+        }
+      }
+    });
+
+    observer.observe(headerRow);
+
+    return () => observer.disconnect();
+  }, [monthDays]); // 月が変わったら再監視
+
+  // ★★★ 3. 選択範囲の描画Effect（ドラッグ中に頻繁に走る） ★★★
   useEffect(() => {
     const overlay = document.getElementById('selection-overlay');
     if (!overlay) return;
@@ -373,7 +395,10 @@ export default function StaffCalendarView({
     const eIdx = Math.max(selectionRange.start.staffIndex, selectionRange.end.staffIndex);
     const dStart = Math.min(selectionRange.start.dateIndex, selectionRange.end.dateIndex);
     const dEnd = Math.max(selectionRange.start.dateIndex, selectionRange.end.dateIndex);
-    const top = HEADER_HEIGHT + (sIdx * ROW_HEIGHT);
+    
+    // ★ 修正: 計算済みの State 変数を使用する (DOMアクセスしない)
+    const top = headerHeight + (sIdx * ROW_HEIGHT);
+    
     const height = (eIdx - sIdx + 1) * ROW_HEIGHT;
     const left = LEFT_COL_WIDTH + (dStart * COL_WIDTH);
     const width = (dEnd - dStart + 1) * COL_WIDTH;
@@ -382,7 +407,7 @@ export default function StaffCalendarView({
     overlay.style.left = `${left}px`;
     overlay.style.width = `${width}px`;
     overlay.style.height = `${height}px`;
-  }, [selectionRange, clickMode]);
+  }, [selectionRange, clickMode, headerHeight]); // headerHeightを依存に追加
 
   const onCellClickRef = useRef(onCellClick);
   const onCellMouseDownRef = useRef(onCellMouseDown);
@@ -462,13 +487,12 @@ export default function StaffCalendarView({
   }, [stableOnCellMouseUp]);
 
   const fixedHeaderContent = () => (
-    <TableRow>
+    <TableRow id="calendar-header-row">
       <TableCell style={{ ...styles.th, ...styles.stickyCell, ...styles.staffNameCell, zIndex: 50 }}>スタッフ</TableCell>
       <TableCell style={{ ...styles.th, ...styles.stickyCell, ...styles.holidayAdjustCell, zIndex: 50 }}>
         公休調整
       </TableCell>
       {monthDays.map(dayInfo => {
-        // ★ 祝日判定ロジック
         const isHoliday = !!dayInfo.holidayName;
         const isSunday = dayInfo.dayOfWeek === 0;
         const isSaturday = dayInfo.dayOfWeek === 6;
@@ -477,11 +501,11 @@ export default function StaffCalendarView({
         let bgColor = '#fff';
         
         if (isHoliday || isSunday) {
-          color = '#d32f2f'; // 赤
-          bgColor = '#ffebee'; // 薄い赤背景
+          color = '#d32f2f'; 
+          bgColor = '#ffebee'; 
         } else if (isSaturday) {
-          color = '#1976d2'; // 青
-          bgColor = '#e3f2fd'; // 薄い青背景
+          color = '#1976d2'; 
+          bgColor = '#e3f2fd'; 
         } else {
           bgColor = '#fff';
         }
@@ -546,7 +570,6 @@ export default function StaffCalendarView({
               <RemoveCircleOutlineIcon sx={{ fontSize: '1.25rem' }} />
             </IconButton>
             
-            {/* ★ リセット用クリックハンドラ */}
             <span 
               style={{ 
                 padding: '0 4px', 

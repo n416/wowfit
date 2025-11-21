@@ -4,7 +4,7 @@ import { useSelector, useDispatch, useStore } from 'react-redux';
 import type { RootState, AppDispatch } from '../store';
 import { IStaff, IAssignment, IShiftPattern } from '../db/dexie'; // IShiftPatternを追加
 import { db } from '../db/dexie';
-import { setAssignments, _syncAssignments, _setIsSyncing } from '../store/assignmentSlice'; 
+import { setAssignments, _syncAssignments, _setIsSyncing } from '../store/assignmentSlice';
 
 type MonthDay = {
   dateStr: string;
@@ -21,20 +21,20 @@ export type CellCoords = {
 };
 
 export const useCalendarInteractions = (
-  sortedStaffList: IStaff[], 
+  sortedStaffList: IStaff[],
   mainCalendarScrollerRef: React.RefObject<HTMLElement | null>,
   monthDays: MonthDay[]
 ) => {
   const dispatch: AppDispatch = useDispatch();
-  const store = useStore<RootState>(); 
-  
+  const store = useStore<RootState>();
+
   const [_clickMode, _setClickMode] = useState<ClickMode>('normal');
   const [activeCell, setActiveCell] = useState<CellCoords | null>(null);
-  
+
   const [selectionRange, setSelectionRange] = useState<{ start: CellCoords, end: CellCoords } | null>(null);
-  
+
   const [isDragging, setIsDragging] = useState(false);
-  
+
   const processingCellKeyRef = useRef<string | null>(null);
   const syncLockRef = useRef<number>(0);
   const autoScrollIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -48,11 +48,11 @@ export const useCalendarInteractions = (
 
   const { assignments } = useSelector((state: RootState) => state.assignment.present);
   const shiftPatterns = useSelector((state: RootState) => state.pattern.patterns);
-  
+
   // ID検索用マップ
-  const patternMap = useMemo(() => 
+  const patternMap = useMemo(() =>
     new Map(shiftPatterns.map(p => [p.patternId, p])),
-  [shiftPatterns]);
+    [shiftPatterns]);
 
   // ★ 追加: Symbol検索用マップ (高速化のため事前にMapを作成)
   const symbolMap = useMemo(() => {
@@ -75,13 +75,13 @@ export const useCalendarInteractions = (
     }
     return map;
   }, [assignments]);
-  
+
   const holidayPatternId = useMemo(() =>
     shiftPatterns.find(p => p.workType === 'StatutoryHoliday')?.patternId || '公休',
-  [shiftPatterns]);
+    [shiftPatterns]);
   const paidLeavePatternId = useMemo(() =>
     shiftPatterns.find(p => p.workType === 'PaidLeave')?.patternId || '有給',
-  [shiftPatterns]);
+    [shiftPatterns]);
 
   const getRangeIndices = useCallback((range: { start: CellCoords, end: CellCoords } | null) => {
     if (!range) return null;
@@ -92,55 +92,55 @@ export const useCalendarInteractions = (
       maxDate: Math.max(range.start.dateIndex, range.end.dateIndex),
     };
   }, []);
-  
+
   const setClickMode = useCallback((newMode: ClickMode) => {
     _setClickMode(newMode);
     setActiveCell(null);
     setSelectionRange(null);
     setIsDragging(false);
-  }, []); 
+  }, []);
 
   const toggleHoliday = useCallback((date: string, staff: IStaff, targetPatternId: string) => {
     const state = store.getState();
     const isCurrentlyLoading = state.assignment.present.adjustmentLoading ||
-                               state.assignment.present.patchLoading ||
-                               state.calendar.isMonthLoading;
+      state.assignment.present.patchLoading ||
+      state.calendar.isMonthLoading;
     if (isCurrentlyLoading) {
       return;
     }
 
     const cellKey = `${staff.staffId}_${date}`;
     if (processingCellKeyRef.current === cellKey) { return; }
-    processingCellKeyRef.current = cellKey; 
-    
+    processingCellKeyRef.current = cellKey;
+
     const currentAssignments = store.getState().assignment.present.assignments;
     const existing = currentAssignments.filter((a: IAssignment) => a.date === date && a.staffId === staff.staffId);
     const existingIsTarget = existing.length === 1 && existing[0].patternId === targetPatternId;
     let newOptimisticAssignments: IAssignment[];
-    const tempId = Date.now(); 
+    const tempId = Date.now();
     let newAssignmentBase: Omit<IAssignment, 'id'> | null = null;
     if (existingIsTarget) {
       newOptimisticAssignments = currentAssignments.filter((a: IAssignment) => !(a.date === date && a.staffId === staff.staffId));
-      newAssignmentBase = null; 
+      newAssignmentBase = null;
     } else {
-      newAssignmentBase = { 
+      newAssignmentBase = {
         date: date, staffId: staff.staffId, patternId: targetPatternId,
-        unitId: null, locked: true 
+        unitId: null, locked: true
       };
       const otherAssignments = currentAssignments.filter((a: IAssignment) => !(a.date === date && a.staffId === staff.staffId));
-      newOptimisticAssignments = [...otherAssignments, { ...newAssignmentBase, id: tempId }]; 
+      newOptimisticAssignments = [...otherAssignments, { ...newAssignmentBase, id: tempId }];
     }
-    
+
     const currentSyncId = Date.now();
     syncLockRef.current = currentSyncId;
-    
-    dispatch(setAssignments(newOptimisticAssignments)); 
-    dispatch(_setIsSyncing(true)); 
-    
+
+    dispatch(setAssignments(newOptimisticAssignments));
+    dispatch(_setIsSyncing(true));
+
     (async () => {
       try {
         if (!monthDays || monthDays.length === 0) {
-            throw new Error("カレンダーの月情報がありません。");
+          throw new Error("カレンダーの月情報がありません。");
         }
         const firstDay = monthDays[0].dateStr;
         const lastDay = monthDays[monthDays.length - 1].dateStr;
@@ -154,130 +154,130 @@ export const useCalendarInteractions = (
             await db.assignments.bulkDelete(assignmentsToRemove);
           }
           const assignmentsToSave = newOptimisticAssignments
-            .filter(a => a.date >= firstDay && a.date <= lastDay) 
-            .map(({ id, ...rest }) => rest); 
+            .filter(a => a.date >= firstDay && a.date <= lastDay)
+            .map(({ id, ...rest }) => rest);
           if (assignmentsToSave.length > 0) {
             await db.assignments.bulkAdd(assignmentsToSave);
           }
-        }); 
-        
+        });
+
         if (syncLockRef.current === currentSyncId) {
-            dispatch(_setIsSyncing(false));
+          dispatch(_setIsSyncing(false));
         }
-        
+
       } catch (e) {
         console.error("アサインの即時更新（DB反映）に失敗:", e);
         if (syncLockRef.current === currentSyncId) {
-            db.assignments.toArray().then(dbAssignments => dispatch(_syncAssignments(dbAssignments))); 
+          db.assignments.toArray().then(dbAssignments => dispatch(_syncAssignments(dbAssignments)));
         } else {
-            if (syncLockRef.current === 0) {
-              dispatch(_setIsSyncing(false)); 
-            }
+          if (syncLockRef.current === 0) {
+            dispatch(_setIsSyncing(false));
+          }
         }
       } finally {
         if (processingCellKeyRef.current === cellKey) {
           processingCellKeyRef.current = null;
         }
       }
-    })(); 
+    })();
 
-  }, [dispatch, store, monthDays, holidayPatternId, paidLeavePatternId]); 
+  }, [dispatch, store, monthDays, holidayPatternId, paidLeavePatternId]);
 
 
   const handleCellClick = useCallback((
-    e: React.MouseEvent, 
-    date: string, 
-    staffId: string, 
-    staffIndex: number, 
+    e: React.MouseEvent,
+    date: string,
+    staffId: string,
+    staffIndex: number,
     dateIndex: number
   ) => {
 
     const state = store.getState();
     const isCurrentlyLoading = state.assignment.present.isSyncing ||
-                               state.assignment.present.adjustmentLoading ||
-                               state.assignment.present.patchLoading ||
-                               state.calendar.isMonthLoading;
+      state.assignment.present.adjustmentLoading ||
+      state.assignment.present.patchLoading ||
+      state.calendar.isMonthLoading;
     if (isCurrentlyLoading) {
       return;
     }
-    
-    const staff = sortedStaffList.find(s => s.staffId === staffId); 
+
+    const staff = sortedStaffList.find(s => s.staffId === staffId);
     const cell: CellCoords = { date, staffId, staffIndex, dateIndex };
 
     if (_clickMode !== 'holiday' && _clickMode !== 'paid_leave') {
-      processingCellKeyRef.current = null; 
+      processingCellKeyRef.current = null;
     }
 
-    switch (_clickMode) { 
+    switch (_clickMode) {
       case 'select':
         if (e.shiftKey && activeCell) {
           setSelectionRange({ start: activeCell, end: cell });
         } else {
-          setActiveCell(cell); 
-          setSelectionRange({ start: cell, end: cell }); 
+          setActiveCell(cell);
+          setSelectionRange({ start: cell, end: cell });
         }
-        setIsDragging(false); 
+        setIsDragging(false);
         break;
       case 'holiday':
         if (staff) {
-          toggleHoliday(date, staff, holidayPatternId); 
+          toggleHoliday(date, staff, holidayPatternId);
         }
-        break; 
+        break;
       case 'paid_leave':
         if (staff) {
-          toggleHoliday(date, staff, paidLeavePatternId); 
+          toggleHoliday(date, staff, paidLeavePatternId);
         }
-        break; 
+        break;
       case 'normal':
         break;
     }
   }, [
-      _clickMode, sortedStaffList, 
-      toggleHoliday, 
-      holidayPatternId, paidLeavePatternId,
-      activeCell, 
-      store
-  ]); 
+    _clickMode, sortedStaffList,
+    toggleHoliday,
+    holidayPatternId, paidLeavePatternId,
+    activeCell,
+    store
+  ]);
 
   const handleCellMouseDown = useCallback((e: React.MouseEvent, date: string, staffId: string, staffIndex: number, dateIndex: number) => {
     const state = store.getState();
     const isCurrentlyLoading = state.assignment.present.isSyncing ||
-                               state.assignment.present.adjustmentLoading ||
-                               state.assignment.present.patchLoading ||
-                               state.calendar.isMonthLoading;
+      state.assignment.present.adjustmentLoading ||
+      state.assignment.present.patchLoading ||
+      state.calendar.isMonthLoading;
     if (isCurrentlyLoading) {
       return;
     }
-    
-    if (_clickMode !== 'select') return; 
-    e.preventDefault(); 
+
+    if (_clickMode !== 'select') return;
+    e.preventDefault();
     const cell: CellCoords = { date, staffId, staffIndex, dateIndex };
     if (e.shiftKey && activeCell) {
       setSelectionRange({ start: activeCell, end: cell });
     } else {
-      setActiveCell(cell); 
-      setSelectionRange({ start: cell, end: cell }); 
+      setActiveCell(cell);
+      setSelectionRange({ start: cell, end: cell });
     }
     setIsDragging(true);
   }, [_clickMode, activeCell, store]);
 
   const handleCellMouseMove = useCallback((date: string, staffId: string, staffIndex: number, dateIndex: number) => {
-    if (_clickMode !== 'select' || !isDragging || !selectionRange || !activeCell) return; 
+    if (_clickMode !== 'select' || !isDragging || !selectionRange || !activeCell) return;
     const cell: CellCoords = { date, staffId, staffIndex, dateIndex };
     setSelectionRange({ ...selectionRange, end: cell });
   }, [_clickMode, isDragging, selectionRange, activeCell]);
 
   const handleCellMouseUp = useCallback(() => {
-    if (_clickMode !== 'select') return; 
+    if (_clickMode !== 'select') return;
     setIsDragging(false);
-    stopAutoScroll(); 
-  }, [_clickMode, stopAutoScroll]); 
+    stopAutoScroll();
+  }, [_clickMode, stopAutoScroll]);
 
 
   // --- C/X/V/矢印キー イベント ---
   useEffect(() => {
-    const latestAssignmentsRef = { 
-      current: store.getState().assignment.present.assignments 
+    const latestAssignmentsRef = {
+      current: store.getState().assignment.present.assignments
     };
     const unsubscribe = store.subscribe(() => {
       const newAssignments = store.getState().assignment.present.assignments;
@@ -290,30 +290,30 @@ export const useCalendarInteractions = (
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
         return;
       }
-      
+
       const state = store.getState();
-      const isOverallLoading = state.assignment.present.isSyncing || 
-                               state.assignment.present.adjustmentLoading ||
-                               state.assignment.present.patchLoading ||
-                               state.calendar.isMonthLoading;
+      const isOverallLoading = state.assignment.present.isSyncing ||
+        state.assignment.present.adjustmentLoading ||
+        state.assignment.present.patchLoading ||
+        state.calendar.isMonthLoading;
       const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
       const ctrlKey = isMac ? event.metaKey : event.ctrlKey;
       if (isOverallLoading) {
         if (ctrlKey && (event.key === 'c' || event.key === 'x' || event.key === 'v')) {
-           event.preventDefault();
-           return;
+          event.preventDefault();
+          return;
         }
       }
 
       processingCellKeyRef.current = null;
-      
+
       // 矢印キー移動
       if (!event.shiftKey && !ctrlKey && !event.metaKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
         event.preventDefault();
 
         if (!activeCell) {
           const staff = sortedStaffList[0];
-          const day = monthDays[0]; 
+          const day = monthDays[0];
           if (staff && day) {
             const newCell: CellCoords = { staffId: staff.staffId, date: day.dateStr, staffIndex: 0, dateIndex: 0 };
             setActiveCell(newCell);
@@ -326,7 +326,7 @@ export const useCalendarInteractions = (
         const minStaffIndex = 0;
         const maxStaffIndex = sortedStaffList.length - 1;
         const minDateIndex = 0;
-        const maxDateIndex = monthDays.length - 1; 
+        const maxDateIndex = monthDays.length - 1;
 
         switch (event.key) {
           case 'ArrowUp':
@@ -345,29 +345,29 @@ export const useCalendarInteractions = (
 
         let newActiveCell: CellCoords | null = null;
         const staff = sortedStaffList[staffIndex];
-        const day = monthDays[dateIndex]; 
+        const day = monthDays[dateIndex];
         if (staff && day) {
           newActiveCell = { staffId: staff.staffId, date: day.dateStr, staffIndex, dateIndex };
         }
-        
+
         if (newActiveCell) {
           setActiveCell(newActiveCell);
           setSelectionRange({ start: newActiveCell, end: newActiveCell });
         }
-        return; 
+        return;
       }
-      
+
       // Shift + 矢印キー移動
       if (event.shiftKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
         event.preventDefault();
-        
+
         if (!activeCell || !selectionRange) return;
         let { staffIndex, dateIndex } = selectionRange.end;
 
         const minStaffIndex = 0;
         const maxStaffIndex = sortedStaffList.length - 1;
         const minDateIndex = 0;
-        const maxDateIndex = monthDays.length - 1; 
+        const maxDateIndex = monthDays.length - 1;
 
         switch (event.key) {
           case 'ArrowUp':
@@ -386,15 +386,15 @@ export const useCalendarInteractions = (
 
         let newEndCell: CellCoords | null = null;
         const staff = sortedStaffList[staffIndex];
-        const day = monthDays[dateIndex]; 
+        const day = monthDays[dateIndex];
         if (staff && day) {
           newEndCell = { staffId: staff.staffId, date: day.dateStr, staffIndex, dateIndex };
         }
-        
+
         if (newEndCell) {
           setSelectionRange({ start: activeCell, end: newEndCell });
         }
-        return; 
+        return;
       }
 
 
@@ -402,7 +402,7 @@ export const useCalendarInteractions = (
       if (ctrlKey && (event.key === 'c' || event.key === 'x')) {
         event.preventDefault();
         const currentAssignments = latestAssignmentsRef.current;
-        
+
         const rangeIndices = getRangeIndices(selectionRange);
         if (!rangeIndices) return;
         const { minStaff, maxStaff, minDate, maxDate } = rangeIndices;
@@ -415,13 +415,13 @@ export const useCalendarInteractions = (
           for (let dIdx = minDate; dIdx <= maxDate; dIdx++) {
             let key: string | null = null;
             const staff = sortedStaffList[sIdx];
-            const day = monthDays[dIdx]; 
+            const day = monthDays[dIdx];
             if (staff && day) {
               key = `${staff.staffId}_${day.dateStr}`;
             }
-            
+
             if (!key) {
-              row.push(""); 
+              row.push("");
               continue;
             }
 
@@ -429,18 +429,18 @@ export const useCalendarInteractions = (
               keysToCut.add(key);
             }
 
-            const cellAssignments = assignmentsMap.get(key) || []; 
-            const firstAssignment = cellAssignments[0]; 
+            const cellAssignments = assignmentsMap.get(key) || [];
+            const firstAssignment = cellAssignments[0];
             if (firstAssignment) {
               // クリップボードには常にIDを入れる（システム的安定性のため）
-              row.push(firstAssignment.patternId); 
+              row.push(firstAssignment.patternId);
             } else {
               row.push("");
             }
           }
           tsvRows.push(row);
         }
-        
+
         const tsvString = tsvRows.map(row => row.join('\t')).join('\n');
         try {
           await navigator.clipboard.writeText(tsvString);
@@ -451,19 +451,19 @@ export const useCalendarInteractions = (
 
         if (event.key === 'x') {
           const newOptimisticAssignments = currentAssignments.filter(a => !keysToCut.has(`${a.staffId}_${a.date}`));
-          
+
           const currentSyncId = Date.now();
           syncLockRef.current = currentSyncId;
-          
-          dispatch(setAssignments(newOptimisticAssignments)); 
+
+          dispatch(setAssignments(newOptimisticAssignments));
           dispatch(_setIsSyncing(true));
-          
+
           (async () => {
             try {
               if (!monthDays || monthDays.length === 0) throw new Error("カレンダーの月情報がありません。");
               const firstDay = monthDays[0].dateStr;
               const lastDay = monthDays[monthDays.length - 1].dateStr;
-              
+
               await db.transaction('rw', db.assignments, async () => {
                 const assignmentsToRemoveDB = await db.assignments
                   .where('date')
@@ -473,7 +473,7 @@ export const useCalendarInteractions = (
                   await db.assignments.bulkDelete(assignmentsToRemoveDB);
                 }
                 const assignmentsToSave = newOptimisticAssignments
-                  .filter(a => a.date >= firstDay && a.date <= lastDay) 
+                  .filter(a => a.date >= firstDay && a.date <= lastDay)
                   .map(({ id, ...rest }) => rest);
                 if (assignmentsToSave.length > 0) {
                   await db.assignments.bulkAdd(assignmentsToSave);
@@ -481,27 +481,27 @@ export const useCalendarInteractions = (
               });
 
               if (syncLockRef.current === currentSyncId) {
-                  dispatch(_setIsSyncing(false)); 
+                dispatch(_setIsSyncing(false));
               } else {
-                  if (syncLockRef.current === 0) { dispatch(_setIsSyncing(false)); }
+                if (syncLockRef.current === 0) { dispatch(_setIsSyncing(false)); }
               }
             } catch (e) {
               console.error("カット(DB削除)に失敗:", e);
               if (syncLockRef.current === currentSyncId) {
-                  db.assignments.toArray().then(dbAssignments => dispatch(_syncAssignments(dbAssignments))); 
+                db.assignments.toArray().then(dbAssignments => dispatch(_syncAssignments(dbAssignments)));
               } else {
-                  if (syncLockRef.current === 0) { dispatch(_setIsSyncing(false)); }
+                if (syncLockRef.current === 0) { dispatch(_setIsSyncing(false)); }
               }
             }
-          })(); 
+          })();
         }
-      } 
+      }
       // PASTE
       else if (ctrlKey && event.key === 'v') {
         event.preventDefault();
 
         if (!activeCell) return;
-        
+
         // 1. クリップボード読み取り
         let tsvString = "";
         try {
@@ -514,7 +514,12 @@ export const useCalendarInteractions = (
 
         // 2. TSVパース & クリップボードサイズ取得
         // (Windowsの改行コード対応)
-        const tsvRows = tsvString.split(/\r?\n/).map(row => row.split('\t'));
+        // ★★★ 修正: 末尾の空行を除去してから処理する ★★★
+        const tsvRows = tsvString
+          .replace(/\r\n/g, '\n')           // Windowsの改行コード対策
+          .split('\n')                      // 改行で分割
+          .filter(row => row.trim() !== '') // 空行（Excel末尾の改行など）を除外
+          .map(row => row.split('\t'));     // タブで分割
         const clipRowCount = tsvRows.length;
         const clipColCount = tsvRows[0]?.length || 0;
         if (clipRowCount === 0 || clipColCount === 0) return;
@@ -524,35 +529,35 @@ export const useCalendarInteractions = (
         let startDateIdx: number, endDateIdx: number;
 
         // 選択範囲があるかどうか (1セルより大きい範囲)
-        const isRangeSelection = selectionRange && 
-            (selectionRange.start.staffIndex !== selectionRange.end.staffIndex || 
-             selectionRange.start.dateIndex !== selectionRange.end.dateIndex);
+        const isRangeSelection = selectionRange &&
+          (selectionRange.start.staffIndex !== selectionRange.end.staffIndex ||
+            selectionRange.start.dateIndex !== selectionRange.end.dateIndex);
 
         if (isRangeSelection) {
-            // 範囲選択あり -> 選択範囲全体を埋める (タイリング)
-            const rangeIndices = getRangeIndices(selectionRange);
-            if (!rangeIndices) return; // Should not happen
-            startStaffIdx = rangeIndices.minStaff;
-            endStaffIdx = rangeIndices.maxStaff;
-            startDateIdx = rangeIndices.minDate;
-            endDateIdx = rangeIndices.maxDate;
+          // 範囲選択あり -> 選択範囲全体を埋める (タイリング)
+          const rangeIndices = getRangeIndices(selectionRange);
+          if (!rangeIndices) return; // Should not happen
+          startStaffIdx = rangeIndices.minStaff;
+          endStaffIdx = rangeIndices.maxStaff;
+          startDateIdx = rangeIndices.minDate;
+          endDateIdx = rangeIndices.maxDate;
         } else {
-            // 範囲選択なし (単一セル) -> クリップボードのサイズ分だけ貼り付け
-            startStaffIdx = activeCell.staffIndex;
-            endStaffIdx = activeCell.staffIndex + clipRowCount - 1;
-            startDateIdx = activeCell.dateIndex;
-            endDateIdx = activeCell.dateIndex + clipColCount - 1;
+          // 範囲選択なし (単一セル) -> クリップボードのサイズ分だけ貼り付け
+          startStaffIdx = activeCell.staffIndex;
+          endStaffIdx = activeCell.staffIndex + clipRowCount - 1;
+          startDateIdx = activeCell.dateIndex;
+          endDateIdx = activeCell.dateIndex + clipColCount - 1;
         }
 
         const currentAssignments = latestAssignmentsRef.current;
         const newAssignmentsToPaste: Omit<IAssignment, 'id'>[] = [];
-        const keysToOverwrite = new Set<string>(); 
+        const keysToOverwrite = new Set<string>();
 
         // 4. 貼り付け先範囲をループ (タイリングロジック)
         for (let sIdx = startStaffIdx; sIdx <= endStaffIdx; sIdx++) {
           // スタッフ範囲チェック
           if (sIdx >= sortedStaffList.length) continue;
-          
+
           for (let dIdx = startDateIdx; dIdx <= endDateIdx; dIdx++) {
             // 日付範囲チェック
             if (dIdx >= monthDays.length) continue;
@@ -564,13 +569,13 @@ export const useCalendarInteractions = (
             const sourceCol = relativeCol % clipColCount;
 
             const rawText = tsvRows[sourceRow][sourceCol]?.trim();
-            
+
             // ターゲット情報の取得
             const targetStaff = sortedStaffList[sIdx];
             const targetDay = monthDays[dIdx];
-            
+
             if (!targetStaff || !targetDay) continue;
-            
+
             const key = `${targetStaff.staffId}_${targetDay.dateStr}`;
             keysToOverwrite.add(key); // 上書きリストに追加
 
@@ -583,8 +588,8 @@ export const useCalendarInteractions = (
 
               if (matchedPattern) {
                 newAssignmentsToPaste.push({
-                  date: targetDay.dateStr, 
-                  staffId: targetStaff.staffId, 
+                  date: targetDay.dateStr,
+                  staffId: targetStaff.staffId,
                   patternId: matchedPattern.patternId,
                   unitId: (matchedPattern.workType === 'Work') ? targetStaff.unitId : null,
                   locked: true,
@@ -595,43 +600,43 @@ export const useCalendarInteractions = (
             }
           }
         }
-        
-        const assignmentsBeforePaste = currentAssignments.filter(a => { 
+
+        const assignmentsBeforePaste = currentAssignments.filter(a => {
           const key = `${a.staffId}_${a.date}`;
-          return !keysToOverwrite.has(key); 
+          return !keysToOverwrite.has(key);
         });
         const tempAssignments = newAssignmentsToPaste.map((a, i) => ({
           ...a,
-          id: Date.now() + i 
+          id: Date.now() + i
         }));
         const finalOptimisticState = [...assignmentsBeforePaste, ...tempAssignments];
-        
+
         const currentSyncId = Date.now();
         syncLockRef.current = currentSyncId;
-        
-        dispatch(setAssignments(finalOptimisticState)); 
+
+        dispatch(setAssignments(finalOptimisticState));
         dispatch(_setIsSyncing(true));
-        
+
         // 選択範囲の更新 (単一セル選択からの貼り付け時のみ、貼り付けた範囲を選択状態にする)
         if (!isRangeSelection && activeCell) {
           // 実際に貼り付けが行われた範囲に選択範囲を拡張
           const maxSIdx = Math.min(endStaffIdx, sortedStaffList.length - 1);
           const maxDIdx = Math.min(endDateIdx, monthDays.length - 1);
-          
+
           const endStaff = sortedStaffList[maxSIdx];
           const endDay = monthDays[maxDIdx];
-          
+
           if (endStaff && endDay) {
-             const newEndCell: CellCoords = {
-                staffId: endStaff.staffId,
-                date: endDay.dateStr,
-                staffIndex: maxSIdx,
-                dateIndex: maxDIdx
-             };
-             setSelectionRange({ start: activeCell, end: newEndCell });
+            const newEndCell: CellCoords = {
+              staffId: endStaff.staffId,
+              date: endDay.dateStr,
+              staffIndex: maxSIdx,
+              dateIndex: maxDIdx
+            };
+            setSelectionRange({ start: activeCell, end: newEndCell });
           }
         }
-        
+
         (async () => {
           try {
             if (!monthDays || monthDays.length === 0) throw new Error("カレンダーの月情報がありません。");
@@ -639,32 +644,32 @@ export const useCalendarInteractions = (
             const lastDay = monthDays[monthDays.length - 1].dateStr;
 
             await db.transaction('rw', db.assignments, async () => {
-                const assignmentsToRemoveDB = await db.assignments
-                  .where('date')
-                  .between(firstDay, lastDay, true, true)
-                  .primaryKeys();
-                if (assignmentsToRemoveDB.length > 0) {
-                    await db.assignments.bulkDelete(assignmentsToRemoveDB);
-                }
-                const assignmentsToSave = finalOptimisticState
-                  .filter(a => a.date >= firstDay && a.date <= lastDay) 
-                  .map(({ id, ...rest }) => rest); 
-                if (assignmentsToSave.length > 0) {
-                    await db.assignments.bulkAdd(assignmentsToSave);
-                }
+              const assignmentsToRemoveDB = await db.assignments
+                .where('date')
+                .between(firstDay, lastDay, true, true)
+                .primaryKeys();
+              if (assignmentsToRemoveDB.length > 0) {
+                await db.assignments.bulkDelete(assignmentsToRemoveDB);
+              }
+              const assignmentsToSave = finalOptimisticState
+                .filter(a => a.date >= firstDay && a.date <= lastDay)
+                .map(({ id, ...rest }) => rest);
+              if (assignmentsToSave.length > 0) {
+                await db.assignments.bulkAdd(assignmentsToSave);
+              }
             });
-            
+
             if (syncLockRef.current === currentSyncId) {
-              dispatch(_setIsSyncing(false)); 
+              dispatch(_setIsSyncing(false));
             } else {
               if (syncLockRef.current === 0) { dispatch(_setIsSyncing(false)); }
             }
           } catch (e) {
             console.error("ペースト(DB操作)に失敗:", e);
             if (syncLockRef.current === currentSyncId) {
-                db.assignments.toArray().then(dbAssignments => dispatch(_syncAssignments(dbAssignments))); 
+              db.assignments.toArray().then(dbAssignments => dispatch(_syncAssignments(dbAssignments)));
             } else {
-                if (syncLockRef.current === 0) { dispatch(_setIsSyncing(false)); }
+              if (syncLockRef.current === 0) { dispatch(_setIsSyncing(false)); }
             }
           }
         })();
@@ -676,7 +681,7 @@ export const useCalendarInteractions = (
         stopAutoScroll();
         return;
       }
-      const container = mainCalendarScrollerRef.current; 
+      const container = mainCalendarScrollerRef.current;
 
       if (!container) {
         stopAutoScroll();
@@ -685,12 +690,12 @@ export const useCalendarInteractions = (
       const rect = container.getBoundingClientRect();
       const clientX = e.clientX;
       const clientY = e.clientY;
-      const threshold = 40; 
-      const scrollSpeed = 20; 
-      const interval = 50; 
+      const threshold = 40;
+      const scrollSpeed = 20;
+      const interval = 50;
       let scrollX = 0;
       let scrollY = 0;
-      const buffer = threshold * 2; 
+      const buffer = threshold * 2;
       if (clientY < rect.top + threshold && clientY > rect.top - buffer) scrollY = -scrollSpeed;
       else if (clientY > rect.bottom - threshold && clientY < rect.bottom + buffer) scrollY = scrollSpeed;
       if (clientX < rect.left + threshold && clientX > rect.left - buffer) scrollX = -scrollSpeed;
@@ -705,35 +710,35 @@ export const useCalendarInteractions = (
             }
           }, interval);
         }
-      } 
+      }
       else {
         stopAutoScroll();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('mousemove', handleWindowMouseMove); 
-    
+    window.addEventListener('mousemove', handleWindowMouseMove);
+
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('mousemove', handleWindowMouseMove); 
-      unsubscribe(); 
-      stopAutoScroll(); 
+      window.removeEventListener('mousemove', handleWindowMouseMove);
+      unsubscribe();
+      stopAutoScroll();
     };
   }, [
-    _clickMode, isDragging, selectionRange, activeCell, 
-    sortedStaffList, 
+    _clickMode, isDragging, selectionRange, activeCell,
+    sortedStaffList,
     dispatch, store,
-    getRangeIndices, setClickMode, 
-    toggleHoliday, 
+    getRangeIndices, setClickMode,
+    toggleHoliday,
     holidayPatternId, paidLeavePatternId,
     assignmentsMap,
     patternMap,
     symbolMap, // ★ 依存配列に symbolMap を追加
-    stopAutoScroll, 
-    mainCalendarScrollerRef, 
+    stopAutoScroll,
+    mainCalendarScrollerRef,
     handleCellMouseUp,
-    monthDays 
+    monthDays
   ]);
 
   useEffect(() => {
@@ -745,27 +750,27 @@ export const useCalendarInteractions = (
 
       if (element) {
         element.scrollIntoView({
-          behavior: 'smooth', 
-          block: 'nearest',  
-          inline: 'nearest' 
+          behavior: 'smooth',
+          block: 'nearest',
+          inline: 'nearest'
         });
       }
     }
-  }, [selectionRange, activeCell, isDragging]); 
+  }, [selectionRange, activeCell, isDragging]);
 
 
   return {
-    clickMode: _clickMode, 
-    setClickMode,      
+    clickMode: _clickMode,
+    setClickMode,
     activeCell,
     selectionRange,
-    toggleHoliday, 
+    toggleHoliday,
     holidayPatternId,
     paidLeavePatternId,
     handleCellClick,
     handleCellMouseDown,
     handleCellMouseMove,
-    handleCellMouseUp, 
-    invalidateSyncLock: () => {}, 
+    handleCellMouseUp,
+    invalidateSyncLock: () => { },
   };
 };

@@ -5,7 +5,8 @@ import {
   Button,
   ToggleButton, ToggleButtonGroup,
   Stack,
-  Divider
+  Divider,
+  SxProps, Theme // ★ 追加: 型定義用
 } from '@mui/material';
 import { useSelector, useDispatch, useStore } from 'react-redux';
 import { ActionCreators as UndoActionCreators } from 'redux-undo';
@@ -139,7 +140,7 @@ const useDataSync = (
 };
 
 // ---------------------------------------------------------------------------
-// 2. サブコンポーネント: 共通ツールバー
+// 2. サブコンポーネント: 共通ツールバー (修正版)
 // ---------------------------------------------------------------------------
 interface ControlToolbarProps {
   currentYear: number;
@@ -155,6 +156,7 @@ interface ControlToolbarProps {
   canRedo?: boolean;
   onReset?: () => void;
   showTools?: boolean; 
+  sx?: SxProps<Theme>; // ★ 追加: スタイル上書き用
 }
 
 const ControlToolbar = React.memo(({
@@ -163,7 +165,8 @@ const ControlToolbar = React.memo(({
   onUndo, canUndo,
   onRedo, canRedo,
   onReset,
-  showTools = false
+  showTools = false,
+  sx // ★ 受け取る
 }: ControlToolbarProps) => {
   return (
     <Box sx={{ 
@@ -171,6 +174,8 @@ const ControlToolbar = React.memo(({
       justifyContent: 'space-between', 
       alignItems: 'center', 
       mb: 2,
+      width: '100%', // ★ 重要: 幅を100%にして左右配置を有効にする
+      ...sx // ★ 親からのスタイルを適用
     }}>
       <MonthNavigation
         currentYear={currentYear}
@@ -271,7 +276,7 @@ function ShiftCalendarPage() {
     staffHolidayRequirements,
     handleHolidayIncrement,
     handleHolidayDecrement,
-    handleHolidayReset // ★ 追加
+    handleHolidayReset
   } = useStaffBurdenData(currentYear, currentMonth, monthDays); 
   
   const sortedStaffList = useMemo(() => {
@@ -375,30 +380,23 @@ function ShiftCalendarPage() {
           
           {/* Tab 0: Staff View */}
           <TabPanel value={tabValue} index={0}>
-            {/* スタッフビュー用: 背景色あり、ボーダーなし */}
-            <Box sx={{ 
-              display: 'flex', 
-              justifyContent: 'space-between', 
-              alignItems: 'center', 
-              mb: 2,
-              bgcolor: 'background.paper',
-            }}>
-              <ControlToolbar
-                currentYear={currentYear}
-                currentMonth={currentMonth}
-                onPrevMonth={handleGoToPrevMonth}
-                onNextMonth={handleGoToNextMonth}
-                isLoading={isOverallLoading}
-                showTools={true}
-                clickMode={clickMode}
-                setClickMode={setClickMode}
-                onUndo={() => dispatch(UndoActionCreators.undo())}
-                canUndo={past.length > 0}
-                onRedo={() => dispatch(UndoActionCreators.redo())}
-                canRedo={future.length > 0}
-                onReset={handleResetClick}
-              />
-            </Box>
+            {/* ★ 修正: ラッパーBoxを削除し、sx で背景色を指定 */}
+            <ControlToolbar
+              currentYear={currentYear}
+              currentMonth={currentMonth}
+              onPrevMonth={handleGoToPrevMonth}
+              onNextMonth={handleGoToNextMonth}
+              isLoading={isOverallLoading}
+              showTools={true}
+              clickMode={clickMode}
+              setClickMode={setClickMode}
+              onUndo={() => dispatch(UndoActionCreators.undo())}
+              canUndo={past.length > 0}
+              onRedo={() => dispatch(UndoActionCreators.redo())}
+              canRedo={future.length > 0}
+              onReset={handleResetClick}
+              sx={{ bgcolor: 'background.paper' }} // スタッフビューのみ背景色
+            />
             
             <StaffCalendarView 
               sortedStaffList={sortedStaffList} 
@@ -406,7 +404,7 @@ function ShiftCalendarPage() {
               staffHolidayRequirements={staffHolidayRequirements} 
               onHolidayIncrement={handleHolidayIncrement} 
               onHolidayDecrement={handleHolidayDecrement} 
-              onHolidayReset={handleHolidayReset} // ★ 追加
+              onHolidayReset={handleHolidayReset}
               onStaffNameClick={openClearStaffModal} 
               onDateHeaderClick={handleDateHeaderClick} 
               clickMode={clickMode}
@@ -422,7 +420,7 @@ function ShiftCalendarPage() {
           
           {/* Tab 1: Work Slot View */}
           <TabPanel value={tabValue} index={1}>
-            {/* 勤務枠ビュー用: シンプルなコンテナ */}
+            {/* ★ 修正: ラッパーBoxを削除し、素の状態で配置 */}
             <ControlToolbar
               currentYear={currentYear}
               currentMonth={currentMonth}

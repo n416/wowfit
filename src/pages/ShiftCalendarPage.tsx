@@ -1,3 +1,4 @@
+// src/pages/ShiftCalendarPage.tsx
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { 
   Box, Paper, Tabs, Tab, 
@@ -15,7 +16,7 @@ import { setUnits } from '../store/unitSlice';
 import { _syncAssignments } from '../store/assignmentSlice'; 
 import { goToNextMonth, goToPrevMonth, _setIsMonthLoading } from '../store/calendarSlice'; 
 import type { AppDispatch, RootState } from '../store';
-import { getMonthDays, getPrevDateStr } from '../utils/dateUtils'; // ★ 追加
+import { getMonthDays, getPrevDateStr } from '../utils/dateUtils'; 
 
 // コンポーネント
 import StaffCalendarView from '../components/calendar/StaffCalendarView';
@@ -26,7 +27,6 @@ import BurdenSidebar from '../components/calendar/BurdenSidebar';
 import DailyUnitGanttModal from '../components/calendar/DailyUnitGanttModal';
 import ClearStaffAssignmentsModal from '../components/calendar/ClearStaffAssignmentsModal'; 
 import TabPanel from '../components/TabPanel'; 
-// ★ 追加: カレンダーナビゲーションコンポーネント
 import MonthNavigation from '../components/calendar/MonthNavigation';
 
 import { MOCK_PATTERNS_V5, MOCK_UNITS_V5, MOCK_STAFF_V4 } from '../db/mockData';
@@ -125,6 +125,7 @@ function ShiftCalendarPage() {
     handleCellMouseDown,
     handleCellMouseMove,
     handleCellMouseUp,
+    handleAutoScroll, // ★ ここで受け取る
     invalidateSyncLock,
   } = useCalendarInteractions(
     sortedStaffList, 
@@ -215,12 +216,11 @@ function ShiftCalendarPage() {
         const firstDay = monthDays[0].dateStr;
         const lastDay = monthDays[monthDays.length - 1].dateStr;
         
-        // ★ 修正: 月初の「夜勤明け」判定のため、前月末日のデータも取得する
         const prevDay = getPrevDateStr(firstDay);
 
         const assignmentsDB = await db.assignments
           .where('date')
-          .between(prevDay, lastDay, true, true) // ★ prevDay から取得
+          .between(prevDay, lastDay, true, true) 
           .toArray();
         
         if (staffList.length === 0) {
@@ -251,7 +251,7 @@ function ShiftCalendarPage() {
   }, [setClickMode]);
 
   const handleCellClick = useCallback((
-    e: React.MouseEvent, 
+    e: React.MouseEvent | React.TouchEvent, 
     date: string, 
     staffIdOrUnitId: string | null, 
     staffIndex?: number, 
@@ -437,13 +437,13 @@ function ShiftCalendarPage() {
               onStaffNameClick={openClearStaffModal} 
               onDateHeaderClick={handleDateHeaderClick} 
               clickMode={clickMode}
-              // activeCell, // 削除済み
               selectionRange={selectionRange}
               onCellMouseDown={handleCellMouseDown}
               onCellMouseMove={handleCellMouseMove}
               onCellMouseUp={handleCellMouseUp}
               mainCalendarScrollerRef={mainCalendarScrollerRef}
               monthDays={monthDays} 
+              onAutoScroll={handleAutoScroll} // ★ 追加
             />
           </TabPanel>
           

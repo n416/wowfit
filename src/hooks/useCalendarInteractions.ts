@@ -2,7 +2,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useSelector, useDispatch, useStore } from 'react-redux';
 import type { RootState, AppDispatch } from '../store';
-import { IStaff, IAssignment, IShiftPattern } from '../db/dexie'; // IShiftPatternを追加
+import { IStaff, IAssignment, IShiftPattern } from '../db/dexie'; 
 import { db } from '../db/dexie';
 import { setAssignments, _syncAssignments, _setIsSyncing } from '../store/assignmentSlice';
 
@@ -49,17 +49,14 @@ export const useCalendarInteractions = (
   const { assignments } = useSelector((state: RootState) => state.assignment.present);
   const shiftPatterns = useSelector((state: RootState) => state.pattern.patterns);
 
-  // ID検索用マップ
   const patternMap = useMemo(() =>
     new Map(shiftPatterns.map(p => [p.patternId, p])),
     [shiftPatterns]);
 
-  // ★ 追加: Symbol検索用マップ (高速化のため事前にMapを作成)
   const symbolMap = useMemo(() => {
     const map = new Map<string, IShiftPattern>();
     shiftPatterns.forEach(p => {
       if (p.symbol) {
-        // 記号が重複している場合は後勝ち、あるいは運用で重複させない前提
         map.set(p.symbol, p);
       }
     });
@@ -185,7 +182,7 @@ export const useCalendarInteractions = (
 
 
   const handleCellClick = useCallback((
-    e: React.MouseEvent,
+    e: React.MouseEvent | React.TouchEvent,
     date: string,
     staffId: string,
     staffIndex: number,
@@ -208,9 +205,11 @@ export const useCalendarInteractions = (
       processingCellKeyRef.current = null;
     }
 
+    const isShiftKey = 'shiftKey' in e ? e.shiftKey : false;
+
     switch (_clickMode) {
       case 'select':
-        if (e.shiftKey && activeCell) {
+        if (isShiftKey && activeCell) {
           setSelectionRange({ start: activeCell, end: cell });
         } else {
           setActiveCell(cell);
@@ -239,7 +238,10 @@ export const useCalendarInteractions = (
     store
   ]);
 
-  const handleCellMouseDown = useCallback((e: React.MouseEvent, date: string, staffId: string, staffIndex: number, dateIndex: number) => {
+  const handleCellMouseDown = useCallback((
+    e: React.MouseEvent | React.TouchEvent, 
+    date: string, staffId: string, staffIndex: number, dateIndex: number
+  ) => {
     const state = store.getState();
     const isCurrentlyLoading = state.assignment.present.isSyncing ||
       state.assignment.present.adjustmentLoading ||
@@ -250,9 +252,15 @@ export const useCalendarInteractions = (
     }
 
     if (_clickMode !== 'select') return;
-    e.preventDefault();
+    
+    if (e.type === 'mousedown') {
+      e.preventDefault();
+    }
+    
     const cell: CellCoords = { date, staffId, staffIndex, dateIndex };
-    if (e.shiftKey && activeCell) {
+    const isShiftKey = 'shiftKey' in e ? e.shiftKey : false;
+
+    if (isShiftKey && activeCell) {
       setSelectionRange({ start: activeCell, end: cell });
     } else {
       setActiveCell(cell);
@@ -272,6 +280,52 @@ export const useCalendarInteractions = (
     setIsDragging(false);
     stopAutoScroll();
   }, [_clickMode, stopAutoScroll]);
+
+  // --------------------------------------------------------------------------------
+  // ★★★ 自動スクロールロジックを抽出してエクスポートする ★★★
+  // --------------------------------------------------------------------------------
+  const handleAutoScroll = useCallback((clientX: number, clientY: number) => {
+    if (!isDragging || _clickMode !== 'select' || !activeCell) {
+      stopAutoScroll();
+      return;
+    }
+    const container = mainCalendarScrollerRef.current;
+
+    if (!container) {
+      stopAutoScroll();
+      return;
+    }
+    const rect = container.getBoundingClientRect();
+    // const clientX = e.clientX; // 引数で受け取る
+    // const clientY = e.clientY; // 引数で受け取る
+    const threshold = 40;
+    const scrollSpeed = 20;
+    const interval = 50;
+    let scrollX = 0;
+    let scrollY = 0;
+    const buffer = threshold * 2;
+    
+    if (clientY < rect.top + threshold && clientY > rect.top - buffer) scrollY = -scrollSpeed;
+    else if (clientY > rect.bottom - threshold && clientY < rect.bottom + buffer) scrollY = scrollSpeed;
+    
+    if (clientX < rect.left + threshold && clientX > rect.left - buffer) scrollX = -scrollSpeed;
+    else if (clientX > rect.right - threshold && clientX < rect.right + buffer) scrollX = scrollSpeed;
+    
+    if (scrollX !== 0 || scrollY !== 0) {
+      if (!autoScrollIntervalRef.current) {
+        autoScrollIntervalRef.current = setInterval(() => {
+          const currentContainer = mainCalendarScrollerRef.current;
+          if (currentContainer) {
+            currentContainer.scrollTop += scrollY;
+            currentContainer.scrollLeft += scrollX;
+          }
+        }, interval);
+      }
+    }
+    else {
+      stopAutoScroll();
+    }
+  }, [isDragging, _clickMode, activeCell, mainCalendarScrollerRef, stopAutoScroll]);
 
 
   // --- C/X/V/矢印キー イベント ---
@@ -432,7 +486,6 @@ export const useCalendarInteractions = (
             const cellAssignments = assignmentsMap.get(key) || [];
             const firstAssignment = cellAssignments[0];
             if (firstAssignment) {
-              // クリップボードには常にIDを入れる（システム的安定性のため）
               row.push(firstAssignment.patternId);
             } else {
               row.push("");
@@ -502,7 +555,6 @@ export const useCalendarInteractions = (
 
         if (!activeCell) return;
 
-        // 1. クリップボード読み取り
         let tsvString = "";
         try {
           tsvString = await navigator.clipboard.readText();
@@ -512,37 +564,30 @@ export const useCalendarInteractions = (
         }
         if (!tsvString) return;
 
-        // 2. TSVパース & クリップボードサイズ取得
-        // (Windowsの改行コード対応)
-        // ★★★ 修正: 末尾の空行を除去してから処理する ★★★
         const tsvRows = tsvString
-          .replace(/\r\n/g, '\n')           // Windowsの改行コード対策
-          .split('\n')                      // 改行で分割
-          .filter(row => row.trim() !== '') // 空行（Excel末尾の改行など）を除外
-          .map(row => row.split('\t'));     // タブで分割
+          .replace(/\r\n/g, '\n')           
+          .split('\n')                      
+          .filter(row => row.trim() !== '') 
+          .map(row => row.split('\t'));     
         const clipRowCount = tsvRows.length;
         const clipColCount = tsvRows[0]?.length || 0;
         if (clipRowCount === 0 || clipColCount === 0) return;
 
-        // 3. 貼り付け先範囲の決定 (Excelライクな連続貼り付け)
         let startStaffIdx: number, endStaffIdx: number;
         let startDateIdx: number, endDateIdx: number;
 
-        // 選択範囲があるかどうか (1セルより大きい範囲)
         const isRangeSelection = selectionRange &&
           (selectionRange.start.staffIndex !== selectionRange.end.staffIndex ||
             selectionRange.start.dateIndex !== selectionRange.end.dateIndex);
 
         if (isRangeSelection) {
-          // 範囲選択あり -> 選択範囲全体を埋める (タイリング)
           const rangeIndices = getRangeIndices(selectionRange);
-          if (!rangeIndices) return; // Should not happen
+          if (!rangeIndices) return; 
           startStaffIdx = rangeIndices.minStaff;
           endStaffIdx = rangeIndices.maxStaff;
           startDateIdx = rangeIndices.minDate;
           endDateIdx = rangeIndices.maxDate;
         } else {
-          // 範囲選択なし (単一セル) -> クリップボードのサイズ分だけ貼り付け
           startStaffIdx = activeCell.staffIndex;
           endStaffIdx = activeCell.staffIndex + clipRowCount - 1;
           startDateIdx = activeCell.dateIndex;
@@ -553,16 +598,12 @@ export const useCalendarInteractions = (
         const newAssignmentsToPaste: Omit<IAssignment, 'id'>[] = [];
         const keysToOverwrite = new Set<string>();
 
-        // 4. 貼り付け先範囲をループ (タイリングロジック)
         for (let sIdx = startStaffIdx; sIdx <= endStaffIdx; sIdx++) {
-          // スタッフ範囲チェック
           if (sIdx >= sortedStaffList.length) continue;
 
           for (let dIdx = startDateIdx; dIdx <= endDateIdx; dIdx++) {
-            // 日付範囲チェック
             if (dIdx >= monthDays.length) continue;
 
-            // タイリング: 貼り付け先の相対位置から、クリップボード内の参照位置を計算 (剰余)
             const relativeRow = sIdx - startStaffIdx;
             const relativeCol = dIdx - startDateIdx;
             const sourceRow = relativeRow % clipRowCount;
@@ -570,17 +611,15 @@ export const useCalendarInteractions = (
 
             const rawText = tsvRows[sourceRow][sourceCol]?.trim();
 
-            // ターゲット情報の取得
             const targetStaff = sortedStaffList[sIdx];
             const targetDay = monthDays[dIdx];
 
             if (!targetStaff || !targetDay) continue;
 
             const key = `${targetStaff.staffId}_${targetDay.dateStr}`;
-            keysToOverwrite.add(key); // 上書きリストに追加
+            keysToOverwrite.add(key); 
 
             if (rawText) {
-              // ID検索 -> なければSymbol検索
               let matchedPattern = patternMap.get(rawText);
               if (!matchedPattern) {
                 matchedPattern = symbolMap.get(rawText);
@@ -617,9 +656,7 @@ export const useCalendarInteractions = (
         dispatch(setAssignments(finalOptimisticState));
         dispatch(_setIsSyncing(true));
 
-        // 選択範囲の更新 (単一セル選択からの貼り付け時のみ、貼り付けた範囲を選択状態にする)
         if (!isRangeSelection && activeCell) {
-          // 実際に貼り付けが行われた範囲に選択範囲を拡張
           const maxSIdx = Math.min(endStaffIdx, sortedStaffList.length - 1);
           const maxDIdx = Math.min(endDateIdx, monthDays.length - 1);
 
@@ -677,43 +714,7 @@ export const useCalendarInteractions = (
     };
 
     const handleWindowMouseMove = (e: MouseEvent) => {
-      if (!isDragging || _clickMode !== 'select' || !activeCell) {
-        stopAutoScroll();
-        return;
-      }
-      const container = mainCalendarScrollerRef.current;
-
-      if (!container) {
-        stopAutoScroll();
-        return;
-      }
-      const rect = container.getBoundingClientRect();
-      const clientX = e.clientX;
-      const clientY = e.clientY;
-      const threshold = 40;
-      const scrollSpeed = 20;
-      const interval = 50;
-      let scrollX = 0;
-      let scrollY = 0;
-      const buffer = threshold * 2;
-      if (clientY < rect.top + threshold && clientY > rect.top - buffer) scrollY = -scrollSpeed;
-      else if (clientY > rect.bottom - threshold && clientY < rect.bottom + buffer) scrollY = scrollSpeed;
-      if (clientX < rect.left + threshold && clientX > rect.left - buffer) scrollX = -scrollSpeed;
-      else if (clientX > rect.right - threshold && clientX < rect.right + buffer) scrollX = scrollSpeed;
-      if (scrollX !== 0 || scrollY !== 0) {
-        if (!autoScrollIntervalRef.current) {
-          autoScrollIntervalRef.current = setInterval(() => {
-            const currentContainer = mainCalendarScrollerRef.current;
-            if (currentContainer) {
-              currentContainer.scrollTop += scrollY;
-              currentContainer.scrollLeft += scrollX;
-            }
-          }, interval);
-        }
-      }
-      else {
-        stopAutoScroll();
-      }
+      handleAutoScroll(e.clientX, e.clientY);
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -734,11 +735,12 @@ export const useCalendarInteractions = (
     holidayPatternId, paidLeavePatternId,
     assignmentsMap,
     patternMap,
-    symbolMap, // ★ 依存配列に symbolMap を追加
+    symbolMap, 
     stopAutoScroll,
     mainCalendarScrollerRef,
     handleCellMouseUp,
-    monthDays
+    monthDays,
+    handleAutoScroll // ★ 追加
   ]);
 
   useEffect(() => {
@@ -771,6 +773,7 @@ export const useCalendarInteractions = (
     handleCellMouseDown,
     handleCellMouseMove,
     handleCellMouseUp,
+    handleAutoScroll, // ★ 公開
     invalidateSyncLock: () => { },
   };
 };

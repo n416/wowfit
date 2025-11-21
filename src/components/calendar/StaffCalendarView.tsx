@@ -11,7 +11,7 @@ import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
 import { TableVirtuoso, TableComponents } from 'react-virtuoso'; 
 import { CellCoords, ClickMode } from '../../hooks/useCalendarInteractions';
-import { getPrevDateStr } from '../../utils/dateUtils'; // ★ 追加
+import { getPrevDateStr } from '../../utils/dateUtils';
 
 type MonthDay = {
   dateStr: string;
@@ -21,23 +21,22 @@ type MonthDay = {
 
 interface StaffCalendarViewProps {
   sortedStaffList: IStaff[];
-  onCellClick: (e: React.MouseEvent, date: string, staffId: string, staffIndex: number, dateIndex: number) => void;
+  onCellClick: (e: React.MouseEvent | React.TouchEvent, date: string, staffId: string, staffIndex: number, dateIndex: number) => void;
   onHolidayIncrement: (staffId: string) => void;
   onHolidayDecrement: (staffId: string) => void;
   staffHolidayRequirements: Map<string, number>;
   onStaffNameClick: (staff: IStaff) => void;
   onDateHeaderClick: (date: string) => void;
   clickMode: ClickMode;
-  // activeCell 削除
   selectionRange: { start: CellCoords, end: CellCoords } | null;
-  onCellMouseDown: (e: React.MouseEvent, date: string, staffId: string, staffIndex: number, dateIndex: number) => void;
+  onCellMouseDown: (e: React.MouseEvent | React.TouchEvent, date: string, staffId: string, staffIndex: number, dateIndex: number) => void;
   onCellMouseMove: (date: string, staffId: string, staffIndex: number, dateIndex: number) => void;
   onCellMouseUp: () => void;
   mainCalendarScrollerRef: React.RefObject<HTMLElement | null>;
   monthDays: MonthDay[];
+  onAutoScroll: (x: number, y: number) => void; // ★ 追加
 }
 
-// --- 定数定義 ---
 const COL_WIDTH = 80;
 const ROW_HEIGHT = 48;
 const HEADER_HEIGHT = 50; 
@@ -46,7 +45,6 @@ const BORDER_COLOR = '#e0e0e0';
 const CELL_BORDER = `1px solid ${BORDER_COLOR}`;
 
 const styles: { [key: string]: CSSProperties } = {
-  // ... (既存のスタイル定義)
   th: {
     padding: '4px',
     borderBottom: CELL_BORDER,
@@ -76,7 +74,8 @@ const styles: { [key: string]: CSSProperties } = {
     overflow: 'hidden',
     textAlign: 'center',
     boxSizing: 'border-box',
-    display: 'table-cell'
+    display: 'table-cell',
+    touchAction: 'none'
   },
   stickyCell: {
     position: 'sticky',
@@ -145,7 +144,6 @@ const styles: { [key: string]: CSSProperties } = {
   },
 };
 
-// --- Cell Component ---
 interface StaffCellProps {
   staffId: string;
   dateStr: string;
@@ -156,11 +154,10 @@ interface StaffCellProps {
   isWeekend: boolean;
   clickMode: ClickMode;
   rowBorderStyle: CSSProperties;
-  onCellClick: (e: React.MouseEvent, date: string, staffId: string, sIdx: number, dIdx: number) => void;
-  onCellMouseDown: (e: React.MouseEvent, date: string, staffId: string, sIdx: number, dIdx: number) => void;
+  onCellClick: (e: React.MouseEvent | React.TouchEvent, date: string, staffId: string, sIdx: number, dIdx: number) => void;
+  onCellMouseDown: (e: React.MouseEvent | React.TouchEvent, date: string, staffId: string, sIdx: number, dIdx: number) => void;
   onCellMouseMove: (date: string, staffId: string, sIdx: number, dIdx: number) => void;
   onCellMouseUp: () => void;
-  // ★ 追加: 前日のアサイン
   prevAssignments?: IAssignment[];
 }
 
@@ -169,7 +166,7 @@ const StaffCell = React.memo(({
   assignments, patternMap,
   isWeekend, clickMode, rowBorderStyle,
   onCellClick, onCellMouseDown, onCellMouseMove, onCellMouseUp,
-  prevAssignments // ★ 追加
+  prevAssignments
 }: StaffCellProps) => {
 
   const cellStyle = clickMode === 'select' ? styles.cellSelectable : styles.cellClickable;
@@ -215,7 +212,6 @@ const StaffCell = React.memo(({
       );
     });
   } else {
-    // アサインがない場合 -> 前日夜勤なら '/' を表示
     let isHalfHoliday = false;
     if (prevAssignments && prevAssignments.length > 0) {
       const hasPrevNightShift = prevAssignments.some(a => {
@@ -240,12 +236,17 @@ const StaffCell = React.memo(({
 
   return (
     <TableCell
+      data-staff-id={staffId}
+      data-date={dateStr}
+      data-staff-index={staffIndex}
+      data-date-index={dayIndex}
       id={`cell-${staffId}-${dateStr}`}
       style={{
         ...styles.td,
         ...cellStyle,
         ...(isWeekend ? styles.weekendBg : {}),
         ...rowBorderStyle,
+        touchAction: clickMode === 'select' ? 'none' : 'auto'
       }}
       onClick={(e) => onCellClick(e, dateStr, staffId, staffIndex, dayIndex)}
       onMouseDown={(e) => onCellMouseDown(e, dateStr, staffId, staffIndex, dayIndex)}
@@ -266,7 +267,6 @@ const StaffCell = React.memo(({
   ) {
     return false;
   }
-
   if (prev.assignments.length !== next.assignments.length) return false;
   for (let i = 0; i < prev.assignments.length; i++) {
     if (
@@ -277,8 +277,6 @@ const StaffCell = React.memo(({
       return false;
     }
   }
-
-  // prevAssignments の比較も追加
   const prevLen = prev.prevAssignments?.length || 0;
   const nextLen = next.prevAssignments?.length || 0;
   if (prevLen !== nextLen) return false;
@@ -287,11 +285,9 @@ const StaffCell = React.memo(({
          if (prev.prevAssignments![i].patternId !== next.prevAssignments[i].patternId) return false;
       }
   }
-
   return true;
 });
 
-// --- Custom Scroller (変更なし) ---
 const ScrollerWithOverlay = React.forwardRef<HTMLDivElement, any>((props, ref) => (
   <div {...props} ref={ref} style={{ ...props.style, position: 'relative' }}>
     {props.children}
@@ -345,7 +341,8 @@ export default function StaffCalendarView({
   onCellMouseMove,
   onCellMouseUp,
   mainCalendarScrollerRef,
-  monthDays
+  monthDays,
+  onAutoScroll // ★ 追加
 }: StaffCalendarViewProps) {
 
   const { patterns: shiftPatterns } = useSelector((state: RootState) => state.pattern);
@@ -395,10 +392,10 @@ export default function StaffCalendarView({
     onCellMouseUpRef.current = onCellMouseUp;
   });
 
-  const stableOnCellClick = useCallback((e: React.MouseEvent, date: string, staffId: string, sIdx: number, dIdx: number) => {
+  const stableOnCellClick = useCallback((e: React.MouseEvent | React.TouchEvent, date: string, staffId: string, sIdx: number, dIdx: number) => {
     onCellClickRef.current(e, date, staffId, sIdx, dIdx);
   }, []);
-  const stableOnCellMouseDown = useCallback((e: React.MouseEvent, date: string, staffId: string, sIdx: number, dIdx: number) => {
+  const stableOnCellMouseDown = useCallback((e: React.MouseEvent | React.TouchEvent, date: string, staffId: string, sIdx: number, dIdx: number) => {
     onCellMouseDownRef.current(e, date, staffId, sIdx, dIdx);
   }, []);
   const stableOnCellMouseMove = useCallback((date: string, staffId: string, sIdx: number, dIdx: number) => {
@@ -407,6 +404,52 @@ export default function StaffCalendarView({
   const stableOnCellMouseUp = useCallback(() => {
     onCellMouseUpRef.current();
   }, []);
+
+  const touchStartRef = useRef<{ x: number, y: number } | null>(null);
+  
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    if (clickMode !== 'select') return;
+    touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    
+    const element = document.elementFromPoint(e.touches[0].clientX, e.touches[0].clientY);
+    const cell = element?.closest('td');
+    if (cell) {
+      const staffId = cell.getAttribute('data-staff-id');
+      const dateStr = cell.getAttribute('data-date');
+      const sIdx = Number(cell.getAttribute('data-staff-index'));
+      const dIdx = Number(cell.getAttribute('data-date-index'));
+      
+      if (staffId && dateStr && !isNaN(sIdx) && !isNaN(dIdx)) {
+        stableOnCellMouseDown(e, dateStr, staffId, sIdx, dIdx);
+      }
+    }
+  }, [clickMode, stableOnCellMouseDown]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (clickMode !== 'select') return;
+    
+    // ★ タッチ位置で自動スクロールを判定
+    const touch = e.touches[0];
+    onAutoScroll(touch.clientX, touch.clientY);
+    
+    const element = document.elementFromPoint(touch.clientX, touch.clientY);
+    const cell = element?.closest('td');
+    if (cell) {
+      const staffId = cell.getAttribute('data-staff-id');
+      const dateStr = cell.getAttribute('data-date');
+      const sIdx = Number(cell.getAttribute('data-staff-index'));
+      const dIdx = Number(cell.getAttribute('data-date-index'));
+      
+      if (staffId && dateStr && !isNaN(sIdx) && !isNaN(dIdx)) {
+        stableOnCellMouseMove(dateStr, staffId, sIdx, dIdx);
+      }
+    }
+  }, [clickMode, stableOnCellMouseMove, onAutoScroll]); // ★ depsに追加
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    stableOnCellMouseUp();
+    touchStartRef.current = null;
+  }, [stableOnCellMouseUp]);
 
   const fixedHeaderContent = () => (
     <TableRow>
@@ -482,8 +525,6 @@ export default function StaffCalendarView({
           const key = `${staff.staffId}_${dayInfo.dateStr}`;
           const assignmentsForCell = assignmentsMap.get(key) || [];
           const isWeekend = dayInfo.dayOfWeek === 0 || dayInfo.dayOfWeek === 6;
-          
-          // ★ 前日のアサインを取得してセルに渡す
           const prevDateStr = getPrevDateStr(dayInfo.dateStr);
           const prevKey = `${staff.staffId}_${prevDateStr}`;
           const prevAssignments = assignmentsMap.get(prevKey) || [];
@@ -504,7 +545,7 @@ export default function StaffCalendarView({
               onCellMouseDown={stableOnCellMouseDown}
               onCellMouseMove={stableOnCellMouseMove}
               onCellMouseUp={stableOnCellMouseUp}
-              prevAssignments={prevAssignments} // ★ 追加
+              prevAssignments={prevAssignments}
             />
           );
         })}
@@ -518,7 +559,12 @@ export default function StaffCalendarView({
   ]);
 
   return (
-    <Box sx={{ flex: 1, minHeight: 0 }}>
+    <Box 
+      sx={{ flex: 1, minHeight: 0 }}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
       <TableVirtuoso
         scrollerRef={(ref) => {
           if (ref && !(ref instanceof Window)) {

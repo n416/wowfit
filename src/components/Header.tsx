@@ -1,22 +1,24 @@
-// src/components/Header.tsx
 import { Paper, Typography, Box, IconButton, Tabs, Tab } from '@mui/material';
 import { Link, useLocation } from 'react-router-dom';
 import SettingsIcon from '@mui/icons-material/Settings';
 
 function Header() {
   const location = useLocation();
-  const TABS = ['/', '/data'];
+  // タブのマッチングロジックを少し柔軟にします
+  const currentTab = location.pathname === '/' ? '/' 
+                   : location.pathname.startsWith('/annual') ? '/annual'
+                   : location.pathname.startsWith('/data') ? '/data'
+                   : false;
 
   return (
     <Paper
       elevation={2}
-      // ★ 修正: mb: 2 を削除し、コンテンツとの隙間を詰める
       sx={{ 
         p: '12px 24px', 
         display: 'flex', 
         justifyContent: 'space-between', 
         alignItems: 'center',
-        zIndex: 1, // 念のため
+        zIndex: 1, 
         position: 'relative'
       }}
     >
@@ -26,10 +28,12 @@ function Header() {
         </Typography>
 
         <Tabs
-          value={TABS.includes(location.pathname) ? location.pathname : false}
+          value={currentTab}
           sx={{ minHeight: 0 }}
         >
           <Tab label="勤務表" value="/" to="/" component={Link} sx={{ py: 1, minHeight: 0 }} />
+          {/* ★ 追加 */}
+          <Tab label="年間集計" value="/annual" to="/annual" component={Link} sx={{ py: 1, minHeight: 0 }} />
           <Tab label="データ管理" value="/data" to="/data" component={Link} sx={{ py: 1, minHeight: 0 }} /> 
         </Tabs>
       </Box>

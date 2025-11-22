@@ -6,8 +6,8 @@ import ContentPasteIcon from '@mui/icons-material/ContentPaste';
 interface FloatingActionMenuProps {
   visible: boolean;
   onCopy: () => void;
-  onCut: () => void;
-  onPaste: () => void;
+  onCut?: () => void; // オプショナルに変更
+  onPaste?: () => void; // オプショナルに変更
 }
 
 export default function FloatingActionMenu({ visible, onCopy, onCut, onPaste }: FloatingActionMenuProps) {
@@ -20,7 +20,7 @@ export default function FloatingActionMenu({ visible, onCopy, onCut, onPaste }: 
           bottom: 30,
           left: '50%',
           transform: 'translateX(-50%)',
-          zIndex: 2000, // ダイアログより上に出す場合は調整が必要だが、通常はこれでOK
+          zIndex: 2000,
           padding: '8px 16px',
           borderRadius: '50px',
           backgroundColor: 'rgba(255, 255, 255, 0.95)',
@@ -29,23 +29,30 @@ export default function FloatingActionMenu({ visible, onCopy, onCut, onPaste }: 
         }}
       >
         <Stack direction="row" spacing={1}>
+          {/* Copyは必須 */}
           <Tooltip title="コピー">
             <IconButton onClick={onCopy} color="primary">
               <ContentCopyIcon />
             </IconButton>
           </Tooltip>
           
-          <Tooltip title="カット">
-            <IconButton onClick={onCut} color="primary">
-              <ContentCutIcon />
-            </IconButton>
-          </Tooltip>
+          {/* Cutがあれば表示 */}
+          {onCut && (
+            <Tooltip title="カット">
+              <IconButton onClick={onCut} color="primary">
+                <ContentCutIcon />
+              </IconButton>
+            </Tooltip>
+          )}
           
-          <Tooltip title="ペースト">
-            <IconButton onClick={onPaste} color="secondary">
-              <ContentPasteIcon />
-            </IconButton>
-          </Tooltip>
+          {/* Pasteがあれば表示 */}
+          {onPaste && (
+            <Tooltip title="ペースト">
+              <IconButton onClick={onPaste} color="secondary">
+                <ContentPasteIcon />
+              </IconButton>
+            </Tooltip>
+          )}
         </Stack>
       </Paper>
     </Zoom>

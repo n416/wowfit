@@ -288,6 +288,21 @@ export const useCalendarInteractions = (
     setIsDragging(false);
     stopAutoScroll();
   }, [_clickMode, stopAutoScroll]);
+  
+  // ★ 追加: グローバルな MouseUp / TouchEnd 監視
+  useEffect(() => {
+    const handleWindowMouseUp = () => {
+      if (isDragging) {
+        handleCellMouseUp();
+      }
+    };
+    window.addEventListener('mouseup', handleWindowMouseUp);
+    window.addEventListener('touchend', handleWindowMouseUp); // タッチ終了も監視
+    return () => {
+      window.removeEventListener('mouseup', handleWindowMouseUp);
+      window.removeEventListener('touchend', handleWindowMouseUp);
+    };
+  }, [isDragging, handleCellMouseUp]);
 
   const handleAutoScroll = useCallback((clientX: number, clientY: number) => {
     if (!isDragging || _clickMode !== 'select' || !activeCell) {

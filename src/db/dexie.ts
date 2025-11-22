@@ -69,6 +69,17 @@ export interface IAssignment {
   overrideEndTime?: string;
 }
 
+// ★ 追加: 有給調整履歴
+export interface IPaidLeaveAdjustment {
+  id?: number;
+  staffId: string;
+  date: string; // 調整日 (YYYY-MM-DD) ※基本は月初日(01)などで管理
+  type: 'Grant' | 'Expire' | 'Adjustment'; // 付与 | 消滅 | 手動調整
+  days: number; // 日数 (付与はプラス、消滅はマイナスで保存する運用)
+  memo?: string;
+  createdAt?: string; // ★ 追加: 操作日時 (ISO string)
+}
+
 // ヘルパー: デフォルトデマンド生成
 export const getDefaultDemand = (): number[] => {
   return Array(24).fill(0);
@@ -80,9 +91,20 @@ export class ShiftWorkDB extends Dexie {
   shiftPatterns!: Table<IShiftPattern>;
   staffList!: Table<IStaff>;
   assignments!: Table<IAssignment>;
+  // ★ 追加
+  paidLeaveAdjustments!: Table<IPaidLeaveAdjustment>;
 
   constructor() {
     super('ShiftWorkAppDB');
+
+    // ★ v9: paidLeaveAdjustments 追加
+    this.version(9).stores({
+      units: '&unitId, name',
+      shiftPatterns: '&patternId, name, mainCategory, workType, crossUnitWorkType',
+      staffList: '&staffId, name, employmentType, unitId, status, *availablePatternIds, *skills',
+      assignments: '++id, [date+staffId], [date+patternId], [date+unitId], staffId, patternId, unitId, locked',
+      paidLeaveAdjustments: '++id, staffId, date, type' // ★ 追加
+    });
 
     // ★★★ スキーマを v8 にバージョンアップ (TimeRanges対応) ★★★
     this.version(8).stores({

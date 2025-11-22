@@ -10,7 +10,7 @@ import type { RootState } from '../../store';
 import { IStaff, IShiftPattern, IAssignment } from '../../db/dexie';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
-import { TableVirtuoso, TableComponents } from 'react-virtuoso'; 
+import { TableVirtuoso, TableComponents } from 'react-virtuoso';
 import { CellCoords, ClickMode } from '../../hooks/useCalendarInteractions';
 import { getPrevDateStr, MonthDay } from '../../utils/dateUtils';
 
@@ -36,7 +36,7 @@ interface StaffCalendarViewProps {
 const COL_WIDTH = 80;
 const ROW_HEIGHT = 48;
 // HEADER_HEIGHT 定数は削除済み
-const LEFT_COL_WIDTH = 270; 
+const LEFT_COL_WIDTH = 270;
 const BORDER_COLOR = '#e0e0e0';
 const CELL_BORDER = `1px solid ${BORDER_COLOR}`;
 
@@ -45,15 +45,15 @@ const styles: { [key: string]: CSSProperties } = {
     padding: '4px',
     borderBottom: CELL_BORDER,
     borderRight: CELL_BORDER,
-    backgroundColor: '#fff', 
-    position: 'sticky',      
-    top: 0,                  
+    backgroundColor: '#fff',
+    position: 'sticky',
+    top: 0,
     zIndex: 40,
     textAlign: 'left',
     fontWeight: 'bold',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
-    height: 'auto', 
+    height: 'auto',
     boxSizing: 'border-box',
     display: 'table-cell',
     verticalAlign: 'middle',
@@ -110,7 +110,7 @@ const styles: { [key: string]: CSSProperties } = {
     backgroundColor: '#f5f5f5',
   },
   holidayBg: {
-    backgroundColor: '#ffebee', 
+    backgroundColor: '#ffebee',
   },
   cellClickable: {
     cursor: 'pointer',
@@ -176,7 +176,7 @@ const StaffCell = React.memo(({
     contentNodes = assignments.map(assignment => {
       const pattern = assignment.patternId ? patternMap.get(assignment.patternId) : null;
       let bgColor = '#e0e0e0', textColor = 'rgba(0, 0, 0, 0.87)';
-      
+
       const symbolText = pattern?.symbol || pattern?.patternId || '??';
       let chipContent: React.ReactNode = symbolText;
 
@@ -196,13 +196,13 @@ const StaffCell = React.memo(({
           </>
         );
       }
-      
+
       return (
         <div
           key={assignment.id}
-          style={{ 
-            ...styles.assignmentChip, 
-            backgroundColor: bgColor, 
+          style={{
+            ...styles.assignmentChip,
+            backgroundColor: bgColor,
             color: textColor,
           }}
         >
@@ -281,9 +281,9 @@ const StaffCell = React.memo(({
   const nextLen = next.prevAssignments?.length || 0;
   if (prevLen !== nextLen) return false;
   if (prevLen > 0 && next.prevAssignments) {
-      for (let i = 0; i < prevLen; i++) {
-         if (prev.prevAssignments![i].patternId !== next.prevAssignments[i].patternId) return false;
-      }
+    for (let i = 0; i < prevLen; i++) {
+      if (prev.prevAssignments![i].patternId !== next.prevAssignments[i].patternId) return false;
+    }
   }
   return true;
 });
@@ -291,18 +291,18 @@ const StaffCell = React.memo(({
 const ScrollerWithOverlay = React.forwardRef<HTMLDivElement, any>((props, ref) => (
   <div {...props} ref={ref} style={{ ...props.style, position: 'relative' }}>
     {props.children}
-    <div 
-      id="selection-overlay" 
+    <div
+      id="selection-overlay"
       style={{
         position: 'absolute',
-        pointerEvents: 'none', 
+        pointerEvents: 'none',
         backgroundColor: 'rgba(25, 118, 210, 0.1)',
         border: '2px solid #1976d2',
-        zIndex: 5, 
+        zIndex: 5,
         display: 'none',
         boxSizing: 'border-box',
         transition: 'none'
-      }} 
+      }}
     />
   </div>
 ));
@@ -310,16 +310,16 @@ const ScrollerWithOverlay = React.forwardRef<HTMLDivElement, any>((props, ref) =
 const VirtuosoTableComponents: TableComponents<any> = {
   Scroller: ScrollerWithOverlay,
   Table: (props) => (
-    <Table 
-      {...props} 
-      style={{ 
-        borderCollapse: 'separate', 
-        borderSpacing: 0, 
-        width: '100%', 
+    <Table
+      {...props}
+      style={{
+        borderCollapse: 'separate',
+        borderSpacing: 0,
+        width: '100%',
         tableLayout: 'fixed',
         borderTop: CELL_BORDER,
         borderLeft: CELL_BORDER
-      }} 
+      }}
     />
   ),
   TableHead: React.forwardRef((props, ref) => (
@@ -395,10 +395,10 @@ export default function StaffCalendarView({
     const eIdx = Math.max(selectionRange.start.staffIndex, selectionRange.end.staffIndex);
     const dStart = Math.min(selectionRange.start.dateIndex, selectionRange.end.dateIndex);
     const dEnd = Math.max(selectionRange.start.dateIndex, selectionRange.end.dateIndex);
-    
+
     // ★ 修正: 計算済みの State 変数を使用する (DOMアクセスしない)
     const top = headerHeight + (sIdx * ROW_HEIGHT);
-    
+
     const height = (eIdx - sIdx + 1) * ROW_HEIGHT;
     const left = LEFT_COL_WIDTH + (dStart * COL_WIDTH);
     const width = (dEnd - dStart + 1) * COL_WIDTH;
@@ -436,11 +436,11 @@ export default function StaffCalendarView({
 
   const touchStartRef = useRef<{ x: number, y: number } | null>(null);
   const lastTouchMoveTimeRef = useRef<number>(0);
-  
+
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
     if (clickMode !== 'select') return;
     touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-    
+
     const element = document.elementFromPoint(e.touches[0].clientX, e.touches[0].clientY);
     const cell = element?.closest('td');
     if (cell) {
@@ -448,7 +448,7 @@ export default function StaffCalendarView({
       const dateStr = cell.getAttribute('data-date');
       const sIdx = Number(cell.getAttribute('data-staff-index'));
       const dIdx = Number(cell.getAttribute('data-date-index'));
-      
+
       if (staffId && dateStr && !isNaN(sIdx) && !isNaN(dIdx)) {
         stableOnCellMouseDown(e, dateStr, staffId, sIdx, dIdx);
       }
@@ -457,7 +457,7 @@ export default function StaffCalendarView({
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
     if (clickMode !== 'select') return;
-    
+
     const now = Date.now();
     if (now - lastTouchMoveTimeRef.current < 30) {
       return;
@@ -466,7 +466,7 @@ export default function StaffCalendarView({
 
     const touch = e.touches[0];
     onAutoScroll(touch.clientX, touch.clientY);
-    
+
     const element = document.elementFromPoint(touch.clientX, touch.clientY);
     const cell = element?.closest('td');
     if (cell) {
@@ -474,7 +474,7 @@ export default function StaffCalendarView({
       const dateStr = cell.getAttribute('data-date');
       const sIdx = Number(cell.getAttribute('data-staff-index'));
       const dIdx = Number(cell.getAttribute('data-date-index'));
-      
+
       if (staffId && dateStr && !isNaN(sIdx) && !isNaN(dIdx)) {
         stableOnCellMouseMove(dateStr, staffId, sIdx, dIdx);
       }
@@ -496,16 +496,16 @@ export default function StaffCalendarView({
         const isHoliday = !!dayInfo.holidayName;
         const isSunday = dayInfo.dayOfWeek === 0;
         const isSaturday = dayInfo.dayOfWeek === 6;
-        
+
         let color = 'inherit';
         let bgColor = '#fff';
-        
+
         if (isHoliday || isSunday) {
-          color = '#d32f2f'; 
-          bgColor = '#ffebee'; 
+          color = '#d32f2f';
+          bgColor = '#ffebee';
         } else if (isSaturday) {
-          color = '#1976d2'; 
-          bgColor = '#e3f2fd'; 
+          color = '#1976d2';
+          bgColor = '#e3f2fd';
         } else {
           bgColor = '#fff';
         }
@@ -518,13 +518,21 @@ export default function StaffCalendarView({
               ...styles.dateHeaderCell,
               backgroundColor: bgColor,
               color: color,
-              cursor: 'pointer'
+              cursor: 'pointer',
+              lineHeight: 1.2
             }}
             onClick={() => onDateHeaderClick(dayInfo.dateStr)}
             title={dayInfo.holidayName}
           >
-            {dayInfo.dateStr.split('-')[2]}<br />({dayInfo.weekday})
-            {dayInfo.holidayName && <div style={{fontSize: '0.6rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>{dayInfo.holidayName}</div>}
+            {dayInfo.dateStr.split('-')[2] && (
+              <>
+                {dayInfo.dateStr.split('-')[2]}
+                <br />
+                <div style={{ fontSize: '0.6rem' }}>
+                  {dayInfo.weekday}
+                </div>
+              </>
+            )}            {dayInfo.holidayName && <div style={{ fontSize: '0.6rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{dayInfo.holidayName}</div>}
           </TableCell>
         );
       })}
@@ -569,11 +577,11 @@ export default function StaffCalendarView({
             <IconButton size="small" onClick={() => onHolidayDecrement(staff.staffId)}>
               <RemoveCircleOutlineIcon sx={{ fontSize: '1.25rem' }} />
             </IconButton>
-            
-            <span 
-              style={{ 
-                padding: '0 4px', 
-                fontWeight: 'bold', 
+
+            <span
+              style={{
+                padding: '0 4px',
+                fontWeight: 'bold',
                 cursor: 'pointer',
                 borderBottom: '1px dotted #ccc',
                 userSelect: 'none'
@@ -600,7 +608,7 @@ export default function StaffCalendarView({
           const assignmentsForCell = assignmentsMap.get(key) || [];
           const isWeekend = dayInfo.dayOfWeek === 0 || dayInfo.dayOfWeek === 6;
           const isHoliday = !!dayInfo.holidayName;
-          
+
           const prevDateStr = getPrevDateStr(dayInfo.dateStr);
           const prevKey = `${staff.staffId}_${prevDateStr}`;
           const prevAssignments = assignmentsMap.get(prevKey) || [];
@@ -612,7 +620,7 @@ export default function StaffCalendarView({
               dateStr={dayInfo.dateStr}
               staffIndex={staffIndex}
               dayIndex={dayIndex}
-              assignments={assignmentsForCell} 
+              assignments={assignmentsForCell}
               patternMap={patternMap}
               isWeekend={isWeekend}
               clickMode={clickMode}
@@ -638,7 +646,7 @@ export default function StaffCalendarView({
   ]);
 
   return (
-    <Box 
+    <Box
       sx={{ flex: 1, minHeight: 0 }}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}

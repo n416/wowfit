@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   Button, TextField, RadioGroup, FormControlLabel, Radio,
   Typography, Box, List, ListItem, ListItemText, IconButton,
-  Chip, Divider
+  Chip
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
@@ -82,7 +82,6 @@ export default function PaidLeaveAdjustmentModal({
         ) : (
           <List sx={{ bgcolor: '#f5f5f5', borderRadius: 2, overflow: 'auto', flex: 1 }}>
             {history.map((item) => {
-              // ★ 日時フォーマット
               const dateStr = item.createdAt 
                 ? new Date(item.createdAt).toLocaleString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
                 : '日時不明';
@@ -114,7 +113,6 @@ export default function PaidLeaveAdjustmentModal({
                     secondary={
                       <Box component="span" sx={{ display: 'flex', flexDirection: 'column', mt: 0.5 }}>
                         {item.memo && <span>メモ: {item.memo}</span>}
-                        {/* ★ 日時表示 */}
                         <Typography variant="caption" color="text.secondary">
                           操作: {dateStr}
                         </Typography>

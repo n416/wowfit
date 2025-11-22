@@ -1,12 +1,14 @@
-import React, { CSSProperties, useState, useEffect, useCallback, useRef } from 'react';
+import React, { CSSProperties, useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import {
   Table, TableBody, TableCell, TableHead, TableRow, Box, Tooltip, Chip
 } from '@mui/material';
 import { TableVirtuoso, TableComponents } from 'react-virtuoso';
 import { IStaff } from '../../db/dexie';
-import { GridSelection } from '../../hooks/useGridSelection';
+import { useGridInteraction } from '../../hooks/useGridInteraction';
+import { useGridOverlayPosition, OverlayCalculator } from '../../hooks/useGridOverlayPosition';
+import { SelectionOverlay } from '../common/SelectionOverlay';
+import FloatingActionMenu from '../calendar/FloatingActionMenu';
 
-// ... (型定義、定数、stylesは変更なし)
 export type AnnualRowType = 'header' | 'data';
 
 export interface AnnualEvent {
@@ -30,14 +32,8 @@ interface AnnualSummaryViewProps {
   rows: AnnualRowData[];
   months: number[];
   title: string;
-  normalizedSelection: { minR: number, maxR: number, minC: number, maxC: number } | null;
-  selection: GridSelection | null;
-  onMouseDown: (r: number, c: number) => void;
-  onMouseEnter: (r: number, c: number) => void;
-  onTouchStart: (e: React.TouchEvent) => void; // ★ 変更: 引数をEventに
-  onTouchMove: (e: React.TouchEvent) => void;
-  onCellClick?: (r: number, c: number, row: AnnualRowData) => void;
   scrollerRef: React.MutableRefObject<HTMLElement | null>;
+  onCellClick?: (r: number, c: number, row: AnnualRowData) => void;
 }
 
 const MIN_COL_WIDTH = 70;
@@ -127,60 +123,18 @@ const styles: { [key: string]: CSSProperties } = {
   }
 };
 
-const ScrollerWithOverlay = React.forwardRef<HTMLDivElement, any>((props, ref) => (
-  <div {...props} ref={ref} style={{ ...props.style, position: 'relative' }}>
-    {props.children}
-    <div id="annual-selection-overlay" style={{
-      position: 'absolute',
-      pointerEvents: 'none',
-      backgroundColor: 'rgba(25, 118, 210, 0.2)',
-      border: '2px solid #1976d2',
-      zIndex: 50,
-      display: 'none',
-      transition: 'none',
-      boxSizing: 'border-box'
-    }} />
-  </div>
-));
-
-const VirtuosoTableComponents: TableComponents<any> = {
-  Scroller: ScrollerWithOverlay,
-  Table: (props) => <Table {...props} style={styles.table} />,
-  TableHead: React.forwardRef((props, ref) => <TableHead {...props} ref={ref} style={{ position: 'sticky', top: 0, zIndex: 40 }} />),
-  TableRow: TableRow,
-  TableBody: React.forwardRef((props, ref) => <TableBody {...props} ref={ref} />),
-};
-
 export default function AnnualSummaryView({ 
-  rows, months, title, 
-  normalizedSelection, selection, 
-  onMouseDown, onMouseEnter, onTouchStart, onTouchMove,
-  onCellClick, 
-  scrollerRef
+  rows, months, title, scrollerRef, onCellClick 
 }: AnnualSummaryViewProps) {
   
   const [headerHeight, setHeaderHeight] = useState(ROW_HEIGHT);
   const [colWidth, setColWidth] = useState(MIN_COL_WIDTH);
   
   const containerRef = useRef<HTMLDivElement>(null);
-  const observerRef = useRef<ResizeObserver | null>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
 
-  const onMouseDownRef = useRef(onMouseDown);
-  const onMouseEnterRef = useRef(onMouseEnter);
-  // ★ 削除: onTouchStartRef は不要になりました
-  const onCellClickRef = useRef(onCellClick);
-  const mouseDownCoordsRef = useRef<{r: number, c: number} | null>(null);
-
-  useEffect(() => {
-    onMouseDownRef.current = onMouseDown;
-    onMouseEnterRef.current = onMouseEnter;
-    onCellClickRef.current = onCellClick;
-  }, [onMouseDown, onMouseEnter, onCellClick]);
-
-  // ... (ResizeObserver, 自動スクロール, コンテナ幅監視, オーバーレイ描画 は変更なし)
   const setHeaderRowRef = useCallback((node: HTMLTableRowElement | null) => {
     if (node) {
-      if (observerRef.current) observerRef.current.disconnect();
       const observer = new ResizeObserver(entries => {
         for (let entry of entries) {
           const height = entry.target.getBoundingClientRect().height;
@@ -188,52 +142,9 @@ export default function AnnualSummaryView({
         }
       });
       observer.observe(node);
-      observerRef.current = observer;
-    } else {
-      if (observerRef.current) {
-        observerRef.current.disconnect();
-        observerRef.current = null;
-      }
+      return () => observer.disconnect();
     }
   }, []);
-
-  useEffect(() => {
-    if (!selection || !scrollerRef.current) return;
-    const { r, c } = selection.end;
-    const container = scrollerRef.current;
-    const targetTop = (r === -1) ? 0 : headerHeight + (r * ROW_HEIGHT);
-    const targetBottom = (r === -1) ? headerHeight : targetTop + ROW_HEIGHT;
-    const scrollTop = container.scrollTop;
-    const clientHeight = container.clientHeight;
-    const stickyHeaderHeight = headerHeight;
-    if (targetTop < scrollTop + stickyHeaderHeight) {
-      container.scrollTop = targetTop - stickyHeaderHeight;
-    } else if (targetBottom > scrollTop + clientHeight) {
-      container.scrollTop = targetBottom - clientHeight;
-    }
-    const getLeft = (idx: number) => {
-      if (idx === -1) return 0;
-      if (idx <= 11) return LEFT_COL_WIDTH + (idx * colWidth);
-      return LEFT_COL_WIDTH + (12 * colWidth);
-    };
-    const getWidth = (idx: number) => {
-      if (idx === -1) return LEFT_COL_WIDTH;
-      if (idx <= 11) return colWidth;
-      return TOTAL_COL_WIDTH;
-    };
-    const targetLeft = getLeft(c);
-    const targetRight = targetLeft + getWidth(c);
-    const scrollLeft = container.scrollLeft;
-    const clientWidth = container.clientWidth;
-    const stickyLeftWidth = LEFT_COL_WIDTH;
-    if (c !== -1) {
-      if (targetLeft < scrollLeft + stickyLeftWidth) {
-        container.scrollLeft = targetLeft - stickyLeftWidth;
-      } else if (targetRight > scrollLeft + clientWidth) {
-        container.scrollLeft = targetRight - clientWidth;
-      }
-    }
-  }, [selection, colWidth, headerHeight, scrollerRef]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -250,64 +161,141 @@ export default function AnnualSummaryView({
     return () => observer.disconnect();
   }, []);
 
-  useEffect(() => {
-    const overlay = document.getElementById('annual-selection-overlay');
-    if (!overlay) return;
-    if (!normalizedSelection) {
-      overlay.style.display = 'none';
-      return;
+  const pointToGrid = useCallback((x: number, y: number) => {
+    const scrollLeft = scrollerRef.current?.scrollLeft || 0;
+    const scrollTop = scrollerRef.current?.scrollTop || 0;
+    const contentX = x + scrollLeft;
+    const contentY = y + scrollTop;
+
+    if (contentX < LEFT_COL_WIDTH && contentY < headerHeight) return null;
+
+    let r = -1;
+    let c = -1;
+
+    if (contentY < headerHeight) {
+      r = -1; 
+    } else {
+      r = Math.floor((contentY - headerHeight) / ROW_HEIGHT);
     }
-    const { minR, maxR, minC, maxC } = normalizedSelection;
-    const top = (minR === HEADER_ROW_INDEX) ? 0 : headerHeight + (minR * ROW_HEIGHT);
-    let height = 0;
-    if (minR === HEADER_ROW_INDEX) {
-        height += headerHeight;
-        if (maxR >= 0) {
-            height += (maxR + 1) * ROW_HEIGHT;
+
+    if (contentX < LEFT_COL_WIDTH) {
+      c = -1; 
+    } else {
+      c = Math.floor((contentX - LEFT_COL_WIDTH) / colWidth);
+    }
+    
+    if (r >= rows.length) return null;
+    if (c >= 12 + 1) return null;
+
+    return { r, c };
+  }, [headerHeight, colWidth, rows.length, scrollerRef]);
+
+  const handleCopyRef = useRef<() => void>(() => {});
+
+  const { containerProps, selection, isDragging } = useGridInteraction({
+    scrollerRef: scrollerRef as React.RefObject<HTMLElement | null>,
+    converter: pointToGrid,
+    maxRow: rows.length - 1,
+    maxCol: 12,
+    isEnabled: true,
+    onCopy: () => handleCopyRef.current(), 
+  });
+
+  // ★ isDragging の状態を Ref で追跡（クリックガード用）
+  const isDraggingRef = useRef(isDragging);
+  useEffect(() => {
+    isDraggingRef.current = isDragging;
+  }, [isDragging]);
+
+  const handleCopy = useCallback(async () => {
+    if (!selection || rows.length === 0) return;
+    const minR = Math.min(selection.start.r, selection.end.r);
+    const maxR = Math.max(selection.start.r, selection.end.r);
+    const minC = Math.min(selection.start.c, selection.end.c);
+    const maxC = Math.max(selection.start.c, selection.end.c);
+    const tsvRows: string[] = [];
+    
+    if (minR === -1) { 
+      const headerCells: string[] = [];
+      for (let c = minC; c <= maxC; c++) {
+        if (c === -1) headerCells.push(title);
+        else if (c === 12) headerCells.push("合計");
+        else { const pm = months[c]; headerCells.push(`${pm}月`); }
+      }
+      tsvRows.push(headerCells.join('\t'));
+    }
+    const startR = Math.max(0, minR);
+    for (let r = startR; r <= maxR; r++) {
+      const rowData = rows[r];
+      const rowCells: string[] = [];
+      for (let c = minC; c <= maxC; c++) {
+        if (c === -1) {
+          if (rowData.type === 'header') rowCells.push(`${rowData.staff?.name || ''} (${rowData.staff?.unitId || ''})`);
+          else rowCells.push(rowData.label);
+        } else if (c === 12) {
+          rowCells.push(rowData.type === 'header' ? "" : String(rowData.totalValue));
+        } else {
+          if (rowData.type === 'header') rowCells.push("");
+          else {
+            const val = rowData.monthlyValues[c];
+            rowCells.push(val > 0 ? String(val) : "0");
+          }
         }
+      }
+      tsvRows.push(rowCells.join('\t'));
+    }
+    const text = tsvRows.join('\n');
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  }, [selection, rows, months, title]);
+
+  useEffect(() => { handleCopyRef.current = handleCopy; }, [handleCopy]);
+
+  const calculateOverlay: OverlayCalculator = useCallback(({ minR, maxR, minC, maxC }) => {
+    const top = (minR === -1) ? 0 : headerHeight + (minR * ROW_HEIGHT);
+    let height = 0;
+    if (minR === -1) {
+        height += headerHeight;
+        if (maxR >= 0) height += (maxR + 1) * ROW_HEIGHT;
     } else {
         height = (maxR - minR + 1) * ROW_HEIGHT;
     }
-    const getLeftPos = (colIndex: number) => {
-      if (colIndex === LEFT_COL_INDEX) return 0;
-      if (colIndex <= 11) return LEFT_COL_WIDTH + (colIndex * colWidth);
+
+    const getLeftPos = (c: number) => {
+      if (c === -1) return 0;
+      if (c <= 11) return LEFT_COL_WIDTH + (c * colWidth);
       return LEFT_COL_WIDTH + (12 * colWidth); 
     };
     const startLeft = getLeftPos(minC);
     let width = 0;
     for (let c = minC; c <= maxC; c++) {
-        if (c === LEFT_COL_INDEX) width += LEFT_COL_WIDTH;
-        else if (c === TOTAL_COL_INDEX) width += TOTAL_COL_WIDTH;
+        if (c === -1) width += LEFT_COL_WIDTH;
+        else if (c === 12) width += TOTAL_COL_WIDTH;
         else width += colWidth;
     }
-    overlay.style.display = 'block';
-    overlay.style.top = `${top}px`;
-    overlay.style.left = `${startLeft}px`;
-    overlay.style.width = `${width}px`;
-    overlay.style.height = `${height}px`;
-  }, [normalizedSelection, headerHeight, colWidth]);
+    return { top, left: startLeft, width, height };
+  }, [headerHeight, colWidth]);
 
-  const bindHeaderEvents = (c: number) => ({
-    onMouseDown: () => {
-      mouseDownCoordsRef.current = { r: HEADER_ROW_INDEX, c };
-      onMouseDownRef.current(HEADER_ROW_INDEX, c);
+  useGridOverlayPosition(overlayRef, selection, calculateOverlay);
+
+  const getCellProps = (r: number, c: number, style: CSSProperties = {}) => ({
+    'data-r': r,
+    'data-c': c,
+    onMouseUp: () => {
+      // ★ ドラッグ中ならクリックを弾く
+      if (!isDraggingRef.current && onCellClick && r >= 0) {
+        if (rows[r]) onCellClick(r, c, rows[r]);
+      }
     },
-    onMouseEnter: () => onMouseEnterRef.current(HEADER_ROW_INDEX, c),
-    // ★ 削除: onTouchStart
-    'data-r': HEADER_ROW_INDEX,
-    'data-c': c
+    style: { ...style, cursor: 'cell' }
   });
 
   const fixedHeaderContent = () => (
-    <TableRow 
-      id="annual-header-row" 
-      style={{ height: 'auto' }}
-      ref={setHeaderRowRef} 
-    >
-      <TableCell 
-        style={{ ...styles.th, ...styles.stickyCell, zIndex: 50, cursor: 'cell', height: 'auto' }}
-        {...bindHeaderEvents(LEFT_COL_INDEX)}
-      >
+    <TableRow id="annual-header-row" style={{ height: 'auto' }} ref={setHeaderRowRef}>
+      <TableCell {...getCellProps(HEADER_ROW_INDEX, LEFT_COL_INDEX, { ...styles.th, ...styles.stickyCell, zIndex: 50 })}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pr: 1, whiteSpace: 'normal', lineHeight: 1.2 }}>
           <span>{title}</span>
         </Box>
@@ -315,16 +303,12 @@ export default function AnnualSummaryView({
       {months.map((m, i) => (
         <TableCell 
           key={`${i}-${m}`} 
-          style={{ ...styles.th, width: `${colWidth}px`, minWidth: `${colWidth}px`, maxWidth: `${colWidth}px`, cursor: 'cell', height: 'auto' }}
-          {...bindHeaderEvents(i)}
+          {...getCellProps(HEADER_ROW_INDEX, i, { ...styles.th, width: `${colWidth}px`, minWidth: `${colWidth}px`, maxWidth: `${colWidth}px` })}
         >
           {m}月
         </TableCell>
       ))}
-      <TableCell 
-        style={{ ...styles.th, ...styles.totalCell, cursor: 'cell', height: 'auto' }}
-        {...bindHeaderEvents(TOTAL_COL_INDEX)}
-      >
+      <TableCell {...getCellProps(HEADER_ROW_INDEX, TOTAL_COL_INDEX, { ...styles.th, ...styles.totalCell })}>
         合計
       </TableCell>
     </TableRow>
@@ -334,62 +318,23 @@ export default function AnnualSummaryView({
     const borderTopStyle = row.isFirstOfUnit ? '3px double #666' : CELL_BORDER;
     const rowStyle: CSSProperties = { height: `${ROW_HEIGHT}px` };
 
-    const bindCellEvents = (c: number) => ({
-      onMouseDown: () => {
-        mouseDownCoordsRef.current = { r: index, c };
-        onMouseDownRef.current(index, c);
-      },
-      onMouseEnter: () => onMouseEnterRef.current(index, c),
-      // ★ 削除: onTouchStart
-      onMouseUp: (e: React.MouseEvent) => {
-        if (mouseDownCoordsRef.current?.r === index && mouseDownCoordsRef.current?.c === c) {
-          if (row.isInteractive && c >= 0 && c <= 11 && onCellClickRef.current) {
-            e.stopPropagation();
-            onCellClickRef.current(index, c, row);
-          }
-        }
-        mouseDownCoordsRef.current = null;
-      },
-      'data-r': index,
-      'data-c': c
-    });
-
     if (row.type === 'header') {
       return (
         <>
-          <TableCell 
-            style={{ 
-              ...styles.td, ...styles.stickyCell, ...styles.staffHeaderRow, 
-              ...rowStyle, borderTop: borderTopStyle, cursor: 'cell'
-            }}
-            {...bindCellEvents(LEFT_COL_INDEX)}
-          >
+          <TableCell {...getCellProps(index, LEFT_COL_INDEX, { ...styles.td, ...styles.stickyCell, ...styles.staffHeaderRow, ...rowStyle, borderTop: borderTopStyle })}>
              {row.staff?.name} <span style={{ fontSize:'0.75rem', fontWeight:'normal', color:'#666' }}>({row.staff?.unitId || '-'})</span>
           </TableCell>
           {Array.from({ length: 12 }).map((_, i) => (
-             <TableCell 
-               key={i} 
-               style={{ ...styles.td, backgroundColor: '#f5f5f5', borderTop: borderTopStyle, cursor: 'cell' }}
-               {...bindCellEvents(i)}
-             />
+             <TableCell key={i} {...getCellProps(index, i, { ...styles.td, backgroundColor: '#f5f5f5', borderTop: borderTopStyle })} />
           ))}
-          <TableCell 
-            style={{ ...styles.td, backgroundColor: '#f5f5f5', borderLeft: '2px solid #ccc', borderTop: borderTopStyle, cursor: 'cell' }} 
-            {...bindCellEvents(TOTAL_COL_INDEX)}
-          />
+          <TableCell {...getCellProps(index, TOTAL_COL_INDEX, { ...styles.td, backgroundColor: '#f5f5f5', borderLeft: '2px solid #ccc', borderTop: borderTopStyle })} />
         </>
       );
     }
 
     return (
       <>
-        <TableCell 
-          style={{ 
-            ...styles.td, ...styles.stickyCell, ...styles.dataLabel, 
-            ...rowStyle, borderTop: borderTopStyle, cursor: 'cell'
-          }}
-          {...bindCellEvents(LEFT_COL_INDEX)}
-        >
+        <TableCell {...getCellProps(index, LEFT_COL_INDEX, { ...styles.td, ...styles.stickyCell, ...styles.dataLabel, ...rowStyle, borderTop: borderTopStyle })}>
           {row.label}
         </TableCell>
 
@@ -398,13 +343,11 @@ export default function AnnualSummaryView({
           return (
             <TableCell 
               key={mIdx} 
-              style={{ 
-                ...styles.td, ...styles.cellSelectable, 
-                ...rowStyle, borderTop: borderTopStyle,
+              {...getCellProps(index, mIdx, { 
+                ...styles.td, ...styles.cellSelectable, ...rowStyle, borderTop: borderTopStyle,
                 backgroundColor: row.isInteractive ? '#f8fbff' : 'inherit',
                 cursor: row.isInteractive ? 'pointer' : 'cell'
-              }}
-              {...bindCellEvents(mIdx)}
+              })}
             >
               {val > 0 || row.isInteractive ? val : <span style={{color: '#eee'}}>-</span>}
               
@@ -426,44 +369,51 @@ export default function AnnualSummaryView({
           );
         })}
 
-        <TableCell 
-          style={{ 
-            ...styles.td, ...styles.totalCell, 
-            ...rowStyle, borderTop: borderTopStyle, cursor: 'cell'
-          }}
-          {...bindCellEvents(TOTAL_COL_INDEX)}
-        >
+        <TableCell {...getCellProps(index, TOTAL_COL_INDEX, { ...styles.td, ...styles.totalCell, ...rowStyle, borderTop: borderTopStyle })}>
           {row.totalValue}
         </TableCell>
       </>
     );
-  }, []); 
+  }, [colWidth]); 
 
   const tableWidth = LEFT_COL_WIDTH + (12 * colWidth) + TOTAL_COL_WIDTH;
 
+  const VirtuosoComponents = useMemo<TableComponents<any>>(() => ({
+    Scroller: React.forwardRef<HTMLDivElement, any>((props, ref) => (
+      <div {...props} ref={ref} style={{ ...props.style, position: 'relative' }}>
+        {props.children}
+        <SelectionOverlay overlayRef={overlayRef} />
+      </div>
+    )),
+    Table: (props) => <Table {...props} style={{ ...styles.table, width: `${tableWidth}px` }} />,
+    TableHead: React.forwardRef((props, ref) => <TableHead {...props} ref={ref} style={{ position: 'sticky', top: 0, zIndex: 40 }} />),
+    TableRow: TableRow,
+    TableBody: React.forwardRef((props, ref) => <TableBody {...props} ref={ref} />),
+  }), [tableWidth]);
+
   return (
-    <Box 
-      ref={containerRef}
-      sx={{ flex: 1, minHeight: 0, height: '100%', touchAction: 'none' }}
-      onTouchMove={onTouchMove}
-      onTouchStart={onTouchStart} // ★ 追加: コンテナで受け取る
-    >
-      <TableVirtuoso
-        scrollerRef={(ref) => {
-          if (ref instanceof HTMLElement) {
-            scrollerRef.current = ref;
-          }
-        }}
-        style={{ height: '100%', border: '1px solid #e0e0e0', borderRadius: '4px' }}
-        data={rows}
-        fixedHeaderContent={fixedHeaderContent}
-        itemContent={itemContent}
-        components={{
-          ...VirtuosoTableComponents,
-          Table: (props) => <Table {...props} style={{ ...styles.table, width: `${tableWidth}px` }} />,
-        }}
-        overscan={20} 
-      />
-    </Box>
+    <>
+      <Box 
+        ref={containerRef}
+        sx={{ flex: 1, minHeight: 0, height: '100%', touchAction: 'none' }}
+        {...containerProps}
+      >
+        <TableVirtuoso
+          scrollerRef={(ref) => {
+            if (ref instanceof HTMLElement) {
+              scrollerRef.current = ref;
+            }
+          }}
+          style={{ height: '100%', border: '1px solid #e0e0e0', borderRadius: '4px' }}
+          data={rows}
+          fixedHeaderContent={fixedHeaderContent}
+          itemContent={itemContent}
+          components={VirtuosoComponents}
+          overscan={20} 
+        />
+      </Box>
+      {/* View内部でメニューを表示 */}
+      <FloatingActionMenu visible={!!selection} onCopy={handleCopy} />
+    </>
   );
 }

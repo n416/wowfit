@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
   Box, Paper, Typography, IconButton, CircularProgress, FormControl, Select, MenuItem
 } from '@mui/material';
@@ -8,8 +8,6 @@ import { useSelector } from 'react-redux';
 import type { RootState } from '../store';
 import { db, IAssignment, IPaidLeaveAdjustment, IStaff } from '../db/dexie';
 import AnnualSummaryView, { AnnualRowData, AnnualEvent } from '../components/annual/AnnualSummaryView';
-import FloatingActionMenu from '../components/calendar/FloatingActionMenu';
-import { useGridSelection, GridSelection } from '../hooks/useGridSelection';
 import PaidLeaveAdjustmentModal from '../components/annual/PaidLeaveAdjustmentModal';
 
 const SUMMARY_ITEMS = [
@@ -20,10 +18,6 @@ const SUMMARY_ITEMS = [
   { key: 'workDays', label: '勤務日数', color: '#4caf50' },
   { key: 'workHours', label: '労働時間(h)', color: '#ff9800' },
 ];
-
-const HEADER_ROW_INDEX = -1;
-const LEFT_COL_INDEX = -1;
-const TOTAL_COL_INDEX = 12;
 
 export default function AnnualSummaryPage() {
   const [year, setYear] = useState(new Date().getFullYear());
@@ -39,7 +33,7 @@ export default function AnnualSummaryPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalTarget, setModalTarget] = useState<{ staff: IStaff, dateStr: string, monthLabel: string } | null>(null);
   const [modalHistory, setModalHistory] = useState<IPaidLeaveAdjustment[]>([]);
-
+  
   const scrollerRef = useRef<HTMLElement | null>(null);
 
   const staffList = useSelector((state: RootState) => state.staff.staff);
@@ -224,7 +218,6 @@ export default function AnnualSummaryPage() {
     }
   };
 
-  // ★ 修正: createdAtを付与
   const handleSaveAdjustment = async (type: 'Grant' | 'Expire' | 'Adjustment', days: number, memo: string) => {
     if (!modalTarget) return;
     try {
@@ -234,16 +227,12 @@ export default function AnnualSummaryPage() {
         type,
         days,
         memo,
-        createdAt: new Date().toISOString() // ★ 追加
+        createdAt: new Date().toISOString()
       };
 
       const id = await db.paidLeaveAdjustments.add(newRecord);
-
-      // 履歴リスト更新
       setModalHistory(prev => [...prev, { ...newRecord, id: id as number }]);
-
-      // リロード
-      loadData();
+      loadData(); 
     } catch (e) {
       console.error(e);
       alert('保存に失敗しました');
@@ -254,7 +243,6 @@ export default function AnnualSummaryPage() {
     if (!window.confirm('この履歴を削除しますか？')) return;
     try {
       await db.paidLeaveAdjustments.delete(id);
-      
       setModalHistory(prev => prev.filter(item => item.id !== id));
       loadData(); 
     } catch (e) {
@@ -262,74 +250,6 @@ export default function AnnualSummaryPage() {
       alert('削除に失敗しました');
     }
   };
-
-  const getDataForClipboard = useCallback((sel: GridSelection): string | null => {
-    if (!rows.length) return null;
-    const minR = Math.min(sel.start.r, sel.end.r);
-    const maxR = Math.max(sel.start.r, sel.end.r);
-    const minC = Math.min(sel.start.c, sel.end.c);
-    const maxC = Math.max(sel.start.c, sel.end.c);
-    const tsvRows: string[] = [];
-    
-    if (minR === HEADER_ROW_INDEX) {
-      const headerCells: string[] = [];
-      for (let c = minC; c <= maxC; c++) {
-        if (c === LEFT_COL_INDEX) headerCells.push(headerTitle);
-        else if (c === TOTAL_COL_INDEX) headerCells.push("合計");
-        else {
-          const pm = periodMonths[c];
-          headerCells.push(`${pm.year}年${pm.month}月`);
-        }
-      }
-      tsvRows.push(headerCells.join('\t'));
-    }
-    const startR = Math.max(0, minR);
-    for (let r = startR; r <= maxR; r++) {
-      const rowData = rows[r];
-      const rowCells: string[] = [];
-      for (let c = minC; c <= maxC; c++) {
-        if (c === LEFT_COL_INDEX) {
-          if (rowData.type === 'header') {
-             rowCells.push(`${rowData.staff?.name || ''} (${rowData.staff?.unitId || ''})`);
-          } else {
-             rowCells.push(rowData.label);
-          }
-        } else if (c === TOTAL_COL_INDEX) {
-          rowCells.push(rowData.type === 'header' ? "" : String(rowData.totalValue));
-        } else {
-          if (rowData.type === 'header') {
-            rowCells.push("");
-          } else {
-            const val = rowData.monthlyValues[c];
-            rowCells.push(val > 0 ? String(val) : "0");
-          }
-        }
-      }
-      tsvRows.push(rowCells.join('\t'));
-    }
-    return tsvRows.join('\n');
-  }, [rows, periodMonths, headerTitle]);
-
-  const gridBounds = useMemo(() => ({
-    minR: HEADER_ROW_INDEX,
-    maxR: rows.length - 1,
-    minC: LEFT_COL_INDEX,
-    maxC: TOTAL_COL_INDEX
-  }), [rows.length]);
-
-  const {
-    normalizedSelection,
-    handleMouseDown,
-    handleMouseEnter,
-    handleTouchStart,
-    handleTouchMove,
-    copySelection,
-    selection
-  } = useGridSelection(
-    getDataForClipboard, 
-    scrollerRef,
-    gridBounds
-  );
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', p: '24px', gap: 2 }}>
@@ -357,25 +277,15 @@ export default function AnnualSummaryPage() {
       </Paper>
 
       <Paper sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }} variant="outlined">
+        {/* ★ onSelectionChange等の不要なPropsを削除 */}
         <AnnualSummaryView 
           rows={rows}
           months={displayMonths}
           title={headerTitle}
-          normalizedSelection={normalizedSelection}
-          selection={selection}
-          onMouseDown={handleMouseDown}
-          onMouseEnter={handleMouseEnter}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onCellClick={handleCellClick}
           scrollerRef={scrollerRef}
+          onCellClick={handleCellClick}
         />
       </Paper>
-
-      <FloatingActionMenu 
-        visible={!!selection}
-        onCopy={copySelection}
-      />
 
       <PaidLeaveAdjustmentModal 
         isOpen={modalOpen}

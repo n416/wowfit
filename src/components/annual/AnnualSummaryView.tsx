@@ -34,7 +34,6 @@ interface AnnualSummaryViewProps {
   title: string;
   scrollerRef: React.MutableRefObject<HTMLElement | null>;
   onCellClick?: (r: number, c: number, row: AnnualRowData) => void;
-  // clickMode: 'normal' | 'select'; // 前回のコードで追加しましたが、Props定義から漏れていましたら追加してください
   clickMode: 'normal' | 'select';
 }
 
@@ -163,38 +162,44 @@ export default function AnnualSummaryView({
     return () => observer.disconnect();
   }, []);
 
+  // ★ 修正: 座標計算ロジック
   const pointToGrid = useCallback((x: number, y: number) => {
     const scrollLeft = scrollerRef.current?.scrollLeft || 0;
     const scrollTop = scrollerRef.current?.scrollTop || 0;
-    const contentX = x + scrollLeft;
-    const contentY = y + scrollTop;
 
-    if (contentX < LEFT_COL_WIDTH && contentY < headerHeight) return null;
-
+    // 行の判定 (r)
     let r = -1;
-    let c = -1;
-
-    if (contentY < headerHeight) {
-      r = -1; 
+    if (y < headerHeight) {
+      // ヘッダー行 (stickyなのでスクロール量に関係なく画面上部にある)
+      r = -1;
     } else {
+      // データ行 (スクロールされるので scrollTop を加味する)
+      const contentY = y + scrollTop;
       r = Math.floor((contentY - headerHeight) / ROW_HEIGHT);
     }
 
-    if (contentX < LEFT_COL_WIDTH) {
-      c = -1; 
+    // 列の判定 (c)
+    let c = -1;
+    if (x < LEFT_COL_WIDTH) {
+      // 固定列 (stickyなのでスクロール量に関係なく画面左側にある)
+      c = -1;
     } else {
+      // データ列 (スクロールされるので scrollLeft を加味する)
+      const contentX = x + scrollLeft;
       c = Math.floor((contentX - LEFT_COL_WIDTH) / colWidth);
     }
     
+    // 範囲外チェック
     if (r >= rows.length) return null;
     if (c >= 12 + 1) return null;
 
+    // 左上の角 (r=-1, c=-1) も選択可能とする（必要に応じて return null で除外）
+    
     return { r, c };
   }, [headerHeight, colWidth, rows.length, scrollerRef]);
 
   const handleCopyRef = useRef<() => void>(() => {});
 
-  // clearSelectionを受け取る
   const { containerProps, selection, isDraggingRef, clearSelection } = useGridInteraction({
     scrollerRef: scrollerRef as React.RefObject<HTMLElement | null>,
     converter: pointToGrid,
@@ -378,7 +383,6 @@ export default function AnnualSummaryView({
     );
   }, [colWidth, clickMode]); 
 
-  // ★ ここで tableWidth を定義
   const tableWidth = LEFT_COL_WIDTH + (12 * colWidth) + TOTAL_COL_WIDTH;
 
   const VirtuosoComponents = useMemo<TableComponents<any>>(() => ({

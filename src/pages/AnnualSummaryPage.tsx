@@ -1,9 +1,12 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
-  Box, Paper, Typography, IconButton, CircularProgress, FormControl, Select, MenuItem
+  Box, Paper, Typography, IconButton, CircularProgress, FormControl, Select, MenuItem,
+  ToggleButtonGroup, ToggleButton, Divider // ★ 追加
 } from '@mui/material';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import EditIcon from '@mui/icons-material/Edit'; // ★ 追加
+import SelectAllIcon from '@mui/icons-material/SelectAll'; // ★ 追加
 import { useSelector } from 'react-redux';
 import type { RootState } from '../store';
 import { db, IAssignment, IPaidLeaveAdjustment, IStaff } from '../db/dexie';
@@ -25,6 +28,9 @@ export default function AnnualSummaryPage() {
     const saved = localStorage.getItem('annualStartMonth');
     return saved ? Number(saved) : 4;
   });
+
+  // ★ モード管理State追加
+  const [clickMode, setClickMode] = useState<'normal' | 'select'>('normal');
 
   const [loading, setLoading] = useState(false);
   const [assignments, setAssignments] = useState<IAssignment[]>([]);
@@ -254,6 +260,8 @@ export default function AnnualSummaryPage() {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', p: '24px', gap: 2 }}>
       <Paper sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        
+        {/* 年月選択エリア */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <IconButton onClick={() => setYear(year - 1)}><ChevronLeftIcon /></IconButton>
           <Typography variant="h5" sx={{ minWidth: 80, textAlign: 'center' }}>{year}年</Typography>
@@ -271,19 +279,43 @@ export default function AnnualSummaryPage() {
           <IconButton onClick={() => setYear(year + 1)}><ChevronRightIcon /></IconButton>
           {loading && <CircularProgress size={24} sx={{ ml: 2 }} />}
         </Box>
-        <Typography variant="body2" color="text.secondary">
-          ※ データベースに保存されているアサイン情報から集計しています
-        </Typography>
+
+        {/* ★ モード切替UI */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <ToggleButtonGroup
+            value={clickMode}
+            exclusive
+            onChange={(_, newMode) => { if(newMode) setClickMode(newMode); }}
+            size="small"
+            sx={{ 
+              '& .MuiToggleButton-root': { 
+                px: 2, py: 0.5, border: 'none',
+                '&.Mui-selected': { bgcolor: 'rgba(25, 118, 210, 0.1)', color: 'primary.main', fontWeight: 'bold' },
+                '&:hover': { bgcolor: 'rgba(0, 0, 0, 0.04)' }
+              },
+              border: '1px solid #e0e0e0', borderRadius: 1
+            }}
+          >
+            <ToggleButton value="normal" title="クリックで編集（有給調整など）">
+              <EditIcon fontSize="small" sx={{ mr: 0.5 }} /> 通常
+            </ToggleButton>
+            <Divider flexItem orientation="vertical" sx={{ mx: 0, my: 0 }} />
+            <ToggleButton value="select" title="ドラッグで範囲選択（コピー用）">
+              <SelectAllIcon fontSize="small" sx={{ mr: 0.5 }} /> 選択
+            </ToggleButton>
+          </ToggleButtonGroup>
+        </Box>
+
       </Paper>
 
       <Paper sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }} variant="outlined">
-        {/* ★ onSelectionChange等の不要なPropsを削除 */}
         <AnnualSummaryView 
           rows={rows}
           months={displayMonths}
           title={headerTitle}
           scrollerRef={scrollerRef}
           onCellClick={handleCellClick}
+          clickMode={clickMode} // ★ 追加
         />
       </Paper>
 

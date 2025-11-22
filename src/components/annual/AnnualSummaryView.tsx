@@ -4,7 +4,7 @@ import {
 } from '@mui/material';
 import { TableVirtuoso, TableComponents } from 'react-virtuoso';
 import { IStaff } from '../../db/dexie';
-import { useGridInteraction } from '../../hooks/useGridInteraction';
+import { useGridInteraction, GridSelection } from '../../hooks/useGridInteraction';
 import { useGridOverlayPosition, OverlayCalculator } from '../../hooks/useGridOverlayPosition';
 import { SelectionOverlay } from '../common/SelectionOverlay';
 import FloatingActionMenu from '../calendar/FloatingActionMenu';
@@ -34,6 +34,8 @@ interface AnnualSummaryViewProps {
   title: string;
   scrollerRef: React.MutableRefObject<HTMLElement | null>;
   onCellClick?: (r: number, c: number, row: AnnualRowData) => void;
+  // clickMode: 'normal' | 'select'; // 前回のコードで追加しましたが、Props定義から漏れていましたら追加してください
+  clickMode: 'normal' | 'select';
 }
 
 const MIN_COL_WIDTH = 70;
@@ -124,7 +126,7 @@ const styles: { [key: string]: CSSProperties } = {
 };
 
 export default function AnnualSummaryView({ 
-  rows, months, title, scrollerRef, onCellClick 
+  rows, months, title, scrollerRef, onCellClick, clickMode
 }: AnnualSummaryViewProps) {
   
   const [headerHeight, setHeaderHeight] = useState(ROW_HEIGHT);
@@ -192,20 +194,21 @@ export default function AnnualSummaryView({
 
   const handleCopyRef = useRef<() => void>(() => {});
 
-  const { containerProps, selection, isDragging } = useGridInteraction({
+  // clearSelectionを受け取る
+  const { containerProps, selection, isDraggingRef, clearSelection } = useGridInteraction({
     scrollerRef: scrollerRef as React.RefObject<HTMLElement | null>,
     converter: pointToGrid,
     maxRow: rows.length - 1,
     maxCol: 12,
-    isEnabled: true,
+    isEnabled: clickMode === 'select',
     onCopy: () => handleCopyRef.current(), 
   });
 
-  // ★ isDragging の状態を Ref で追跡（クリックガード用）
-  const isDraggingRef = useRef(isDragging);
   useEffect(() => {
-    isDraggingRef.current = isDragging;
-  }, [isDragging]);
+    if (clickMode === 'normal') {
+      clearSelection();
+    }
+  }, [clickMode, clearSelection]);
 
   const handleCopy = useCallback(async () => {
     if (!selection || rows.length === 0) return;
@@ -285,12 +288,11 @@ export default function AnnualSummaryView({
     'data-r': r,
     'data-c': c,
     onMouseUp: () => {
-      // ★ ドラッグ中ならクリックを弾く
       if (!isDraggingRef.current && onCellClick && r >= 0) {
         if (rows[r]) onCellClick(r, c, rows[r]);
       }
     },
-    style: { ...style, cursor: 'cell' }
+    style: { ...style, cursor: clickMode === 'normal' ? 'pointer' : 'cell' }
   });
 
   const fixedHeaderContent = () => (
@@ -346,7 +348,7 @@ export default function AnnualSummaryView({
               {...getCellProps(index, mIdx, { 
                 ...styles.td, ...styles.cellSelectable, ...rowStyle, borderTop: borderTopStyle,
                 backgroundColor: row.isInteractive ? '#f8fbff' : 'inherit',
-                cursor: row.isInteractive ? 'pointer' : 'cell'
+                cursor: (clickMode === 'normal' && row.isInteractive) ? 'pointer' : 'cell'
               })}
             >
               {val > 0 || row.isInteractive ? val : <span style={{color: '#eee'}}>-</span>}
@@ -374,8 +376,9 @@ export default function AnnualSummaryView({
         </TableCell>
       </>
     );
-  }, [colWidth]); 
+  }, [colWidth, clickMode]); 
 
+  // ★ ここで tableWidth を定義
   const tableWidth = LEFT_COL_WIDTH + (12 * colWidth) + TOTAL_COL_WIDTH;
 
   const VirtuosoComponents = useMemo<TableComponents<any>>(() => ({
@@ -396,7 +399,7 @@ export default function AnnualSummaryView({
       <Box 
         ref={containerRef}
         sx={{ flex: 1, minHeight: 0, height: '100%', touchAction: 'none' }}
-        {...containerProps}
+        {...(clickMode === 'select' ? containerProps : {})}
       >
         <TableVirtuoso
           scrollerRef={(ref) => {
@@ -412,8 +415,7 @@ export default function AnnualSummaryView({
           overscan={20} 
         />
       </Box>
-      {/* View内部でメニューを表示 */}
-      <FloatingActionMenu visible={!!selection} onCopy={handleCopy} />
+      <FloatingActionMenu visible={clickMode === 'select' && !!selection} onCopy={handleCopy} />
     </>
   );
 }

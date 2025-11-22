@@ -4,7 +4,7 @@ import {
 } from '@mui/material';
 import { TableVirtuoso, TableComponents } from 'react-virtuoso';
 import { IStaff } from '../../db/dexie';
-import { useGridInteraction, GridSelection } from '../../hooks/useGridInteraction';
+import { useGridInteraction } from '../../hooks/useGridInteraction';
 import { useGridOverlayPosition, OverlayCalculator } from '../../hooks/useGridOverlayPosition';
 import { SelectionOverlay } from '../common/SelectionOverlay';
 import FloatingActionMenu from '../calendar/FloatingActionMenu';

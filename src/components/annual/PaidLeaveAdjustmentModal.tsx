@@ -11,7 +11,6 @@ import {
   Edit as EditIcon,
   ArrowBack as ArrowBackIcon,
   History as HistoryIcon,
-  Save as SaveIcon,
   EventNote as NoteIcon
 } from '@mui/icons-material';
 import { IStaff, IPaidLeaveAdjustment } from '../../db/dexie';

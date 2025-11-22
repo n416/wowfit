@@ -11,6 +11,7 @@ import {
   Edit as EditIcon,
   ArrowBack as ArrowBackIcon,
   History as HistoryIcon,
+  Save as SaveIcon,
   EventNote as NoteIcon
 } from '@mui/icons-material';
 import { IStaff, IPaidLeaveAdjustment } from '../../db/dexie';
@@ -149,17 +150,17 @@ export default function PaidLeaveAdjustmentModal({
   // フォーム入力モード
   const renderFormView = () => (
     <>
-      <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+      <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, borderBottom: `1px solid ${theme.palette.divider}` }}>
         <IconButton size="small" onClick={() => setView('list')} sx={{ ml: -1 }}>
           <ArrowBackIcon />
         </IconButton>
-        <Typography variant="h6">新規登録</Typography>
+        {/* ★ 修正: タイトルを変更 */}
+        <Typography variant="h6">有給調整ー新規登録</Typography>
       </DialogTitle>
 
-      <DialogContent dividers>
+      <DialogContent sx={{ pt: 3 }}>
         <Stack spacing={3} sx={{ mt: 1 }}>
           
-          {/* 1. 区分選択 */}
           <Box>
             <Typography variant="caption" color="text.secondary" gutterBottom display="block">
               区分
@@ -184,10 +185,11 @@ export default function PaidLeaveAdjustmentModal({
             </ToggleButtonGroup>
           </Box>
 
-          {/* 2. 日数入力 */}
           <Box>
+            <Typography variant="caption" color="text.secondary" gutterBottom display="block">
+              日数
+            </Typography>
              <TextField
-              label="日数"
               value={days}
               onChange={(e) => setDays(e.target.value)}
               type="number"
@@ -219,7 +221,6 @@ export default function PaidLeaveAdjustmentModal({
             />
           </Box>
 
-          {/* 3. メモ入力 */}
           <TextField
             label="メモ (任意)"
             value={memo}
@@ -239,14 +240,13 @@ export default function PaidLeaveAdjustmentModal({
         </Stack>
       </DialogContent>
       
-      <DialogActions>
+      <DialogActions sx={{ p: 2, borderTop: `1px solid ${theme.palette.divider}` }}>
         <Button onClick={() => setView('list')} color="inherit">
           キャンセル
         </Button>
-        {/* ★ 修正: SaveIcon削除、文言統一 */}
         <Button 
           onClick={handleSave} 
-          variant="contained"
+          variant="contained" 
           disableElevation
         >
           変更を確定

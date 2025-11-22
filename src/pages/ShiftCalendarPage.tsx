@@ -26,6 +26,7 @@ import TabPanel from '../components/TabPanel';
 import MonthNavigation from '../components/calendar/MonthNavigation';
 import FloatingActionMenu from '../components/calendar/FloatingActionMenu';
 import WeeklyShareModal from '../components/calendar/WeeklyShareModal';
+import StaffStatusModal from '../components/calendar/StaffStatusModal';
 
 import { MOCK_PATTERNS_V5, MOCK_UNITS_V5, MOCK_STAFF_V4 } from '../db/mockData';
 
@@ -62,7 +63,6 @@ const useDataSync = (currentYear: number, currentMonth: number, monthDays: { dat
         ]);
         
         if (patterns.length === 0) { 
-          console.log('[useDataSync] Initializing Patterns...');
           await db.shiftPatterns.bulkPut(MOCK_PATTERNS_V5); 
           dispatch(setPatterns(MOCK_PATTERNS_V5)); 
         } else {
@@ -70,7 +70,6 @@ const useDataSync = (currentYear: number, currentMonth: number, monthDays: { dat
         }
         
         if (units.length === 0) { 
-          console.log('[useDataSync] Initializing Units...');
           await db.units.bulkPut(MOCK_UNITS_V5); 
           dispatch(setUnits(MOCK_UNITS_V5)); 
         } else {
@@ -78,7 +77,6 @@ const useDataSync = (currentYear: number, currentMonth: number, monthDays: { dat
         }
         
         if (staff.length === 0) { 
-          console.log('[useDataSync] Initializing Staff...');
           await db.staffList.bulkPut(MOCK_STAFF_V4); 
           dispatch(setStaffList(MOCK_STAFF_V4)); 
         } else {
@@ -92,8 +90,6 @@ const useDataSync = (currentYear: number, currentMonth: number, monthDays: { dat
     const loadAssignments = async () => {
       if (!monthDays || monthDays.length === 0) return;
       
-      console.log(`[useDataSync] Loading Assignments for ${currentYear}-${currentMonth}...`);
-      
       try {
         dispatch(_setIsMonthLoading(true)); 
         
@@ -106,8 +102,6 @@ const useDataSync = (currentYear: number, currentMonth: number, monthDays: { dat
           .between(prevDay, lastDay, true, true) 
           .toArray();
         
-        console.log(`[useDataSync] Assignments loaded: ${assignmentsDB.length} items`);
-
         if (staffList.length === 0) {
           dispatch(_syncAssignments(assignmentsDB));
         } else {
@@ -171,6 +165,7 @@ function ShiftCalendarPage() {
   const { past, future, present: { assignments, isSyncing, adjustmentLoading, adjustmentError, analysisLoading, analysisResult, analysisError, patchLoading, patchError, adviceLoading } } = useSelector((state: RootState) => state.assignment);
   const { patterns: shiftPatterns } = useSelector((state: RootState) => state.pattern);
   const { units: unitList } = useSelector((state: RootState) => state.unit);
+  
   const { currentYear, currentMonth, isMonthLoading } = useSelector((state: RootState) => state.calendar);
 
   const monthDays = useMemo(() => {
@@ -180,7 +175,7 @@ function ShiftCalendarPage() {
 
   useDataSync(currentYear, currentMonth, monthDays);
 
-  const { staffList: activeStaffList, staffBurdenData, staffHolidayRequirements, handleHolidayIncrement, handleHolidayDecrement, handleHolidayReset } = useStaffBurdenData(currentYear, currentMonth, monthDays); 
+  const { staffList: activeStaffList, staffBurdenData, staffHolidayRequirements, updateHolidayRequirement } = useStaffBurdenData(currentYear, currentMonth, monthDays); 
   
   const sortedStaffList = useMemo(() => [...activeStaffList].sort((a, b) => (a.unitId || 'ZZZ').localeCompare(b.unitId || 'ZZZ') || a.name.localeCompare(b.name)), [activeStaffList]);
   
@@ -194,7 +189,7 @@ function ShiftCalendarPage() {
     invalidateSyncLock,
   } = useCalendarInteractions(sortedStaffList, monthDays); 
 
-  const { editingTarget, showingGanttTarget, clearingStaff, openAssignModal, openGanttModal, openClearStaffModal, closeModals, handleClearStaffAssignments } = useShiftCalendarModals();
+  const { editingTarget, showingGanttTarget, clearingStaff, statusTarget, openAssignModal, openGanttModal, openClearStaffModal, openStatusModal, closeModals, handleClearStaffAssignments } = useShiftCalendarModals();
   const { aiInstruction, setAiInstruction, handleFillRental, handleRunAiAdjustment, handleRunAiDefault, handleRunAiAnalysis, handleRunAiHolidayPatch, handleResetClick, handleClearError, handleClearAnalysis } = useShiftCalendarLogic(currentYear, currentMonth, monthDays, activeStaffList, staffHolidayRequirements, demandMap);
 
   useUndoRedoKeyboard(invalidateSyncLock); 
@@ -212,21 +207,11 @@ function ShiftCalendarPage() {
   
   const isOverallLoading = isSyncing || adjustmentLoading || patchLoading || isMonthLoading || analysisLoading || adviceLoading;
   
-  useEffect(() => {
-    if (isOverallLoading) {
-      console.log('[ShiftCalendarPage] System is Locked (Loading...)', { isSyncing, adjustmentLoading, isMonthLoading });
-    } else {
-      console.log('[ShiftCalendarPage] System is Unlocked (Ready)');
-    }
-  }, [isOverallLoading, isSyncing, adjustmentLoading, isMonthLoading]);
-
   const handleGoToPrevMonth = useCallback(() => { if (past.length > 0 && !window.confirm("移動するとデータが固定されます。")) return; dispatch(goToPrevMonth()); }, [past.length, dispatch]);
   const handleGoToNextMonth = useCallback(() => { if (past.length > 0 && !window.confirm("移動するとデータが固定されます。")) return; dispatch(goToNextMonth()); }, [past.length, dispatch]);
 
   const handleSelectionChange = useCallback((range: { start: CellCoords, end: CellCoords } | null) => {
-    if (setSelectionRange) {
-      setSelectionRange(range);
-    }
+    if (setSelectionRange) setSelectionRange(range);
   }, [setSelectionRange]);
 
   return (
@@ -254,11 +239,10 @@ function ShiftCalendarPage() {
             <StaffCalendarView 
               sortedStaffList={sortedStaffList} onCellClick={handleCellClick} 
               staffHolidayRequirements={staffHolidayRequirements} 
-              onHolidayIncrement={handleHolidayIncrement} onHolidayDecrement={handleHolidayDecrement} onHolidayReset={handleHolidayReset}
+              onStatusCellClick={openStatusModal}
               onStaffNameClick={openClearStaffModal} onDateHeaderClick={handleDateHeaderClick} 
               clickMode={clickMode} selectionRange={selectionRange} onSelectionChange={handleSelectionChange}
               mainCalendarScrollerRef={mainCalendarScrollerRef} monthDays={monthDays}
-              /* ★ Props渡し漏れ修正: コピペ関数を渡す */
               onCopy={() => handleCopy(false)} 
               onCut={() => handleCopy(true)} 
               onPaste={handlePaste}
@@ -277,10 +261,20 @@ function ShiftCalendarPage() {
 
       <AiSupportPane instruction={aiInstruction} onInstructionChange={setAiInstruction} isLoading={adjustmentLoading || patchLoading} error={adjustmentError || patchError} onClearError={handleClearError} onExecuteDefault={handleRunAiDefault} onExecuteCustom={handleRunAiAdjustment} isAnalysisLoading={analysisLoading} analysisResult={analysisResult} analysisError={analysisError} onClearAnalysis={handleClearAnalysis} onExecuteAnalysis={handleRunAiAnalysis} onFillRental={handleFillRental} onForceAdjustHolidays={handleRunAiHolidayPatch} isOverallDisabled={isOverallLoading} />
       <FloatingActionMenu visible={clickMode === 'select' && !!selectionRange} onCopy={() => handleCopy(false)} onCut={() => handleCopy(true)} onPaste={handlePaste} />
+      
       <AssignPatternModal target={editingTarget} allStaff={activeStaffList} allPatterns={shiftPatterns} allUnits={unitList} allAssignments={assignments} burdenData={Array.from(staffBurdenData.values())} onClose={closeModals} />
       <DailyUnitGanttModal target={showingGanttTarget} onClose={closeModals} allAssignments={assignments} demandMap={demandMap} monthDays={monthDays} />
       <ClearStaffAssignmentsModal staff={clearingStaff} onClose={closeModals} onClear={handleClearStaffAssignments} />
       <WeeklyShareModal open={isShareModalOpen} onClose={() => setIsShareModalOpen(false)} monthDays={monthDays} staffList={sortedStaffList} assignments={assignments} shiftPatterns={shiftPatterns} />
+      
+      <StaffStatusModal 
+        staff={statusTarget} 
+        isOpen={!!statusTarget} 
+        onClose={closeModals} 
+        onSave={updateHolidayRequirement} 
+        currentSetting={statusTarget ? staffHolidayRequirements.get(statusTarget.staffId) : undefined}
+        monthDays={monthDays} 
+      />
     </Box>
   );
 }

@@ -1,17 +1,14 @@
 import React, { CSSProperties, useMemo, useCallback, useRef, useEffect, useState } from 'react';
 import {
-  IconButton,
-  Table, TableBody, TableCell, TableHead, TableRow,
-  Box,
+  Table, TableBody, TableCell, TableHead, TableRow, Box, Chip, IconButton
 } from '@mui/material';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../../store';
 import { IStaff, IShiftPattern, IAssignment } from '../../db/dexie';
-import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
-import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
+import { Edit as EditIcon } from '@mui/icons-material'; // AutoIcon削除
 import { TableVirtuoso, TableComponents } from 'react-virtuoso';
 import { CellCoords, ClickMode } from '../../hooks/useCalendarInteractions';
-import { getPrevDateStr, MonthDay } from '../../utils/dateUtils';
+import { getPrevDateStr, MonthDay, getDefaultRequiredHolidays } from '../../utils/dateUtils'; 
 import { useGridInteraction, GridSelection } from '../../hooks/useGridInteraction';
 import { useGridOverlayPosition, OverlayCalculator } from '../../hooks/useGridOverlayPosition';
 import { SelectionOverlay } from '../common/SelectionOverlay';
@@ -123,9 +120,7 @@ const StaffCell = React.memo(({
 interface StaffCalendarViewProps {
   sortedStaffList: IStaff[];
   onCellClick: (e: React.MouseEvent | React.TouchEvent, date: string, staffId: string, staffIndex: number, dateIndex: number) => void;
-  onHolidayIncrement: (staffId: string) => void;
-  onHolidayDecrement: (staffId: string) => void;
-  onHolidayReset: (staffId: string) => void;
+  onStatusCellClick: (staff: IStaff) => void;
   staffHolidayRequirements: Map<string, number>;
   onStaffNameClick: (staff: IStaff) => void;
   onDateHeaderClick: (date: string) => void;
@@ -135,7 +130,6 @@ interface StaffCalendarViewProps {
   mainCalendarScrollerRef: React.RefObject<HTMLElement | null>;
   monthDays: MonthDay[];
   onAutoScroll?: (x: number, y: number) => void; 
-  // Props追加
   onCopy?: () => void;
   onPaste?: () => void;
   onCut?: () => void;
@@ -144,7 +138,7 @@ interface StaffCalendarViewProps {
 export default function StaffCalendarView({
   sortedStaffList,
   onCellClick,
-  onHolidayIncrement, onHolidayDecrement, onHolidayReset,
+  onStatusCellClick,
   staffHolidayRequirements, onStaffNameClick, onDateHeaderClick,
   clickMode,
   selectionRange,
@@ -261,7 +255,6 @@ export default function StaffCalendarView({
     TableBody: React.forwardRef((props, ref) => <TableBody {...props} ref={ref} />),
   }), []);
 
-  // ★ isDraggingRef を使ってクリックガード
   const handleCellMouseUpWithClick = useCallback((e: React.MouseEvent, staffId: string, dateStr: string, sIdx: number, dIdx: number) => {
     if (!isDraggingRef.current && clickMode !== 'select') {
       onCellClick(e, dateStr, staffId, sIdx, dIdx);
@@ -271,7 +264,7 @@ export default function StaffCalendarView({
   const fixedHeaderContent = () => (
     <TableRow id="calendar-header-row">
       <TableCell style={{ ...styles.th, ...styles.stickyCell, ...styles.staffNameCell, zIndex: 50 }}>スタッフ</TableCell>
-      <TableCell style={{ ...styles.th, ...styles.stickyCell, ...styles.holidayAdjustCell, zIndex: 50 }}>公休調整</TableCell>
+      <TableCell style={{ ...styles.th, ...styles.stickyCell, ...styles.holidayAdjustCell, zIndex: 50 }}>公休数</TableCell>
       {monthDays.map(dayInfo => {
         const isHoliday = !!dayInfo.holidayName;
         const isSunday = dayInfo.dayOfWeek === 0;
@@ -289,6 +282,8 @@ export default function StaffCalendarView({
     </TableRow>
   );
 
+  const defaultHolidays = getDefaultRequiredHolidays(monthDays);
+
   const itemContent = useCallback((index: number, staff: IStaff) => {
     const staffIndex = index;
     let rowBorderStyle: CSSProperties = {};
@@ -296,7 +291,9 @@ export default function StaffCalendarView({
       const prevStaff = sortedStaffList[index - 1];
       if (staff.unitId !== prevStaff.unitId) { rowBorderStyle = { borderTop: '3px double #000' }; }
     }
-    const requiredHolidays = staffHolidayRequirements.get(staff.staffId) || 0;
+    
+    const isManual = staffHolidayRequirements.has(staff.staffId);
+    const requiredHolidays = isManual ? staffHolidayRequirements.get(staff.staffId)! : defaultHolidays;
 
     return (
       <>
@@ -304,13 +301,32 @@ export default function StaffCalendarView({
           {staff.name}
           <span style={{ display: 'block', fontSize: '0.75rem', color: staff.employmentType === 'FullTime' ? '#1976d2' : '#666', fontWeight: 'normal' }}>({staff.unitId || 'フリー'})</span>
         </TableCell>
-        <TableCell style={{ ...styles.td, ...styles.stickyCell, ...styles.holidayAdjustCell, ...rowBorderStyle }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <IconButton size="small" onClick={() => onHolidayDecrement(staff.staffId)}><RemoveCircleOutlineIcon sx={{ fontSize: '1.25rem' }} /></IconButton>
-            <span style={{ padding: '0 4px', fontWeight: 'bold', cursor: 'pointer', borderBottom: '1px dotted #ccc', userSelect: 'none' }} title="クリックで自動計算（デフォルト）にリセット" onClick={(e) => { e.stopPropagation(); if (window.confirm(`${staff.name}さんの必要公休数を、デフォルト（自動計算値）に戻しますか？`)) { onHolidayReset(staff.staffId); } }}>{requiredHolidays} 日</span>
-            <IconButton size="small" onClick={() => onHolidayIncrement(staff.staffId)}><AddCircleOutlineIcon sx={{ fontSize: '1.25rem' }} /></IconButton>
+        
+        {/* ★ 修正: 自動ならテキストのみ、手動なら控えめなChipで表示 */}
+        <TableCell style={{ ...styles.td, ...styles.stickyCell, ...styles.holidayAdjustCell, ...rowBorderStyle, cursor: 'pointer' }} onClick={() => onStatusCellClick(staff)}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+             {isManual ? (
+               <Chip 
+                 icon={<EditIcon style={{ fontSize: 12 }} />}
+                 label={`${requiredHolidays} 日`}
+                 size="small"
+                 variant="outlined"
+                 sx={{ 
+                    borderColor: '#bdbdbd', 
+                    color: 'text.primary', 
+                    fontWeight: 'bold', 
+                    cursor: 'pointer',
+                    height: '24px',
+                    bgcolor: '#fff',
+                    '& .MuiChip-label': { px: 1 }
+                 }}
+               />
+             ) : (
+                <span style={{ fontSize: '0.8rem' }}>{requiredHolidays} 日</span>
+             )}
           </div>
         </TableCell>
+
         {monthDays.map((dayInfo, dayIndex) => {
           const key = `${staff.staffId}_${dayInfo.dateStr}`;
           const assignmentsForCell = assignmentsMap.get(key) || [];
@@ -333,7 +349,7 @@ export default function StaffCalendarView({
         })}
       </>
     );
-  }, [sortedStaffList, staffHolidayRequirements, assignmentsMap, patternMap, monthDays, onHolidayDecrement, onHolidayIncrement, onHolidayReset, onStaffNameClick, clickMode, handleCellMouseUpWithClick]);
+  }, [sortedStaffList, staffHolidayRequirements, assignmentsMap, patternMap, monthDays, onStaffNameClick, clickMode, handleCellMouseUpWithClick, defaultHolidays, onStatusCellClick]);
 
   return (
     <Box

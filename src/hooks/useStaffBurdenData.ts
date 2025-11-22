@@ -1,4 +1,3 @@
-// src/hooks/useStaffBurdenData.ts
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../store';
@@ -27,7 +26,6 @@ const calculateStaffBurdenData = (
 
   const defaultReq = getDefaultRequiredHolidays(monthDays); 
 
-  // 1. スタッフごとの初期化
   staffList.forEach((s: IStaff) => { 
     burdenMap.set(s.staffId, { 
       staffId: s.staffId, name: s.name, employmentType: s.employmentType,
@@ -38,18 +36,17 @@ const calculateStaffBurdenData = (
       totalHours: 0, weekendCount: 0,
       maxHours: (s.constraints?.maxConsecutiveDays || 5) * 8 * 4,
       holidayCount: 0, 
-      requiredHolidays: staffHolidayRequirements.get(s.staffId) || defaultReq, 
+      // マップに設定があればそれを、なければデフォルトを使用
+      requiredHolidays: staffHolidayRequirements.has(s.staffId) ? staffHolidayRequirements.get(s.staffId)! : defaultReq, 
       holidayDetails: new Map(),
     });
   });
 
-  // 2. アサインをスタッフ・日付で高速検索できるようにマップ化
   const assignmentLookup = new Map<string, IAssignment>();
   for (const a of assignments) {
     assignmentLookup.set(`${a.staffId}_${a.date}`, a);
   }
 
-  // 3. 日付順に走査して集計
   for (const staff of staffList) {
     const staffData = burdenMap.get(staff.staffId)!;
 
@@ -58,7 +55,6 @@ const calculateStaffBurdenData = (
       const assignment = assignmentLookup.get(`${staff.staffId}_${dateStr}`);
       const pattern = assignment ? patternMap.get(assignment.patternId) : null;
 
-      // --- 前日チェック (夜勤明け判定) ---
       const prevDateStr = getPrevDateStr(dateStr);
       const prevAssignment = assignmentLookup.get(`${staff.staffId}_${prevDateStr}`);
       const prevPattern = prevAssignment ? patternMap.get(prevAssignment.patternId) : null;
@@ -66,16 +62,13 @@ const calculateStaffBurdenData = (
       const isPrevNightShift = prevPattern?.isNightShift === true;
       const isTodayWork = pattern?.workType === 'Work';
 
-      // 前日が夜勤かつ、当日が勤務でない場合、半公休(0.5)を加算
       if (isPrevNightShift && !isTodayWork) {
         staffData.holidayCount += 0.5;
       }
 
-      // --- 当日のアサイン集計 ---
       if (pattern) {
         if (pattern.workType === 'Work') { 
           staffData.assignmentCount++;
-          
           let hours = pattern.durationHours;
           if (pattern.isFlex && assignment?.overrideStartTime && assignment?.overrideEndTime) {
              const [sh, sm] = assignment.overrideStartTime.split(':').map(Number);
@@ -86,13 +79,9 @@ const calculateStaffBurdenData = (
              hours = diff > 0 ? diff : 0;
           }
           staffData.totalHours += hours;
-
           if (pattern.isNightShift) staffData.nightShiftCount++;
-          
-          // 早出・遅出の集計
           if (pattern.mainCategory.includes('早出')) staffData.earlyShiftCount++;
           if (pattern.mainCategory.includes('遅出')) staffData.lateShiftCount++;
-          
           if (day.dayOfWeek === 0 || day.dayOfWeek === 6) {
             staffData.weekendCount++;
           }
@@ -144,18 +133,14 @@ export const useStaffBurdenData = (
     if (storedReqs) {
       setStaffHolidayRequirements(new Map(JSON.parse(storedReqs)));
     } else {
-      const defaultReq = getDefaultRequiredHolidays(monthDays);
-      const newMap = new Map<string, number>();
-      allStaff.forEach(staff => { newMap.set(staff.staffId, defaultReq); });
-      setStaffHolidayRequirements(newMap);
+      setStaffHolidayRequirements(new Map());
     }
-  }, [allStaff, currentYear, currentMonth, monthDays]); 
+  }, [currentYear, currentMonth]); 
 
   useEffect(() => {
-    if (staffHolidayRequirements.size > 0) {
-      const storageKey = `staffHolidayRequirements_${currentYear}_${currentMonth}`;
-      localStorage.setItem(storageKey, JSON.stringify(Array.from(staffHolidayRequirements.entries())));
-    }
+    const storageKey = `staffHolidayRequirements_${currentYear}_${currentMonth}`;
+    // マップが空でも保存する（「全員デフォルト」の状態を保存するため）
+    localStorage.setItem(storageKey, JSON.stringify(Array.from(staffHolidayRequirements.entries())));
   }, [staffHolidayRequirements, currentYear, currentMonth]);
 
   const staffBurdenData = useMemo(() => {
@@ -168,41 +153,23 @@ export const useStaffBurdenData = (
     );
   }, [assignments, staffList, patternMap, staffHolidayRequirements, monthDays]);
 
-  const handleHolidayIncrement = useCallback((staffId: string) => {
-    setStaffHolidayRequirements(prevMap => {
-      const newMap = new Map(prevMap);
-      const currentReq = newMap.get(staffId) || getDefaultRequiredHolidays(monthDays);
-      newMap.set(staffId, currentReq + 1);
-      return newMap;
+  // ★ 修正: 増減メソッドを廃止し、更新メソッドを追加
+  const updateHolidayRequirement = useCallback((staffId: string, days: number | null) => {
+    setStaffHolidayRequirements(prev => {
+      const next = new Map(prev);
+      if (days === null) {
+        next.delete(staffId); // nullなら削除してデフォルトに戻す
+      } else {
+        next.set(staffId, days);
+      }
+      return next;
     });
-  }, [monthDays]); 
-
-  const handleHolidayDecrement = useCallback((staffId: string) => {
-    setStaffHolidayRequirements(prevMap => {
-      const newMap = new Map(prevMap);
-      const currentReq = newMap.get(staffId) || getDefaultRequiredHolidays(monthDays);
-      newMap.set(staffId, Math.max(0, currentReq - 1)); 
-      return newMap;
-    });
-  }, [monthDays]);
-
-  // ★ 追加: リセット機能
-  const handleHolidayReset = useCallback((staffId: string) => {
-    setStaffHolidayRequirements(prevMap => {
-      const newMap = new Map(prevMap);
-      // デフォルト値（土日＋祝日）を再計算してセット
-      const defaultReq = getDefaultRequiredHolidays(monthDays);
-      newMap.set(staffId, defaultReq);
-      return newMap;
-    });
-  }, [monthDays]);
+  }, []);
 
   return {
     staffList, 
     staffBurdenData,
     staffHolidayRequirements,
-    handleHolidayIncrement,
-    handleHolidayDecrement,
-    handleHolidayReset // ★ エクスポート
+    updateHolidayRequirement // ★ 公開
   };
 };

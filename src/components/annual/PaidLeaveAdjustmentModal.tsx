@@ -1,14 +1,19 @@
 import { useState, useEffect } from 'react';
 import {
   Dialog, DialogTitle, DialogContent, DialogActions,
-  Button, TextField, RadioGroup, FormControlLabel, Radio,
-  Typography, Box, List, ListItem, ListItemText, IconButton,
-  Chip
+  Button, TextField, Typography, Box, List, ListItem, ListItemText, IconButton,
+  Stack, ToggleButton, ToggleButtonGroup, InputAdornment, useTheme
 } from '@mui/material';
-import DeleteIcon from '@mui/icons-material/Delete';
-import AddIcon from '@mui/icons-material/Add';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import HistoryIcon from '@mui/icons-material/History';
+import {
+  Delete as DeleteIcon,
+  Add as AddIcon,
+  Remove as RemoveIcon,
+  Edit as EditIcon,
+  ArrowBack as ArrowBackIcon,
+  History as HistoryIcon,
+  Save as SaveIcon,
+  EventNote as NoteIcon
+} from '@mui/icons-material';
 import { IStaff, IPaidLeaveAdjustment } from '../../db/dexie';
 
 interface PaidLeaveAdjustmentModalProps {
@@ -25,6 +30,7 @@ export default function PaidLeaveAdjustmentModal({
   isOpen, onClose, onSave, onDelete, staff, targetMonthLabel, history = [] 
 }: PaidLeaveAdjustmentModalProps) {
   
+  const theme = useTheme();
   const [view, setView] = useState<'list' | 'form'>('list');
   const [type, setType] = useState<'Grant' | 'Expire' | 'Adjustment'>('Grant');
   const [days, setDays] = useState<string>('10');
@@ -32,7 +38,7 @@ export default function PaidLeaveAdjustmentModal({
 
   useEffect(() => {
     if (isOpen) {
-      setView(history.length === 0 ? 'list' : 'list');
+      setView(history.length === 0 ? 'form' : 'list');
       setType('Grant');
       setDays('10');
       setMemo('');
@@ -41,7 +47,7 @@ export default function PaidLeaveAdjustmentModal({
 
   const handleSave = () => {
     const numDays = parseFloat(days);
-    if (isNaN(numDays) || numDays === 0) {
+    if (isNaN(numDays) || numDays <= 0) {
       alert('有効な日数を入力してください');
       return;
     }
@@ -49,74 +55,84 @@ export default function PaidLeaveAdjustmentModal({
     setView('list');
   };
 
-  const getTypeLabel = (type: string) => {
-    switch(type) {
-      case 'Grant': return '付与';
-      case 'Expire': return '消滅';
-      case 'Adjustment': return '修正';
-      default: return type;
-    }
+  const handleIncrement = () => {
+    const val = parseFloat(days) || 0;
+    setDays(String(val + 0.5));
   };
 
-  const getTypeColor = (type: string) => {
-    switch(type) {
-      case 'Grant': return 'success';
-      case 'Expire': return 'error';
-      default: return 'default';
-    }
+  const handleDecrement = () => {
+    const val = parseFloat(days) || 0;
+    setDays(String(Math.max(0.5, val - 0.5)));
   };
 
+  // リスト表示モード
   const renderListView = () => (
     <>
-      <DialogContent sx={{ minHeight: 300, display: 'flex', flexDirection: 'column' }}>
-        <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Typography variant="subtitle1" fontWeight="bold">{staff?.name}</Typography>
-          <Chip icon={<HistoryIcon />} label={`${history.length} 件の履歴`} size="small" />
+      <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
+        <Box>
+          <Typography variant="h6">有給調整履歴</Typography>
+          <Typography variant="caption" color="text.secondary">
+            {staff?.name} / {targetMonthLabel}
+          </Typography>
         </Box>
-
+        <Button 
+          variant="contained" 
+          size="small" 
+          startIcon={<AddIcon />} 
+          onClick={() => setView('form')}
+        >
+          新規登録
+        </Button>
+      </DialogTitle>
+      
+      <DialogContent dividers sx={{ p: 0, minHeight: 300 }}>
         {history.length === 0 ? (
-          <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'text.secondary', flexDirection: 'column', gap: 1 }}>
-            <Typography>この月の調整履歴はありません。</Typography>
-            <Typography variant="caption">「追加」ボタンから付与や消滅を登録してください。</Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', p: 4, color: 'text.secondary' }}>
+            <HistoryIcon sx={{ fontSize: 48, mb: 2, opacity: 0.2 }} />
+            <Typography variant="body2">履歴はありません</Typography>
           </Box>
         ) : (
-          <List sx={{ bgcolor: '#f5f5f5', borderRadius: 2, overflow: 'auto', flex: 1 }}>
+          <List>
             {history.map((item) => {
+              const isGrant = item.type === 'Grant';
+              const isExpire = item.type === 'Expire';
+              const label = isGrant ? '付与' : (isExpire ? '消滅' : '修正');
+              const sign = isGrant ? '+' : (isExpire ? '-' : '');
+              const color = isGrant ? 'success.main' : (isExpire ? 'error.main' : 'text.primary');
+              const Icon = isGrant ? AddIcon : (isExpire ? RemoveIcon : EditIcon);
+              
               const dateStr = item.createdAt 
                 ? new Date(item.createdAt).toLocaleString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
-                : '日時不明';
+                : '-';
 
               return (
                 <ListItem
                   key={item.id}
                   divider
                   secondaryAction={
-                    <IconButton edge="end" aria-label="delete" onClick={() => item.id && onDelete(item.id)}>
-                      <DeleteIcon color="error" />
+                    <IconButton edge="end" onClick={() => item.id && onDelete(item.id)} size="small">
+                      <DeleteIcon fontSize="small" color="action" />
                     </IconButton>
                   }
                 >
+                  <Box sx={{ mr: 2, display: 'flex', color: color }}>
+                    <Icon fontSize="small" />
+                  </Box>
                   <ListItemText
                     primary={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Chip 
-                          label={getTypeLabel(item.type)} 
-                          color={getTypeColor(item.type) as any} 
-                          size="small" 
-                          variant="outlined"
-                        />
-                        <Typography fontWeight="bold" variant="body1">
-                          {item.days} 日
-                        </Typography>
+                      <Box component="span" sx={{ fontWeight: 'bold', color }}>
+                        {label} {sign}{item.days}日
                       </Box>
                     }
                     secondary={
-                      <Box component="span" sx={{ display: 'flex', flexDirection: 'column', mt: 0.5 }}>
-                        {item.memo && <span>メモ: {item.memo}</span>}
-                        <Typography variant="caption" color="text.secondary">
+                      <>
+                        <Typography variant="body2" component="span" display="block" color="text.primary" sx={{ my: 0.5 }}>
+                          {item.memo || '(メモなし)'}
+                        </Typography>
+                        <Typography variant="caption" component="span" color="text.secondary">
                           操作: {dateStr}
                         </Typography>
-                      </Box>
+                      </>
                     }
                   />
                 </ListItem>
@@ -125,69 +141,115 @@ export default function PaidLeaveAdjustmentModal({
           </List>
         )}
       </DialogContent>
-      
-      <DialogActions sx={{ justifyContent: 'space-between', px: 3, pb: 2 }}>
-        <Button onClick={onClose} color="inherit">閉じる</Button>
-        <Button 
-          variant="contained" 
-          startIcon={<AddIcon />} 
-          onClick={() => setView('form')}
-        >
-          新規追加
-        </Button>
+      <DialogActions>
+        <Button onClick={onClose}>閉じる</Button>
       </DialogActions>
     </>
   );
 
+  // フォーム入力モード
   const renderFormView = () => (
     <>
-      <DialogContent>
-        <Box sx={{ mb: 3, display: 'flex', alignItems: 'center' }}>
-          <IconButton onClick={() => setView('list')} sx={{ mr: 1 }}>
-            <ArrowBackIcon />
-          </IconButton>
-          <Typography variant="h6">新規登録</Typography>
-        </Box>
+      <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <IconButton size="small" onClick={() => setView('list')} sx={{ ml: -1 }}>
+          <ArrowBackIcon />
+        </IconButton>
+        <Typography variant="h6">新規登録</Typography>
+      </DialogTitle>
 
-        <RadioGroup
-          row
-          value={type}
-          onChange={(e) => setType(e.target.value as any)}
-          sx={{ mb: 3, justifyContent: 'center' }}
-        >
-          <FormControlLabel value="Grant" control={<Radio />} label="付与 (+)" />
-          <FormControlLabel value="Expire" control={<Radio color="error" />} label="消滅 (-)" />
-          <FormControlLabel value="Adjustment" control={<Radio color="default" />} label="修正" />
-        </RadioGroup>
+      <DialogContent dividers>
+        <Stack spacing={3} sx={{ mt: 1 }}>
+          
+          {/* 1. 区分選択: 標準的なToggleButtonGroupに戻す */}
+          <Box>
+            <Typography variant="caption" color="text.secondary" gutterBottom display="block">
+              区分
+            </Typography>
+            <ToggleButtonGroup
+              value={type}
+              exclusive
+              onChange={(_, newVal) => { if (newVal) setType(newVal); }}
+              fullWidth
+              color="primary"
+              size="medium"
+            >
+              <ToggleButton value="Grant">
+                <AddIcon fontSize="small" sx={{ mr: 1 }} /> 付与
+              </ToggleButton>
+              <ToggleButton value="Expire">
+                <RemoveIcon fontSize="small" sx={{ mr: 1 }} /> 消滅
+              </ToggleButton>
+              <ToggleButton value="Adjustment">
+                <EditIcon fontSize="small" sx={{ mr: 1 }} /> 修正
+              </ToggleButton>
+            </ToggleButtonGroup>
+          </Box>
 
-        <TextField
-          label="日数"
-          type="number"
-          value={days}
-          onChange={(e) => setDays(e.target.value)}
-          fullWidth
-          sx={{ mb: 3 }}
-          inputProps={{ step: 0.5 }}
-          autoFocus
-          helperText={type === 'Expire' ? '減らしたい日数を正の値で入力（例: 5）' : ''}
-        />
+          {/* 2. 日数入力: InputAdornmentを使ってTextField内にボタンを配置 */}
+          <Box>
+             <TextField
+              label="日数"
+              value={days}
+              onChange={(e) => setDays(e.target.value)}
+              type="number"
+              fullWidth
+              // ステッパーボタンをTextFieldの内部に配置する
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <IconButton onClick={handleDecrement} edge="start" size="small">
+                      <RemoveIcon />
+                    </IconButton>
+                  </InputAdornment>
+                ),
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <Typography variant="body2" color="text.secondary" sx={{ mx: 1 }}>
+                      日
+                    </Typography>
+                    <IconButton onClick={handleIncrement} edge="end" size="small">
+                      <AddIcon />
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
+              inputProps={{ 
+                step: 0.5, 
+                style: { textAlign: 'center', fontSize: '1.2rem', fontWeight: 'bold' } 
+              }}
+              helperText={type === 'Expire' ? '※ 減らす日数を正の値で入力してください' : ''}
+            />
+          </Box>
 
-        <TextField
-          label="メモ (任意)"
-          value={memo}
-          onChange={(e) => setMemo(e.target.value)}
-          fullWidth
-          multiline
-          rows={2}
-          placeholder="例: 2024年度付与分"
-        />
+          {/* 3. メモ入力 */}
+          <TextField
+            label="メモ (任意)"
+            value={memo}
+            onChange={(e) => setMemo(e.target.value)}
+            fullWidth
+            multiline
+            rows={3}
+            placeholder="例: 2025年度付与分"
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start" sx={{ mt: 1.5 }}>
+                  <NoteIcon color="action" fontSize="small" />
+                </InputAdornment>
+              ),
+            }}
+          />
+        </Stack>
       </DialogContent>
       
-      <DialogActions sx={{ px: 3, pb: 2 }}>
-        <Button onClick={() => setView('list')} color="inherit" sx={{ mr: 'auto' }}>
-          一覧に戻る
+      <DialogActions>
+        <Button onClick={() => setView('list')} color="inherit">
+          キャンセル
         </Button>
-        <Button onClick={handleSave} variant="contained" color={type === 'Expire' ? 'error' : 'primary'}>
+        <Button 
+          onClick={handleSave} 
+          variant="contained" 
+          startIcon={<SaveIcon />}
+        >
           保存する
         </Button>
       </DialogActions>
@@ -196,10 +258,6 @@ export default function PaidLeaveAdjustmentModal({
 
   return (
     <Dialog open={isOpen} onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle sx={{ borderBottom: '1px solid #eee', pb: 1 }}>
-        有給調整 ({targetMonthLabel})
-      </DialogTitle>
-      
       {view === 'list' ? renderListView() : renderFormView()}
     </Dialog>
   );

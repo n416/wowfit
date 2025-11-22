@@ -1,6 +1,6 @@
 import React, { CSSProperties, useMemo, useCallback, useRef, useEffect, useState } from 'react';
 import {
-  Table, TableBody, TableCell, TableHead, TableRow, Box, Chip, IconButton
+  Table, TableBody, TableCell, TableHead, TableRow, Box, Chip
 } from '@mui/material';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../../store';

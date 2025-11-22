@@ -10,6 +10,7 @@ import { IStaff, IShiftPattern, IAssignment, IUnit } from '../../db/dexie';
 import { db } from '../../db/dexie';
 import { setAssignments, clearAdvice, fetchAssignmentAdvice } from '../../store/assignmentSlice'; 
 
+// ... (中略: timeToMin, isWithinContract, getPatternIconColor 等のヘルパー関数はそのまま維持) ...
 const timeToMin = (t: string) => {
   const [h, m] = t.split(':').map(Number);
   return h * 60 + m;
@@ -32,15 +33,14 @@ const isWithinContract = (staff: IStaff, start: string, end: string): boolean =>
   });
 };
 
-// ★ ヘルパー: パターンに応じたアイコン背景色を取得
 const getPatternIconColor = (pattern: IShiftPattern) => {
-  if (pattern.workType === 'StatutoryHoliday') return '#ef5350'; // 公休: 赤
-  if (pattern.workType === 'PaidLeave') return '#42a5f5';        // 有給: 青
-  if (pattern.workType === 'Holiday') return '#ff9800';          // その他休日: オレンジ
+  if (pattern.workType === 'StatutoryHoliday') return '#ef5350';
+  if (pattern.workType === 'PaidLeave') return '#42a5f5';
+  if (pattern.workType === 'Holiday') return '#ff9800';
   
-  if (pattern.isNightShift) return '#424242'; // 夜勤: 黒に近いグレー
-  if (pattern.workType === 'Work') return '#66bb6a'; // 通常勤務: 緑
-  return '#ffa726'; // その他(会議等): 薄いオレンジ
+  if (pattern.isNightShift) return '#424242';
+  if (pattern.workType === 'Work') return '#66bb6a';
+  return '#ffa726';
 };
 
 interface AssignPatternModalProps {
@@ -134,7 +134,6 @@ export default function AssignPatternModal({
     return allPatterns
       .filter(p => p.workType === 'StatutoryHoliday' || p.workType === 'PaidLeave' || p.workType === 'Holiday')
       .sort((a, b) => {
-         // 公休 -> 有給 -> その他 の順に並べる
          const order = { 'StatutoryHoliday': 1, 'PaidLeave': 2, 'Holiday': 3 };
          const oA = order[a.workType as keyof typeof order] || 9;
          const oB = order[b.workType as keyof typeof order] || 9;
@@ -190,7 +189,6 @@ export default function AssignPatternModal({
                 <Avatar sx={{ 
                   width: 32, height: 32, mr: 2, 
                   fontSize: '0.8rem', 
-                  // ★ 修正: タイプ別に色分け
                   bgcolor: getPatternIconColor(pattern),
                   color: 'common.white',
                   borderRadius: '3px' 
@@ -258,11 +256,13 @@ export default function AssignPatternModal({
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>キャンセル</Button>
+        {/* ★ 修正: 決定 -> 変更を確定 */}
         <Button 
           onClick={handleAssignPattern} 
           variant="contained"
+          disableElevation
         >
-          決定
+          変更を確定
         </Button>
       </DialogActions>
     </Dialog>

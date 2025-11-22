@@ -7,25 +7,20 @@ import {
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 import { IUnit } from '../../db/dexie';
-import { getDefaultDemand } from '../../db/dexie'; // ★ getDefaultDemand をインポート
-
-// (DataManagementPage.tsx から EditUnitModal のコードをそのまま移動)
+import { getDefaultDemand } from '../../db/dexie';
 
 interface EditUnitModalProps {
   unit: IUnit | null;
   onClose: () => void;
   onSave: (updatedUnit: IUnit) => void;
 }
-// UI用の一時的なブロック定義
+
 type DemandBlock = { id: number; start: string; end: string; req: number; };
 
-// export default を追加
 export default function EditUnitModal({ unit, onClose, onSave }: EditUnitModalProps) {
   const [name, setName] = useState('');
-  // UIの状態として「ブロック」を持つ
   const [blocks, setBlocks] = useState<DemandBlock[]>([]);
 
-  // DBの demand配列[0.5, 0.5, 2] -> UIのブロック [{start:'00:00', end:'02:00', req:0.5}, {start:'02:00', end:'03:00', req:2}] に変換
   const demandToBlocks = (demand: number[]): DemandBlock[] => {
     if (!demand || demand.length !== 24) return [];
     const newBlocks: DemandBlock[] = [];
@@ -43,38 +38,34 @@ export default function EditUnitModal({ unit, onClose, onSave }: EditUnitModalPr
         currentReq = demand[hour];
       }
     }
-    // 最後のブロック
     newBlocks.push({
       id: startHour,
       start: `${startHour.toString().padStart(2, '0')}:00`,
-      end: '00:00', // (24:00 を 00:00 と表現)
+      end: '00:00', 
       req: currentReq
     });
     
-    // もし全時間が 0 (ブロックが1つで 00:00-00:00) なら空を返す
     if (newBlocks.length === 1 && newBlocks[0].start === '00:00' && newBlocks[0].end === '00:00' && newBlocks[0].req === 0) {
       return [];
     }
     return newBlocks;
   };
 
-  // UIのブロック -> DBの demand配列 に変換
   const blocksToDemand = (blocks: DemandBlock[]): number[] => {
-    const newDemand = getDefaultDemand(); // (24個の0)
+    const newDemand = getDefaultDemand();
     for (const block of blocks) {
       const startHour = parseInt(block.start.split(':')[0]);
       const endHour = parseInt(block.end.split(':')[0]);
       
-      if (startHour < endHour) { // (日付またがない)
+      if (startHour < endHour) {
         for (let h = startHour; h < endHour; h++) {
           newDemand[h] = block.req;
         }
-      } else if (endHour === 0 && startHour < 24) { // (24:00終了)
+      } else if (endHour === 0 && startHour < 24) {
         for (let h = startHour; h < 24; h++) {
           newDemand[h] = block.req;
         }
       }
-      // (※日付またぎ (例: 16:00 - 07:00) は、この簡易UIでは入力不可)
     }
     return newDemand;
   };
@@ -82,7 +73,6 @@ export default function EditUnitModal({ unit, onClose, onSave }: EditUnitModalPr
   useEffect(() => { 
     if (unit) {
       setName(unit.name);
-      // (DBの24時間配列を、UI用のブロックに変換)
       setBlocks(demandToBlocks(unit.demand));
     }
   }, [unit]);
@@ -90,12 +80,10 @@ export default function EditUnitModal({ unit, onClose, onSave }: EditUnitModalPr
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!unit) return;
-    // (UIのブロックを、DB用の24時間配列に変換)
     const newDemand = blocksToDemand(blocks);
     onSave({ ...unit, name: name.trim(), demand: newDemand });
   };
 
-  // (ブロックの「追加」「削除」「更新」は、状態(blocks)を操作する)
   const handleBlockChange = (id: number, field: keyof DemandBlock, value: any) => {
     setBlocks(currentBlocks => 
       currentBlocks.map(b => 
@@ -107,23 +95,22 @@ export default function EditUnitModal({ unit, onClose, onSave }: EditUnitModalPr
     let newStart = '00:00';
     if (blocks.length > 0) {
       const lastBlockEnd = blocks[blocks.length - 1].end;
-      if (lastBlockEnd === '00:00') { // 既に24時まで埋まっている
+      if (lastBlockEnd === '00:00') {
         alert("既に24時(00:00)に達するブロックが設定されています。\n既存のブロックを変更するか、最後のブロックを削除してから追加してください。");
         return;
       }
-      newStart = lastBlockEnd; // (前のブロックの終了時刻を引き継ぐ)
+      newStart = lastBlockEnd; 
     }
     setBlocks([...blocks, {
       id: Date.now(),
       start: newStart,
-      end: '00:00', // (デフォルトで最後まで)
+      end: '00:00', 
       req: 0
     }]);
   };
   const handleDeleteBlock = (id: number) => {
     setBlocks(blocks.filter(b => b.id !== id));
   };
-
 
   return (
     <Dialog open={!!unit} onClose={onClose} fullWidth maxWidth="md">
@@ -139,7 +126,6 @@ export default function EditUnitModal({ unit, onClose, onSave }: EditUnitModalPr
             日付またぎ（例: 16:00〜07:00）は、「16:00〜00:00」と「00:00〜07:00」の2つのブロックに分けて入力してください。
           </Alert>
           
-          {/* ★★★ v5.2: ブロック入力UI ★★★ */}
           {blocks.map((block) => (
             <Paper key={block.id} sx={{ p: 2, display: 'flex', gap: 1, alignItems: 'center' }} variant="outlined">
               <TextField 
@@ -171,7 +157,8 @@ export default function EditUnitModal({ unit, onClose, onSave }: EditUnitModalPr
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>キャンセル</Button>
-        <Button onClick={handleSubmit} variant="contained">保存</Button>
+        {/* ★ 修正: 保存 -> 変更を確定 */}
+        <Button onClick={handleSubmit} variant="contained" disableElevation>変更を確定</Button>
       </DialogActions>
     </Dialog>
   );

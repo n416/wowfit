@@ -11,7 +11,6 @@ import {
   Edit as EditIcon,
   ArrowBack as ArrowBackIcon,
   History as HistoryIcon,
-  Save as SaveIcon,
   EventNote as NoteIcon
 } from '@mui/icons-material';
 import { IStaff, IPaidLeaveAdjustment } from '../../db/dexie';
@@ -160,7 +159,7 @@ export default function PaidLeaveAdjustmentModal({
       <DialogContent dividers>
         <Stack spacing={3} sx={{ mt: 1 }}>
           
-          {/* 1. 区分選択: 標準的なToggleButtonGroupに戻す */}
+          {/* 1. 区分選択 */}
           <Box>
             <Typography variant="caption" color="text.secondary" gutterBottom display="block">
               区分
@@ -185,7 +184,7 @@ export default function PaidLeaveAdjustmentModal({
             </ToggleButtonGroup>
           </Box>
 
-          {/* 2. 日数入力: InputAdornmentを使ってTextField内にボタンを配置 */}
+          {/* 2. 日数入力 */}
           <Box>
              <TextField
               label="日数"
@@ -193,7 +192,6 @@ export default function PaidLeaveAdjustmentModal({
               onChange={(e) => setDays(e.target.value)}
               type="number"
               fullWidth
-              // ステッパーボタンをTextFieldの内部に配置する
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
@@ -245,12 +243,13 @@ export default function PaidLeaveAdjustmentModal({
         <Button onClick={() => setView('list')} color="inherit">
           キャンセル
         </Button>
+        {/* ★ 修正: SaveIcon削除、文言統一 */}
         <Button 
           onClick={handleSave} 
-          variant="contained" 
-          startIcon={<SaveIcon />}
+          variant="contained"
+          disableElevation
         >
-          保存する
+          変更を確定
         </Button>
       </DialogActions>
     </>

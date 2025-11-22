@@ -6,14 +6,12 @@ import {
 import { IStaff } from '../../db/dexie';
 import { MonthDay,  getDefaultRequiredHolidays } from '../../utils/dateUtils'; 
 
-// ★ MonthDay型を定義（または共有型からインポート）
-
 interface StaffStatusModalProps {
   staff: IStaff | null;
   currentHolidayReq: number;
   onClose: () => void;
   onSave: (newHolidayReq: number) => void;
-  monthDays: MonthDay[]; // ★ 追加: 月の日付情報を受け取る
+  monthDays: MonthDay[]; 
 }
 
 export default function StaffStatusModal({ 
@@ -21,7 +19,7 @@ export default function StaffStatusModal({
   currentHolidayReq, 
   onClose, 
   onSave, 
-  monthDays // ★ 追加
+  monthDays 
 }: StaffStatusModalProps) {
   const [holidayReq, setHolidayReq] = useState(currentHolidayReq);
 
@@ -33,7 +31,6 @@ export default function StaffStatusModal({
     onSave(Number(holidayReq));
   };
 
-  // ★ 修正: monthDays を渡す
   const defaultHolidays = monthDays ? getDefaultRequiredHolidays(monthDays) : 0;
 
   return (
@@ -50,13 +47,13 @@ export default function StaffStatusModal({
           onChange={(e) => setHolidayReq(Number(e.target.value))}
           fullWidth
           margin="normal"
-          // ★ 修正: 計算結果を表示
           helperText={`デフォルト (今月の土日数): ${defaultHolidays} 日`}
         />
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>キャンセル</Button>
-        <Button onClick={handleSave} variant="contained">保存</Button>
+        {/* ★ 修正: 保存 -> 変更を確定 */}
+        <Button onClick={handleSave} variant="contained" disableElevation>変更を確定</Button>
       </DialogActions>
     </Dialog>
   );

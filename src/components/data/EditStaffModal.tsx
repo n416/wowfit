@@ -3,18 +3,17 @@ import {
   Box, TextField, Button, Select,
   MenuItem, InputLabel, FormControl, Checkbox, ListItemText, Chip, Divider,
   Dialog, DialogActions, DialogContent, DialogTitle,
-  CircularProgress, IconButton, Typography // 追加: Typographyなど
+  CircularProgress, IconButton, Typography 
 } from '@mui/material';
-import DeleteIcon from '@mui/icons-material/Delete'; // 追加
-import AddIcon from '@mui/icons-material/Add'; // 追加
+import DeleteIcon from '@mui/icons-material/Delete';
+import AddIcon from '@mui/icons-material/Add'; 
 import { useSelector, useDispatch } from 'react-redux';
 import type { AppDispatch, RootState } from '../../store';
 import {
-  IStaff, IStaffConstraints, IShiftPattern, IUnit, ITimeRange // 追加: ITimeRange
+  IStaff, IStaffConstraints, IShiftPattern, IUnit, ITimeRange
 } from '../../db/dexie';
 import { parseAndSaveConstraints } from '../../store/staffSlice';
 
-// ローカル定義のデフォルト制約
 const getDefaultConstraints = (): IStaffConstraints => ({
   maxConsecutiveDays: 5,
   minIntervalHours: 12,
@@ -41,7 +40,6 @@ export default function EditStaffModal({ staff, onClose, onSave }: EditStaffModa
   const [constraints, setConstraints] = useState<IStaffConstraints>(getDefaultConstraints());
   const [aiLoading, setAiLoading] = useState(false);
 
-  // ★ 追加: パート用時間帯
   const [workableTimeRanges, setWorkableTimeRanges] = useState<ITimeRange[]>([]);
 
   useEffect(() => {
@@ -55,8 +53,6 @@ export default function EditStaffModal({ staff, onClose, onSave }: EditStaffModa
       setMemo(staff.memo || '');
       setConstraints(staff.constraints);
 
-      // ★ 追加: 時間帯のロード
-      // パートなのに設定が空の場合は、デフォルト(8:00-20:00)を表示
       if (staff.employmentType === 'PartTime') {
         setWorkableTimeRanges(staff.workableTimeRanges && staff.workableTimeRanges.length > 0
           ? staff.workableTimeRanges
@@ -68,10 +64,8 @@ export default function EditStaffModal({ staff, onClose, onSave }: EditStaffModa
     }
   }, [staff]);
 
-  // ★ 追加: 雇用形態変更時のハンドラ
   const handleEmploymentTypeChange = (type: 'FullTime' | 'PartTime' | 'Rental') => {
     setEmploymentType(type);
-    // パートに変更した際、時間帯が空ならデフォルトを追加
     if (type === 'PartTime' && workableTimeRanges.length === 0) {
       setWorkableTimeRanges([{ start: '08:00', end: '20:00' }]);
     }
@@ -81,9 +75,7 @@ export default function EditStaffModal({ staff, onClose, onSave }: EditStaffModa
     e.preventDefault();
     if (!staff) return;
 
-    // ★修正: パートタイム時の入力バリデーション強化
     if (employmentType === 'PartTime') {
-      // 1. 個別の整合性チェック
       for (let i = 0; i < workableTimeRanges.length; i++) {
         const range = workableTimeRanges[i];
         if (!range.start || !range.end) {
@@ -96,7 +88,6 @@ export default function EditStaffModal({ staff, onClose, onSave }: EditStaffModa
         }
       }
 
-      // 2. 時間帯同士の重複・包含チェック (新規追加)
       for (let i = 0; i < workableTimeRanges.length; i++) {
         for (let j = i + 1; j < workableTimeRanges.length; j++) {
           const rangeA = workableTimeRanges[i];
@@ -110,10 +101,8 @@ export default function EditStaffModal({ staff, onClose, onSave }: EditStaffModa
       }
     }
 
-    // パート以外は時間帯データを削除、パートなら保存
     let finalTimeRanges: ITimeRange[] | undefined = undefined;
     if (employmentType === 'PartTime') {
-      // 空の場合はデフォルトを入れる(既存ロジック維持)
       finalTimeRanges = workableTimeRanges.length > 0 ? workableTimeRanges : [{ start: '08:00', end: '20:00' }];
     }
 
@@ -138,7 +127,7 @@ export default function EditStaffModal({ staff, onClose, onSave }: EditStaffModa
     dispatch(parseAndSaveConstraints({
       staffId: staff.staffId,
       memo: memo,
-      shiftPatterns: patternList, // ※修正: shiftPatterns変数は削除しpatternListを使用
+      shiftPatterns: patternList, 
       currentMonthInfo: { month: '2025-11', dayOfWeekOn10th: '月曜日' }
     })).then((action) => {
       if (parseAndSaveConstraints.fulfilled.match(action)) {
@@ -149,12 +138,10 @@ export default function EditStaffModal({ staff, onClose, onSave }: EditStaffModa
     });
   };
 
-  // 選択肢から「非労働パターン」を除外（Flexは含める）
   const workPatterns = useMemo(() => {
     return patternList.filter(p => p.workType === 'Work' || p.isFlex);
   }, [patternList]);
 
-  // ★ 追加: 時間帯操作ハンドラ
   const handleAddRange = () => setWorkableTimeRanges([...workableTimeRanges, { start: '08:00', end: '20:00' }]);
   const handleRemoveRange = (i: number) => setWorkableTimeRanges(workableTimeRanges.filter((_, idx) => idx !== i));
   const handleChangeRange = (i: number, f: 'start' | 'end', v: string) => {
@@ -180,7 +167,6 @@ export default function EditStaffModal({ staff, onClose, onSave }: EditStaffModa
 
           <FormControl size="small" fullWidth>
             <InputLabel>雇用形態</InputLabel>
-            {/* ★ 変更: ハンドラを差し替え */}
             <Select value={employmentType} label="雇用形態" onChange={(e) => handleEmploymentTypeChange(e.target.value as any)}>
               <MenuItem value="FullTime">常勤</MenuItem>
               <MenuItem value="PartTime">パート</MenuItem>
@@ -188,7 +174,6 @@ export default function EditStaffModal({ staff, onClose, onSave }: EditStaffModa
             </Select>
           </FormControl>
 
-          {/* ★ 追加: パート用 時間帯設定UI */}
           {employmentType === 'PartTime' && (
             <Box sx={{ border: '1px dashed #ccc', p: 2, borderRadius: 1, bgcolor: '#fafafa' }}>
               <Typography variant="subtitle2" gutterBottom>契約時間帯 (パート)</Typography>
@@ -276,7 +261,8 @@ export default function EditStaffModal({ staff, onClose, onSave }: EditStaffModa
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>キャンセル</Button>
-        <Button onClick={handleSubmit} variant="contained">保存</Button>
+        {/* ★ 修正: 保存 -> 変更を確定 */}
+        <Button onClick={handleSubmit} variant="contained" disableElevation>変更を確定</Button>
       </DialogActions>
     </Dialog>
   );

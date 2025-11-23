@@ -31,7 +31,6 @@ export const calculateDemandMap = (
     if (!staff || staff.status === 'OnLeave') continue; 
     
     if (assignment.unitId && pattern && pattern.workType === 'Work') {
-      // Flex対応 & 時間計算修正
       const overrideStart = assignment.overrideStartTime;
       const overrideEnd = assignment.overrideEndTime;
 
@@ -43,12 +42,10 @@ export const calculateDemandMap = (
       const startFloat = sH + sM / 60;
       const endFloat = eH + eM / 60;
 
-      // 拘束時間を計算
       let duration = endFloat - startFloat;
       if (duration < 0) {
         duration += 24; // 日付またぎ
       } 
-      // ★ 修正: duration === 0 && pattern.crossesMidnight のチェックを削除
       
       const startH = Math.floor(startFloat);
       const endH_calc = startH + Math.ceil(duration);
@@ -56,7 +53,6 @@ export const calculateDemandMap = (
       const endH_today = endH_calc > 24 ? 24 : endH_calc;
       const endH_nextDay = endH_calc > 24 ? endH_calc - 24 : 0;
       
-      // ★ 日またぎ判定 (時刻比較)
       const crossesMidnight = startFloat > endFloat;
 
       // 当日分
@@ -127,11 +123,13 @@ export const calculateDemandMap = (
             const endH_calc = startH + Math.ceil(duration);
             const endH_today = endH_calc > 24 ? 24 : endH_calc;
             const endH_nextDay = endH_calc > 24 ? endH_calc - 24 : 0;
-            // ★ 日またぎ判定
             const crossesMidnight = startFloat > endFloat;
 
             if (a.date === day.dateStr) {
-              return (h >= startH && h < endH_today) || (h < endH_nextDay && crossesMidnight);
+              // ★ 修正: 日またぎ後の時間 (h < endH_nextDay && crossesMidnight) を削除。
+              // 当日のアサインは、当日の範囲 (startH ～ 24:00) のみをカバーするべき。
+              // 翌日分は、翌日のループの「a.date === prevDateStr」側で判定される。
+              return (h >= startH && h < endH_today);
             }
             if (a.date === prevDateStr && (crossesMidnight || endH_calc > 24)) {
               return h < endH_nextDay;

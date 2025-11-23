@@ -186,6 +186,7 @@ function ShiftCalendarPage() {
     selectionRange, setSelectionRange,
     handleCellClick: handleInteractionCellClick, 
     handleCopy, handlePaste,
+    selectAll, // ★ 追加
     invalidateSyncLock,
   } = useCalendarInteractions(sortedStaffList, monthDays); 
 
@@ -260,7 +261,14 @@ function ShiftCalendarPage() {
       </Box>
 
       <AiSupportPane instruction={aiInstruction} onInstructionChange={setAiInstruction} isLoading={adjustmentLoading || patchLoading} error={adjustmentError || patchError} onClearError={handleClearError} onExecuteDefault={handleRunAiDefault} onExecuteCustom={handleRunAiAdjustment} isAnalysisLoading={analysisLoading} analysisResult={analysisResult} analysisError={analysisError} onClearAnalysis={handleClearAnalysis} onExecuteAnalysis={handleRunAiAnalysis} onFillRental={handleFillRental} onForceAdjustHolidays={handleRunAiHolidayPatch} isOverallDisabled={isOverallLoading} />
-      <FloatingActionMenu visible={clickMode === 'select' && !!selectionRange} onCopy={() => handleCopy(false)} onCut={() => handleCopy(true)} onPaste={handlePaste} />
+      {/* ★ 修正: onSelectAll を渡す */}
+      <FloatingActionMenu 
+        visible={clickMode === 'select' && !!selectionRange} 
+        onCopy={() => handleCopy(false)} 
+        onCut={() => handleCopy(true)} 
+        onPaste={handlePaste} 
+        onSelectAll={selectAll}
+      />
       
       <AssignPatternModal target={editingTarget} allStaff={activeStaffList} allPatterns={shiftPatterns} allUnits={unitList} allAssignments={assignments} burdenData={Array.from(staffBurdenData.values())} onClose={closeModals} />
       <DailyUnitGanttModal target={showingGanttTarget} onClose={closeModals} allAssignments={assignments} demandMap={demandMap} monthDays={monthDays} />

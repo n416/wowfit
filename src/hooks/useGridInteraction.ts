@@ -17,6 +17,9 @@ interface UseGridInteractionProps {
   converter: PointToGridConverter;
   maxRow?: number;
   maxCol?: number;
+  // ★ 追加: 開始位置を指定可能にする (デフォルト 0)
+  minRow?: number;
+  minCol?: number;
   onSelectionChange?: (selection: GridSelection | null) => void;
   onCopy?: () => void;
   onPaste?: () => void;
@@ -29,6 +32,8 @@ export const useGridInteraction = ({
   converter,
   maxRow = 0,
   maxCol = 0,
+  minRow = 0, // ★ デフォルト値 0
+  minCol = 0, // ★ デフォルト値 0
   onSelectionChange,
   onCopy,
   onPaste,
@@ -40,9 +45,7 @@ export const useGridInteraction = ({
   
   const selectionRef = useRef<GridSelection | null>(null);
   
-  // 内部的なドラッグ状態（即時反映用）
   const isDraggingRef = useRef(false);
-  // マウスが物理的に押されているか
   const isMouseDownRef = useRef(false);
   const startCoordRef = useRef<GridCoord | null>(null);
 
@@ -61,6 +64,14 @@ export const useGridInteraction = ({
       callbacksRef.current.onSelectionChange(newSelection);
     }
   }, []);
+
+  // ★ 追加: 共通の全選択ロジック (DRY対応)
+  const selectAll = useCallback(() => {
+    updateSelection({
+      start: { r: minRow, c: minCol },
+      end: { r: maxRow, c: maxCol }
+    });
+  }, [minRow, minCol, maxRow, maxCol, updateSelection]);
 
   const getGridCoord = useCallback((clientX: number, clientY: number): GridCoord | null => {
     if (!scrollerRef.current) return null;
@@ -81,6 +92,13 @@ export const useGridInteraction = ({
       const ctrlKey = isMac ? e.metaKey : e.ctrlKey;
       const currentSel = selectionRef.current;
 
+      // ★ 修正: 共通化した selectAll を呼び出す
+      if (ctrlKey && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        selectAll();
+        return;
+      }
+
       // コピー・カット・ペースト
       if (ctrlKey) {
         if (e.key === 'c' && callbacksRef.current.onCopy) { e.preventDefault(); callbacksRef.current.onCopy(); return; }
@@ -89,21 +107,21 @@ export const useGridInteraction = ({
         return;
       }
 
-      // 矢印キー移動
+      // 矢印キー移動 (範囲制限に minRow/minCol を適用)
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
         e.preventDefault();
         
-        let { r, c } = currentSel ? currentSel.end : { r: 0, c: 0 };
+        let { r, c } = currentSel ? currentSel.end : { r: minRow, c: minCol };
         if (!currentSel) {
-          const initial = { r: 0, c: 0 };
+          const initial = { r: minRow, c: minCol };
           updateSelection({ start: initial, end: initial });
           return;
         }
 
         switch (e.key) {
-          case 'ArrowUp': r = Math.max(0, r - 1); break;
+          case 'ArrowUp': r = Math.max(minRow, r - 1); break;
           case 'ArrowDown': r = Math.min(maxRow, r + 1); break;
-          case 'ArrowLeft': c = Math.max(0, c - 1); break;
+          case 'ArrowLeft': c = Math.max(minCol, c - 1); break;
           case 'ArrowRight': c = Math.min(maxCol, c + 1); break;
         }
 
@@ -119,7 +137,7 @@ export const useGridInteraction = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isEnabled, maxRow, maxCol, updateSelection]);
+  }, [isEnabled, maxRow, maxCol, minRow, minCol, updateSelection, selectAll]); // selectAll を依存配列に追加
 
   // --- マウス・タッチ操作 ---
 
@@ -129,7 +147,6 @@ export const useGridInteraction = ({
     
     if (coord) {
       isMouseDownRef.current = true;
-      // ここではまだ isDraggingRef = true にしない（移動したらtrueにする）
       
       if (isShiftKey && selectionRef.current) {
         const anchor = selectionRef.current.start;
@@ -147,7 +164,6 @@ export const useGridInteraction = ({
   const handleMove = useCallback((clientX: number, clientY: number) => {
     if (!isMouseDownRef.current || !startCoordRef.current) return;
     
-    // 移動を検知した時点でドラッグ状態にする
     if (!isDraggingRef.current) {
       setIsDragging(true);
       isDraggingRef.current = true;
@@ -170,8 +186,6 @@ export const useGridInteraction = ({
     pointerPosRef.current = null;
 
     if (isDraggingRef.current) {
-      // ★重要: クリックイベントハンドラ(onMouseUp等)が先に実行されるのを防ぐため、
-      // ドラッグフラグのクリアを少し遅らせる
       setTimeout(() => {
         setIsDragging(false);
         isDraggingRef.current = false;
@@ -263,9 +277,10 @@ export const useGridInteraction = ({
   return {
     selection,
     isDragging,
-    isDraggingRef, // View側での判定用にRefも返す
+    isDraggingRef,
     containerProps,
     clearSelection: () => updateSelection(null),
-    setSelection: updateSelection
+    setSelection: updateSelection,
+    selectAll // ★ 戻り値に追加
   };
 };

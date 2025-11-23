@@ -162,49 +162,48 @@ export default function AnnualSummaryView({
     return () => observer.disconnect();
   }, []);
 
-  // ★ 修正: 座標計算ロジック
   const pointToGrid = useCallback((x: number, y: number) => {
     const scrollLeft = scrollerRef.current?.scrollLeft || 0;
     const scrollTop = scrollerRef.current?.scrollTop || 0;
 
-    // 行の判定 (r)
     let r = -1;
     if (y < headerHeight) {
-      // ヘッダー行 (stickyなのでスクロール量に関係なく画面上部にある)
       r = -1;
     } else {
-      // データ行 (スクロールされるので scrollTop を加味する)
       const contentY = y + scrollTop;
       r = Math.floor((contentY - headerHeight) / ROW_HEIGHT);
     }
 
-    // 列の判定 (c)
     let c = -1;
     if (x < LEFT_COL_WIDTH) {
-      // 固定列 (stickyなのでスクロール量に関係なく画面左側にある)
       c = -1;
     } else {
-      // データ列 (スクロールされるので scrollLeft を加味する)
       const contentX = x + scrollLeft;
       c = Math.floor((contentX - LEFT_COL_WIDTH) / colWidth);
     }
     
-    // 範囲外チェック
     if (r >= rows.length) return null;
     if (c >= 12 + 1) return null;
-
-    // 左上の角 (r=-1, c=-1) も選択可能とする（必要に応じて return null で除外）
     
     return { r, c };
   }, [headerHeight, colWidth, rows.length, scrollerRef]);
 
   const handleCopyRef = useRef<() => void>(() => {});
 
-  const { containerProps, selection, isDraggingRef, clearSelection } = useGridInteraction({
+  // ★ 修正: minRow, minCol を -1 に設定し、フックから selectAll を受け取る
+  const { 
+    containerProps, 
+    selection, 
+    isDraggingRef, 
+    clearSelection, 
+    selectAll 
+  } = useGridInteraction({
     scrollerRef: scrollerRef as React.RefObject<HTMLElement | null>,
     converter: pointToGrid,
     maxRow: rows.length - 1,
     maxCol: 12,
+    minRow: -1, // ヘッダー行を含める
+    minCol: -1, // 左端列を含める
     isEnabled: clickMode === 'select',
     onCopy: () => handleCopyRef.current(), 
   });
@@ -419,7 +418,11 @@ export default function AnnualSummaryView({
           overscan={20} 
         />
       </Box>
-      <FloatingActionMenu visible={clickMode === 'select' && !!selection} onCopy={handleCopy} />
+      <FloatingActionMenu 
+        visible={clickMode === 'select' && !!selection} 
+        onCopy={handleCopy} 
+        onSelectAll={selectAll}
+      />
     </>
   );
 }

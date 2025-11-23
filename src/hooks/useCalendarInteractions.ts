@@ -63,6 +63,31 @@ export const useCalendarInteractions = (
     setSelectionRange(range);
   }, []);
 
+  // ★ 追加: 全選択関数
+  const selectAll = useCallback(() => {
+    if (sortedStaffList.length === 0 || monthDays.length === 0) return;
+    
+    const start: CellCoords = {
+      staffId: sortedStaffList[0].staffId,
+      date: monthDays[0].dateStr,
+      staffIndex: 0,
+      dateIndex: 0
+    };
+    
+    const lastStaffIndex = sortedStaffList.length - 1;
+    const lastDateIndex = monthDays.length - 1;
+    
+    const end: CellCoords = {
+      staffId: sortedStaffList[lastStaffIndex].staffId,
+      date: monthDays[lastDateIndex].dateStr,
+      staffIndex: lastStaffIndex,
+      dateIndex: lastDateIndex
+    };
+
+    setSelectionRange({ start, end });
+  }, [sortedStaffList, monthDays]);
+
+
   const toggleHoliday = useCallback((date: string, staff: IStaff, targetPatternId: string) => {
     const state = store.getState();
     const isCurrentlyLoading = state.assignment.present.adjustmentLoading || state.assignment.present.patchLoading || state.calendar.isMonthLoading;
@@ -282,6 +307,7 @@ export const useCalendarInteractions = (
     handleCellClick,
     handleCopy,
     handlePaste,
+    selectAll, // ★ 追加
     invalidateSyncLock: () => { },
   };
 };

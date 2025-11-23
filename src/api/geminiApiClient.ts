@@ -1,83 +1,45 @@
+import { getGenerativeModel } from "firebase/ai";
+import { aiLogic } from "../firebaseConfig";
+
 export class GeminiApiClient {
-  // プライベートフィールドをTypeScript形式に変更
-  private geminiApiKey: string | null = null;
-  private isKeyValid: boolean = false;
-  private modelId: string | null = null;
-  private baseUrl: string = 'https://generativelanguage.googleapis.com/v1beta/models';
+  private modelId: string = "gemini-2.5-Pro";
 
   constructor() {
-    try {
-      const storedKey = localStorage.getItem('geminiApiKey');
-      if (storedKey) {
-        this.geminiApiKey = storedKey;
-        this.isKeyValid = true;
-      } else {
-        this.isKeyValid = false;
-      }
-      this.modelId = localStorage.getItem('geminiModelId');
-
-    } catch (e) {
-      console.error('Failed to access localStorage:', e);
-      this.isKeyValid = false;
+    const storedModel = localStorage.getItem('geminiModelId');
+    if (storedModel) {
+      // "models/..." のプレフィックス対策と、古い "1.5" 設定の自動修正
+      let cleanId = storedModel.replace('models/', '');
+      this.modelId = cleanId;
     }
   }
 
   get isAvailable(): boolean {
-    return this.isKeyValid && !!this.modelId;
+    return !!aiLogic;
   }
 
-  static async listAvailableModels(apiKey: string): Promise<any[]> {
-    if (!apiKey) {
-      throw new Error('APIキーがありません。');
-    }
-    const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
-    const response = await fetch(url);
-    const data = await response.json();
-    if (!response.ok) {
-      const detail = data?.error?.message || '不明なエラー';
-      throw new Error(`モデルリストの取得に失敗しました (${response.status}): ${detail}`);
-    }
-    return data.models;
+  static async listAvailableModels(): Promise<any[]> {
+    // ★修正: リストも現行モデルに更新
+    return [
+      { name: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash (高速・最新)' },
+      { name: 'gemini-2.5-pro', displayName: 'Gemini 2.5 Pro (高性能・最新)' },
+    ];
   }
 
   async generateContent(prompt: string): Promise<string> {
-    if (!this.isAvailable || !this.modelId || !this.geminiApiKey) {
-      throw new Error('Gemini APIキーまたはモデルIDが設定されていません。');
+    try {
+      const model = getGenerativeModel(aiLogic, { model: this.modelId });
+      
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text();
+
+      if (!text) throw new Error("AIからの応答が空でした。");
+      return text;
+
+    } catch (e: any) {
+      console.error("AI Logic Error:", e);
+      // エラーメッセージを少し親切に
+      throw new Error(`AI生成エラー: ${e.message}`);
     }
-
-    const cleanModelId = this.modelId.startsWith('models/') ? this.modelId.split('/')[1] : this.modelId;
-    const apiUrl = `${this.baseUrl}/${cleanModelId}:generateContent?key=${this.geminiApiKey}`;
-
-    const requestBody = {
-      contents: [{ parts: [{ "text": prompt }] }],
-      safetySettings: [
-        { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE" },
-        { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" },
-        { "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE" },
-        { "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE" }
-      ]
-    };
-
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestBody),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      const detail = data?.error?.message || '不明なエラー';
-      throw new Error(`APIリクエストに失敗しました (${response.status}): ${detail}`);
-    }
-
-    if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
-      if (data.candidates?.[0]?.finishReason === 'SAFETY') {
-        throw new Error(`AIから有効な応答が得られませんでした。理由: 安全性設定によりブロックされました。`);
-      }
-      const reason = data.promptFeedback?.blockReason || data.candidates?.[0]?.finishReason || '不明';
-      throw new Error(`AIから有効な応答が得られませんでした。理由: ${reason}`);
-    }
-    return data.candidates[0].content.parts[0].text;
   }
 }

@@ -1,68 +1,42 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Box, Paper, Typography, Button, TextField, Divider, Select, MenuItem, InputLabel, CircularProgress, FormControl } from '@mui/material';
+import { useState, useEffect } from 'react';
+import { Box, Paper, Typography, Button, Divider, Select, MenuItem, InputLabel, FormControl, Alert } from '@mui/material';
 import { GeminiApiClient } from '../api/geminiApiClient';
 
 function SettingsPage() {
-  const [apiKey, setApiKey] = useState('');
-  const [models, setModels] = useState<any[]>([]); // 型定義
+  // APIキーのStateは削除
+  const [models, setModels] = useState<any[]>([]);
   const [selectedModel, setSelectedModel] = useState('');
-  const [isTesting, setIsTesting] = useState(false);
-  const [testSuccess, setTestSuccess] = useState<boolean | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  const handleTestAndLoadModels = useCallback(async (key: string) => {
-    if (!key) return []; 
-    setIsTesting(true);
-    setTestSuccess(null);
-    setModels([]);
-    try {
-      const availableModels = await GeminiApiClient.listAvailableModels(key);
-      const supportedModels = availableModels.filter((m: any) =>
-        m.supportedGenerationMethods.includes('generateContent') &&
-        m.name.includes('pro') && 
-        !m.name.includes('vision') 
-      );
-      setModels(supportedModels);
-      setTestSuccess(true);
-      return supportedModels;
-    } catch (error: any) {
-      console.error('API connection test failed:', error);
-      setTestSuccess(false);
-      alert(`APIキーの検証に失敗しました: ${error.message}`);
-      return [];
-    } finally {
-      setIsTesting(false);
-    }
-  }, []); 
-
+  // 初期化：モデルリストの取得と保存済み設定の読み込み
   useEffect(() => {
-    const loadSettings = async () => {
+    const initSettings = async () => {
+      setLoading(true);
       try {
-        const savedApiKey = localStorage.getItem('geminiApiKey') || '';
-        const savedModel = localStorage.getItem('geminiModelId') || '';
-        setApiKey(savedApiKey);
+        // APIキー不要でモデルリストを取得
+        const availableModels = await GeminiApiClient.listAvailableModels();
+        setModels(availableModels);
 
-        if (savedApiKey) {
-          const supportedModels = await handleTestAndLoadModels(savedApiKey);
-          
-          const modelExists = supportedModels.some((m: any) => m.name === savedModel);
-          
-          if (modelExists) {
-            setSelectedModel(savedModel);
-          } else {
-            setSelectedModel('');
-          }
+        // 保存されたモデルがあれば復元、なければデフォルト
+        const savedModel = localStorage.getItem('geminiModelId');
+        if (savedModel && availableModels.some(m => m.name === savedModel)) {
+          setSelectedModel(savedModel);
+        } else {
+          // デフォルトを gemini-1.5-flash に設定
+          setSelectedModel('gemini-1.5-flash');
         }
-      // ★★★ ここが修正点です ★★★
-      } catch (error: any) { 
-        console.error("localStorageからの設定読み込みに失敗しました:", error);
+      } catch (error) {
+        console.error('設定の読み込みに失敗:', error);
+      } finally {
+        setLoading(false);
       }
     };
     
-    loadSettings();
-  }, [handleTestAndLoadModels]); 
+    initSettings();
+  }, []);
 
   const handleSaveSettings = () => {
-    localStorage.setItem('geminiApiKey', apiKey);
+    // モデルIDだけ保存すればOK（APIキーは保存しない）
     localStorage.setItem('geminiModelId', selectedModel);
     alert('設定を保存しました。');
   };
@@ -76,18 +50,13 @@ function SettingsPage() {
         <Divider sx={{ my: 2 }} />
 
         <Box sx={{ my: 3 }}>
-          <Typography variant="h6" gutterBottom>API連携</Typography>
-          <TextField label="Gemini API Key" variant="outlined" fullWidth value={apiKey} onChange={(e) => setApiKey(e.target.value)} sx={{ mb: 1 }} type="password" placeholder="お使いのAPIキーを入力してください" />
+          <Typography variant="h6" gutterBottom>AIモデル設定</Typography>
           
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-            <Button variant="outlined" onClick={() => handleTestAndLoadModels(apiKey)} disabled={isTesting}>
-              {isTesting ? <CircularProgress size={24} /> : '接続テスト & モデル読込'}
-            </Button>
-            {testSuccess === true && <Typography color="green">✅ 接続成功</Typography>}
-            {testSuccess === false && <Typography color="error">❌ 接続失敗</Typography>}
-          </Box>
+          <Alert severity="info" sx={{ mb: 3 }}>
+            現在は Firebase Vertex AI を使用しているため、APIキーの設定は不要です。
+          </Alert>
 
-          <FormControl fullWidth>
+          <FormControl fullWidth disabled={loading}>
             <InputLabel id="model-select-label">使用するAIモデル</InputLabel>
             <Select
               labelId="model-select-label"
@@ -97,7 +66,7 @@ function SettingsPage() {
             >
               {models.map((model: any) => (
                 <MenuItem key={model.name} value={model.name}>
-                  {model.displayName} ({model.name.replace('models/', '')})
+                  {model.displayName}
                 </MenuItem>
               ))}
             </Select>

@@ -16,6 +16,7 @@
     "@mui/material": "^7.3.5",
     "@reduxjs/toolkit": "^2.10.1",
     "dexie": "^4.2.1",
+    "firebase": "^12.6.0",
     "html2canvas": "^1.4.1",
     "japanese-holidays": "^1.0.10",
     "react": "^19.2.0",

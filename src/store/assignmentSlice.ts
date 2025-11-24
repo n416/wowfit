@@ -40,7 +40,6 @@ const getAssignmentTimeRange = (date: string, pattern: IShiftPattern, overrideSt
   const baseDate = new Date(date.replace(/-/g, '/')).getTime();
   const startAbs = baseDate + startMin * 60 * 1000;
   const endAbs = startAbs + duration * 60 * 1000;
-  
   return { start: startAbs, end: endAbs };
 };
 
@@ -54,9 +53,7 @@ const calculateCurrentHolidayCounts = (
   const patternMap = new Map(allPatterns.map(p => [p.patternId, p]));
   const assignmentMap = new Map<string, IAssignment>();
   allAssignments.forEach(a => assignmentMap.set(`${a.staffId}_${a.date}`, a));
-
   const counts = new Map<string, number>();
-
   allStaff.forEach(staff => {
     let count = 0;
     for (const day of monthDays) {
@@ -66,9 +63,7 @@ const calculateCurrentHolidayCounts = (
 
       // 1. 明示的な休日パターンのカウント
       if (pattern) {
-        if (pattern.workType === 'StatutoryHoliday' || 
-            pattern.workType === 'PaidLeave' || 
-            pattern.workType === 'Holiday') {
+        if (pattern.workType === 'StatutoryHoliday' || pattern.workType === 'PaidLeave' || pattern.workType === 'Holiday') {
           count += 1.0;
         }
       }
@@ -77,7 +72,6 @@ const calculateCurrentHolidayCounts = (
       const prevDateStr = getPrevDateStr(dateStr);
       const prevAssignment = assignmentMap.get(`${staff.staffId}_${prevDateStr}`);
       const prevPattern = prevAssignment ? patternMap.get(prevAssignment.patternId) : undefined;
-      
       const isPrevNightShift = prevPattern?.isNightShift === true;
       const isTodayWork = pattern?.workType === 'Work';
 
@@ -88,8 +82,13 @@ const calculateCurrentHolidayCounts = (
     }
     counts.set(staff.staffId, count);
   });
-
   return counts;
+};
+
+// ★ 悪代官の知恵: JSONから 'name' キーを抹消するReplacer関数
+const privacyReplacer = (key: string, value: any) => {
+  if (key === 'name') return undefined; // 名前は消す
+  return value;
 };
 
 // --- Thunks ---
@@ -111,30 +110,54 @@ export const fetchAssignmentAdvice = createAsyncThunk(
     if (!gemini.isAvailable) {
       return rejectWithValue('Gemini APIが設定されていません。');
     }
-    const prompt = `あなたは勤務スケジュールアシスタントです。管理者が「${targetStaff.name}」の「${targetDate}」のアサインを手動で調整しようとしています。
+
+    // ★★★ 偽名作戦 (Pseudonymization) ★★★
+    // プロンプト内では「スタッフA」として振る舞わせる
+    const PSEUDONYM = "スタッフA";
+    
+    // 対象スタッフの情報をコピーし、名前だけ偽名に書き換える
+    const maskedTargetStaff = { ...targetStaff, name: PSEUDONYM };
+
+    // burdenDataなどに含まれる他のスタッフの本名も privacyReplacer で根こそぎ消す
+    const prompt = `あなたは勤務スケジュールアシスタントです。管理者が「${PSEUDONYM}」の「${targetDate}」のアサインを手動で調整しようとしています。
 以下の状況を分析し、管理者が**次に行うべきアクション（ネゴシエーション）**を具体的に助言してください。
+
 # 1. 調整対象のスタッフ
-- 氏名: ${targetStaff.name} (ID: ${targetStaff.staffId})
-- 所属: ${targetStaff.unitId || 'フリー'}
-- 勤務可能パターン: ${targetStaff.availablePatternIds.join(', ')}
-- メモ: ${targetStaff.memo || '特になし'}
+- 氏名: ${maskedTargetStaff.name} (ID: ${maskedTargetStaff.staffId})
+- 所属: ${maskedTargetStaff.unitId || 'フリー'}
+- 勤務可能パターン: ${maskedTargetStaff.availablePatternIds.join(', ')}
+- メモ: ${maskedTargetStaff.memo || '特になし'}
+
 # 2. ユニット別・24時間デマンド（あるべき必要人数）
-${JSON.stringify(allUnits)}
+${JSON.stringify(allUnits, privacyReplacer)}
+
 # 3. スタッフ全員の現在の負担状況
-${JSON.stringify(burdenData, null, 2)}
+// ※プライバシー保護のため、氏名は伏せられています。
+${JSON.stringify(burdenData, privacyReplacer, 2)}
+
 # 4. 勤務パターン定義 (参考)
 ${JSON.stringify(allPatterns.map(p => ({ id: p.patternId, name: p.name, startTime: p.startTime, endTime: p.endTime, crossUnit: p.crossUnitWorkType, workType: p.workType })))}
+
 # 5. 月全体のアサイン状況 (参考)
 ${JSON.stringify(allAssignments.filter(s => s.staffId), null, 2)}
+
 # 指示 (最重要)
 1. **デマンド分析**: ${targetDate} のデマンド（必要人数）に対し、現状のアサイン（Supply）は充足していますか？ 不足している時間帯はどこですか？
-2. **候補パターンの選定**: 「${targetStaff.name}」の「勤務可能パターン」から、${targetDate} のデマンド不足を解消するために最適なパターン（「公休」や「有給」も含む）を提案してください。
+2. **候補パターンの選定**: 「${PSEUDONYM}」の「勤務可能パターン」から、${targetDate} のデマンド不足を解消するために最適なパターン（「公休」や「有給」も含む）を提案してください。
 3. **包括的な分析**: もし${targetDate}に労働パターンを割り当てると、連勤やインターバル、負担に問題が出ないか、月全体のアサイン状況を見て評価してください。
-4. **ネゴシエーション支援**: もしスタッフのメモ（例：「AさんとNG」）と競合する場合、それを踏まえた「ネゴシエーション文例」も作成してください。
-5. **形式**: 「デマンド分析: [不足状況]」「推奨: [パターンID (例: C, N, 公休)]」「理由: [なぜそのパターンか]」「ネゴ文例: [依頼メッセージ]」の形式で、自然言語で回答してください。`;
+4. **ネゴシエーション支援**: もしスタッフのメモ（例：「NGあり」）と競合する場合、それを踏まえた「ネゴシエーション文例」も作成してください。
+5. **形式**: 「デマンド分析: [不足状況]」「推奨: [パターンID]」「理由: [根拠]」「ネゴ文例: [依頼メッセージ]」の形式で、自然言語で回答してください。
+   - **回答の中で対象スタッフを呼ぶときは「${PSEUDONYM}さん」と呼んでください。**
+`;
+
     try {
       const resultText = await gemini.generateContent(prompt);
-      return resultText;
+      
+      // ★★★ 書き戻し (De-anonymization) ★★★
+      // AIが書いた「スタッフA」を、本名「田中」に戻す
+      const realNameAdvice = resultText.replaceAll(PSEUDONYM, targetStaff.name);
+      
+      return realNameAdvice;
     } catch (e: any) {
       return rejectWithValue(e.message);
     }
@@ -149,7 +172,7 @@ interface FetchAiAdjustmentArgs {
   allAssignments: IAssignment[]; 
   monthInfo: { year: number, month: number, days: any[] };
   staffHolidayRequirements: Map<string, number>; 
-  includeCurrentAssignments: boolean; // ★ 追加: 現在の手動入力をAIに渡すかどうか
+  includeCurrentAssignments: boolean; 
 }
 
 export const fetchAiAdjustment = createAsyncThunk(
@@ -187,8 +210,9 @@ export const fetchAiAdjustment = createAsyncThunk(
 ${finalInstruction}
 
 # 2. スタッフ一覧 (制約・必要公休数・★契約時間帯)
+// ※プライバシー保護のため、氏名は伏せられています。staffIdを参照してください。
 // workableTimeRanges があるスタッフはパートタイムです。指定された時間帯の範囲内でのみ勤務可能です。
-${JSON.stringify(staffWithHolidayReq, null, 2)}
+${JSON.stringify(staffWithHolidayReq, privacyReplacer, 2)} 
 
 # 3. 勤務パターン定義 (時間・種類・★Flexフラグ)
 // isFlex: true のパターンは「時間枠指定」です。アサイン時に具体的な開始・終了時間を決定する必要があります。
@@ -244,7 +268,7 @@ ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
 
       // スタッフごとのアサインリストを作成（連勤チェック用）
       const staffAssignmentsMap = new Map<string, IAssignment[]>();
-      newAssignments.sort((a, b) => a.date.localeCompare(b.date)); // 日付順ソート
+      newAssignments.sort((a, b) => a.date.localeCompare(b.date)); 
       
       for (const assignment of newAssignments) {
         if (!staffAssignmentsMap.has(assignment.staffId)) {
@@ -278,16 +302,13 @@ ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
           const ranges = (staff.workableTimeRanges && staff.workableTimeRanges.length > 0)
             ? staff.workableTimeRanges
             : [{ start: '08:00', end: '20:00' }];
-
           const sMin = timeToMin(startStr);
           const eMin = timeToMin(endStr);
-          
           const isTimeValid = ranges.some(range => {
             const rStart = timeToMin(range.start);
             const rEnd = timeToMin(range.end);
             return sMin >= rStart && eMin <= rEnd;
           });
-
           if (!isTimeValid) {
             isValid = false;
             rejectReason = `契約時間外 (${startStr}-${endStr})`;
@@ -297,7 +318,6 @@ ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
         // 2. 連勤チェック (Locked以外の新規アサインに対して実施)
         if (isValid && !assignment.locked) {
           const maxConsecutive = staff.constraints?.maxConsecutiveDays || 5;
-          
           const myAssignments = staffAssignmentsMap.get(staff.staffId) || [];
           const myIndex = myAssignments.indexOf(assignment);
           
@@ -315,7 +335,6 @@ ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
               break; 
             }
           }
-          
           if (consecutiveCount > maxConsecutive) {
             isValid = false;
             rejectReason = `${consecutiveCount}連勤目 (上限${maxConsecutive})`;
@@ -327,16 +346,13 @@ ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
           const minInterval = staff.constraints?.minIntervalHours || 12;
           const myAssignments = staffAssignmentsMap.get(staff.staffId) || [];
           const myIndex = myAssignments.indexOf(assignment);
-          
           if (myIndex > 0) {
             const prev = myAssignments[myIndex - 1];
             const prevPattern = patternMap.get(prev.patternId);
             const prevDateDiff = (new Date(assignment.date).getTime() - new Date(prev.date).getTime()) / (1000 * 60 * 60 * 24);
-            
             if (prevDateDiff === 1 && prevPattern?.workType === 'Work') {
               const prevEnd = getAssignmentTimeRange(prev.date, prevPattern, prev.overrideStartTime, prev.overrideEndTime).end;
               const currentStart = getAssignmentTimeRange(assignment.date, pattern, assignment.overrideStartTime, assignment.overrideEndTime).start;
-              
               const intervalHours = (currentStart - prevEnd) / (1000 * 60 * 60);
               if (intervalHours < minInterval) {
                 isValid = false;
@@ -349,10 +365,7 @@ ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
         if (isValid) {
           validAssignments.push(assignment);
         } else {
-          removedMessages.push(
-            `・${assignment.date} ${staff.name}: ${rejectReason}`
-          );
-          // staffAssignmentsMap からも削除
+          removedMessages.push(`・${assignment.date} ${staff.name}: ${rejectReason}`);
           const list = staffAssignmentsMap.get(staff.staffId);
           if (list) {
              const idx = list.indexOf(assignment);
@@ -371,22 +384,12 @@ ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
       // 保存処理
       const firstDay = monthInfo.days[0].dateStr;
       const lastDay = monthInfo.days[monthInfo.days.length - 1].dateStr;
-      
       await db.transaction('rw', db.assignments, async () => {
-          await db.assignments
-            .where('date')
-            .between(firstDay, lastDay, true, true)
-            .delete();
-            
+          await db.assignments.where('date').between(firstDay, lastDay, true, true).delete();
           const assignmentsToSave = validAssignments.map(({ id, ...rest }) => rest);
           await db.assignments.bulkAdd(assignmentsToSave);
       });
-      
-      const allAssignmentsFromDB = await db.assignments
-          .where('date')
-          .between(firstDay, lastDay, true, true)
-          .toArray();
-          
+      const allAssignmentsFromDB = await db.assignments.where('date').between(firstDay, lastDay, true, true).toArray();
       return allAssignmentsFromDB;
       
     } catch (e: any) {
@@ -414,8 +417,6 @@ export const fetchAiHolidayPatch = createAsyncThunk(
       return rejectWithValue('Gemini APIが設定されていません。');
     }
     const defaultHolidayCount = getDefaultRequiredHolidays(monthInfo.days);
-    
-    // ★ ここで calculateCurrentHolidayCounts を使用
     const currentHolidayCounts = calculateCurrentHolidayCounts(allStaff, allAssignments, allPatterns, monthInfo.days);
     
     const discrepancyList = allStaff.map(staff => {
@@ -425,7 +426,7 @@ export const fetchAiHolidayPatch = createAsyncThunk(
       if (diff === 0) return null;
       return {
         staffId: staff.staffId,
-        name: staff.name,
+        // name は privacyReplacer で消えるのでここでは入れておいても良いが、明示的に削除も可
         current: cur,
         required: req,
         diff: diff,
@@ -446,7 +447,8 @@ export const fetchAiHolidayPatch = createAsyncThunk(
 以下の「公休過不足リスト」に基づき、**公休数に過不足があるスタッフのみ**アサインを修正してください。
 
 # 1. 公休過不足リスト (★これに従って修正してください)
-${JSON.stringify(discrepancyList, null, 2)}
+// ※氏名は伏せてあります。staffIdを使用してください。
+${JSON.stringify(discrepancyList, privacyReplacer, 2)}
 
 # 2. 勤務パターン定義
 ${JSON.stringify(allPatterns, null, 2)}
@@ -506,11 +508,7 @@ ${monthInfo.year}年 ${monthInfo.month}月 (${monthInfo.days.length}日間)
       
       const firstDay = monthInfo.days[0].dateStr;
       const lastDay = monthInfo.days[monthInfo.days.length - 1].dateStr;
-      const allAssignmentsFromDB = await db.assignments
-        .where('date')
-        .between(firstDay, lastDay, true, true)
-        .toArray();
-        
+      const allAssignmentsFromDB = await db.assignments.where('date').between(firstDay, lastDay, true, true).toArray();
       alert(`AIによる公休数の強制補正が完了しました。（${patchAssignments.length}件の変更）`);
       return allAssignmentsFromDB;
       
@@ -548,7 +546,8 @@ export const fetchAiAnalysis = createAsyncThunk(
     const prompt = `あなたは勤務表システムのデータ診断医です。
 以下の「マスタデータ（スタッフ設定、デマンド設定）」と「固定されたアサイン（管理者による確定事項）」を診断し、**論理的な矛盾**や**物理的な達成不可能性**を指摘してください。
 # 1. スタッフ一覧 (制約と必要公休数)
-${JSON.stringify(staffWithHolidayReq, null, 2)}
+// ※氏名は伏せてあります。staffIdを参照してください。
+${JSON.stringify(staffWithHolidayReq, privacyReplacer, 2)}
 # 2. ユニット別・24時間デマンド（あるべき必要人数）
 ${JSON.stringify(allUnits, null, 2)}
 # 3. 勤務パターン定義 (参考)

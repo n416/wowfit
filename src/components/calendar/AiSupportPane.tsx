@@ -1,12 +1,9 @@
-// src/components/calendar/AiSupportPane.tsx
 import { useState, useEffect } from 'react';
 import { 
   Box, Paper, Typography, TextField, Button, 
   CircularProgress, Alert, AlertTitle,
-  Collapse,
-  IconButton,
-  Stack,
-  Divider
+  Collapse, IconButton, Stack, Divider,
+  Dialog, DialogTitle, DialogContent, DialogActions, DialogContentText
 } from '@mui/material';
 
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'; 
@@ -17,6 +14,8 @@ import FindInPageIcon from '@mui/icons-material/FindInPage';
 import CloseIcon from '@mui/icons-material/Close';
 import SupportAgentIcon from '@mui/icons-material/SupportAgent'; 
 import BalanceIcon from '@mui/icons-material/Balance';
+import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
+import EditNoteIcon from '@mui/icons-material/EditNote';
 
 interface AiSupportPaneProps {
   instruction: string;
@@ -25,8 +24,8 @@ interface AiSupportPaneProps {
   error: string | null;
   onClearError: () => void;
   
-  onExecuteDefault: () => void; 
-  onExecuteCustom: () => void;  
+  onExecuteDefault: (keep: boolean) => void; 
+  onExecuteCustom: (keep: boolean) => void;  
   
   isAnalysisLoading: boolean; 
   analysisResult: string | null;
@@ -37,7 +36,9 @@ interface AiSupportPaneProps {
   onFillRental: () => void;
   onForceAdjustHolidays: () => void;
   
-  isOverallDisabled: boolean; 
+  isOverallDisabled: boolean;
+  // ★ 追加: ロックされていない下書きがあるか
+  hasDraftAssignments: boolean; 
 }
 
 export default function AiSupportPane({
@@ -46,26 +47,48 @@ export default function AiSupportPane({
   onExecuteCustom,  
   isAnalysisLoading, analysisResult, analysisError, onClearAnalysis, onExecuteAnalysis,
   onFillRental, onForceAdjustHolidays,
-  isOverallDisabled
+  isOverallDisabled,
+  hasDraftAssignments
 }: AiSupportPaneProps) {
 
-  // ★ 修正: ローカルストレージから初期値を読み込む
   const [isAiSupportOpen, setIsAiSupportOpen] = useState(() => {
     const saved = localStorage.getItem('isAiSupportPaneOpen');
     return saved !== null ? JSON.parse(saved) : true;
   });
 
-  // ★ 追加: 状態変更時にローカルストレージへ保存
+  // ★ ダイアログ管理用ステート
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [pendingAction, setPendingAction] = useState<'default' | 'custom' | null>(null);
+
   useEffect(() => {
     localStorage.setItem('isAiSupportPaneOpen', JSON.stringify(isAiSupportOpen));
   }, [isAiSupportOpen]);
 
-  const handleExecute = () => {
-    onExecuteCustom(); 
+  // 実行ボタンが押された時のハンドラ
+  const handleRequestExecute = (actionType: 'default' | 'custom') => {
+    if (hasDraftAssignments) {
+      // 下書きがある場合はダイアログで聞く
+      setPendingAction(actionType);
+      setDialogOpen(true);
+    } else {
+      // 下書きがない（または全部ロック済み）なら、問答無用で実行（keep=falseでも影響なし）
+      if (actionType === 'default') onExecuteDefault(false);
+      else onExecuteCustom(false);
+    }
   };
-  
+
+  // ダイアログでの選択ハンドラ
+  const handleConfirm = (keep: boolean) => {
+    setDialogOpen(false);
+    if (pendingAction === 'default') {
+      onExecuteDefault(keep);
+    } else if (pendingAction === 'custom') {
+      onExecuteCustom(keep);
+    }
+    setPendingAction(null);
+  };
+
   const isAiLoading = isLoading || isAnalysisLoading;
-  
   const displayResult = analysisResult;
 
   return (
@@ -138,7 +161,7 @@ export default function AiSupportPane({
           <Stack spacing={3}>
             
             <Box>
-              <Typography variant="caption" color="textSecondary" sx={{ mb: 1.5, display: 'block', fontWeight: 'bold' }}>
+              <Typography variant="caption" color="textSecondary" sx={{ mb: 1, display: 'block', fontWeight: 'bold' }}>
                 [生成グループ (1→2→3の順に実行推奨)]
               </Typography>
               <Stack spacing={2}>
@@ -146,64 +169,52 @@ export default function AiSupportPane({
                   variant="contained" 
                   color="primary"
                   startIcon={isLoading ? <CircularProgress size={20} color="inherit" /> : <AutoFixHighIcon />}
-                  onClick={onExecuteDefault} 
+                  onClick={() => handleRequestExecute('default')} 
                   disabled={isOverallDisabled} 
                   fullWidth
                 >
-                  (1) {isLoading ? '作成中...' : 'AIで草案を作成'}
+                  (1) {isLoading ? '作成中...' : '草案を作成（ＡＩ）'}
                 </Button>
                 
-                <Button 
-                  variant="outlined" 
-                  color="primary"    
-                  startIcon={<BalanceIcon color="primary" />} 
-                  onClick={onForceAdjustHolidays}
-                  disabled={isOverallDisabled} 
-                  fullWidth
-                >
-                  (2) 公休数強制補正
-                </Button>
+                  <Button 
+                    variant="outlined" 
+                    color="primary"    
+                    startIcon={<BalanceIcon color="primary" />} 
+                    onClick={onForceAdjustHolidays}
+                    disabled={isOverallDisabled} 
+                    fullWidth
+                    sx={{ fontSize: '0.8rem' }}
+                  >
+                    (2) 公休数補正(ＡＩ)
+                  </Button>
 
-                <Button 
-                  variant="outlined" 
-                  color="primary"    
-                  startIcon={<SupportAgentIcon color="primary" />} 
-                  onClick={onFillRental}
-                  disabled={isOverallDisabled} 
-                  fullWidth
-                >
-                  (3) 応援スタッフで埋める (ロジック)
-                </Button>
+                  <Button 
+                    variant="outlined" 
+                    color="primary"    
+                    startIcon={<SupportAgentIcon color="primary" />} 
+                    onClick={onFillRental}
+                    disabled={isOverallDisabled} 
+                    fullWidth
+                    sx={{ fontSize: '0.8rem' }}
+                  >
+                    (3) 応援スタッフで埋める (ロジック)
+                  </Button>
               </Stack>
             </Box>
 
             <Divider />
 
             <Box>
-              <Typography variant="caption" color="textSecondary" sx={{ mb: 1.5, display: 'block', fontWeight: 'bold' }}>
-                [調整グループ (任意)]
+              <Typography variant="caption" color="textSecondary" sx={{ mb: 1, display: 'block', fontWeight: 'bold' }}>
+                [調整・分析]
               </Typography>
-              <Stack spacing={3}>
-                <Button 
-                  variant="outlined" 
-                  color="secondary"
-                  startIcon={isAnalysisLoading ? <CircularProgress size={20} color="inherit" /> : <FindInPageIcon />}
-                  onClick={() => onExecuteAnalysis()} 
-                  disabled={isOverallDisabled} 
-                  fullWidth
-                >
-                  {isAnalysisLoading ? '分析中...' : 'AI現況分析'}
-                </Button>
-
+              <Stack spacing={2}>
                 <Box>
-                  <Typography variant="caption" color="textSecondary" sx={{ mb: 1, display: 'block' }}>
-                    [カスタム指示]
-                  </Typography>
                   <Stack direction="row" spacing={1}>
                     <TextField
                       size="small"
                       fullWidth
-                      placeholder="例: Aさんの夜勤を減らして..."
+                      placeholder="指示: Aさんの夜勤を減らして..."
                       value={instruction}
                       onChange={(e) => onInstructionChange(e.target.value)}
                       disabled={isOverallDisabled}
@@ -211,20 +222,75 @@ export default function AiSupportPane({
                     <Button 
                       variant="contained" 
                       color="info"
-                      onClick={() => handleExecute()} 
+                      onClick={() => handleRequestExecute('custom')} 
                       disabled={isOverallDisabled} 
-                      sx={{ minWidth: '120px' }}
+                      sx={{ minWidth: '100px', whiteSpace: 'nowrap' }}
                     >
                       AI調整
                     </Button>
                   </Stack>
                 </Box>
+                
+                <Button 
+                  variant="outlined" 
+                  color="secondary"
+                  size="small"
+                  startIcon={isAnalysisLoading ? <CircularProgress size={16} color="inherit" /> : <FindInPageIcon />}
+                  onClick={() => onExecuteAnalysis()} 
+                  disabled={isOverallDisabled} 
+                  fullWidth
+                >
+                  {isAnalysisLoading ? '分析中...' : 'AI現況分析'}
+                </Button>
               </Stack>
             </Box>
 
           </Stack>
         </Box>
       </Collapse>
+
+      {/* ★ 実行モード確認ダイアログ */}
+      <Dialog
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+      >
+        <DialogTitle>生成モードの選択</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            現在、画面上に手動で入力された（または前回の）アサインが残っています。
+            これをAIに考慮させますか？
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions sx={{ flexDirection: 'column', gap: 1, p: 2, alignItems: 'stretch' }}>
+          <Button 
+            onClick={() => handleConfirm(true)} 
+            variant="outlined" 
+            startIcon={<EditNoteIcon />}
+            fullWidth
+          >
+            残して調整 (Refine)
+            <Typography variant="caption" sx={{ ml: 1, color: 'text.secondary' }}>
+              現在の配置を維持・改善します
+            </Typography>
+          </Button>
+          <Button 
+            onClick={() => handleConfirm(false)} 
+            variant="contained" 
+            color="error"
+            startIcon={<DeleteSweepIcon />}
+            fullWidth
+          >
+            クリアして再生成 (New)
+            <Typography variant="caption" sx={{ ml: 1, color: 'white' }}>
+              ロック以外を消去して作り直します
+            </Typography>
+          </Button>
+          <Button onClick={() => setDialogOpen(false)} color="inherit" sx={{ mt: 1 }}>
+            キャンセル
+          </Button>
+        </DialogActions>
+      </Dialog>
+
     </Paper>
   );
 }

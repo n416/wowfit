@@ -186,7 +186,7 @@ function ShiftCalendarPage() {
     selectionRange, setSelectionRange,
     handleCellClick: handleInteractionCellClick, 
     handleCopy, handlePaste,
-    selectAll, // ★ 追加
+    selectAll,
     invalidateSyncLock,
   } = useCalendarInteractions(sortedStaffList, monthDays); 
 
@@ -214,6 +214,11 @@ function ShiftCalendarPage() {
   const handleSelectionChange = useCallback((range: { start: CellCoords, end: CellCoords } | null) => {
     if (setSelectionRange) setSelectionRange(range);
   }, [setSelectionRange]);
+
+  // ★★★ 追加: ロックされていないアサインがあるか判定 ★★★
+  const hasDraftAssignments = useMemo(() => {
+    return assignments.some(a => !a.locked);
+  }, [assignments]);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', p: '24px', gap: 2 }}>
@@ -260,8 +265,26 @@ function ShiftCalendarPage() {
         <BurdenSidebar isOpen={isSidebarOpen} onToggle={() => setIsSidebarOpen(!isSidebarOpen)} staffBurdenData={staffBurdenData} />
       </Box>
 
-      <AiSupportPane instruction={aiInstruction} onInstructionChange={setAiInstruction} isLoading={adjustmentLoading || patchLoading} error={adjustmentError || patchError} onClearError={handleClearError} onExecuteDefault={handleRunAiDefault} onExecuteCustom={handleRunAiAdjustment} isAnalysisLoading={analysisLoading} analysisResult={analysisResult} analysisError={analysisError} onClearAnalysis={handleClearAnalysis} onExecuteAnalysis={handleRunAiAnalysis} onFillRental={handleFillRental} onForceAdjustHolidays={handleRunAiHolidayPatch} isOverallDisabled={isOverallLoading} />
-      {/* ★ 修正: onSelectAll を渡す */}
+      <AiSupportPane 
+        instruction={aiInstruction} 
+        onInstructionChange={setAiInstruction} 
+        isLoading={adjustmentLoading || patchLoading} 
+        error={adjustmentError || patchError} 
+        onClearError={handleClearError} 
+        onExecuteDefault={handleRunAiDefault} 
+        onExecuteCustom={handleRunAiAdjustment} 
+        isAnalysisLoading={analysisLoading} 
+        analysisResult={analysisResult} 
+        analysisError={analysisError} 
+        onClearAnalysis={handleClearAnalysis} 
+        onExecuteAnalysis={handleRunAiAnalysis} 
+        onFillRental={handleFillRental} 
+        onForceAdjustHolidays={handleRunAiHolidayPatch} 
+        isOverallDisabled={isOverallLoading} 
+        // ★★★ 追加: 下書き判定フラグを渡す ★★★
+        hasDraftAssignments={hasDraftAssignments}
+      />
+      
       <FloatingActionMenu 
         visible={clickMode === 'select' && !!selectionRange} 
         onCopy={() => handleCopy(false)} 

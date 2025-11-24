@@ -1,15 +1,15 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useSelector, useDispatch, useStore } from 'react-redux';
 import type { RootState, AppDispatch } from '../store';
-import { 
+import {
   setAssignments,
-  fetchAiAdjustment, 
-  clearAdjustmentError, 
-  fetchAiAnalysis, 
+  fetchAiAdjustment,
+  clearAdjustmentError,
+  fetchAiAnalysis,
   clearAnalysis,
   fetchAiHolidayPatch
 } from '../store/assignmentSlice';
-import { db, IStaff } from '../db/dexie'; 
+import { db, IStaff } from '../db/dexie';
 import { allocateWork } from '../lib/placement/workAllocator';
 import { MonthDay } from '../utils/dateUtils';
 
@@ -38,25 +38,38 @@ export const useShiftCalendarLogic = (
     });
   }, [assignments, staffForRentalFill, unitList, patternMap, shiftPatterns, dispatch, demandMap, monthDays]);
 
-  const handleRunAiAdjustment = useCallback(() => {
+  // ★ 修正: keepDraft引数を受け取る
+  const handleRunAiAdjustment = useCallback((keepDraft: boolean) => {
     if (!window.confirm("AIによる全体調整を実行しますか？")) return;
     dispatch(fetchAiAdjustment({
-      instruction: aiInstruction, allStaff: staffForAi, allPatterns: shiftPatterns, allUnits: unitList, allAssignments: assignments, 
-      monthInfo: { year: currentYear, month: currentMonth, days: monthDays }, staffHolidayRequirements
+      instruction: aiInstruction,
+      allStaff: staffForAi,
+      allPatterns: shiftPatterns,
+      allUnits: unitList,
+      allAssignments: assignments,
+      monthInfo: { year: currentYear, month: currentMonth, days: monthDays },
+      staffHolidayRequirements,
+      includeCurrentAssignments: keepDraft // ★ 渡す
     }));
   }, [aiInstruction, dispatch, staffForAi, shiftPatterns, unitList, assignments, staffHolidayRequirements, currentYear, currentMonth, monthDays]);
 
-  const handleRunAiDefault = useCallback(() => {
+  const handleRunAiDefault = useCallback((keepDraft: boolean) => {
     if (!window.confirm("AIによる全体調整(デフォルト)を実行しますか？")) return;
     dispatch(fetchAiAdjustment({
-      instruction: "特記事項なし。", allStaff: staffForAi, allPatterns: shiftPatterns, allUnits: unitList, allAssignments: assignments, 
-      monthInfo: { year: currentYear, month: currentMonth, days: monthDays }, staffHolidayRequirements
+      instruction: "特記事項なし。",
+      allStaff: staffForAi,
+      allPatterns: shiftPatterns,
+      allUnits: unitList,
+      allAssignments: assignments,
+      monthInfo: { year: currentYear, month: currentMonth, days: monthDays },
+      staffHolidayRequirements,
+      includeCurrentAssignments: keepDraft // ★ 渡す
     }));
   }, [dispatch, staffForAi, shiftPatterns, unitList, assignments, staffHolidayRequirements, currentYear, currentMonth, monthDays]);
 
   const handleRunAiAnalysis = useCallback(() => {
     dispatch(fetchAiAnalysis({
-      allStaff: staffForAi, allPatterns: shiftPatterns, allUnits: unitList, allAssignments: assignments, 
+      allStaff: staffForAi, allPatterns: shiftPatterns, allUnits: unitList, allAssignments: assignments,
       monthInfo: { year: currentYear, month: currentMonth, days: monthDays }, staffHolidayRequirements
     }));
   }, [dispatch, staffForAi, shiftPatterns, unitList, assignments, staffHolidayRequirements, currentYear, currentMonth, monthDays]);
@@ -64,7 +77,7 @@ export const useShiftCalendarLogic = (
   const handleRunAiHolidayPatch = useCallback(() => {
     if (!window.confirm("AIによる公休数補正を実行しますか？")) return;
     dispatch(fetchAiHolidayPatch({
-      allStaff: staffForAi, allPatterns: shiftPatterns, allUnits: unitList, allAssignments: assignments, 
+      allStaff: staffForAi, allPatterns: shiftPatterns, allUnits: unitList, allAssignments: assignments,
       monthInfo: { year: currentYear, month: currentMonth, days: monthDays }, staffHolidayRequirements
     }));
   }, [dispatch, staffForAi, shiftPatterns, unitList, assignments, staffHolidayRequirements, currentYear, currentMonth, monthDays]);
@@ -75,7 +88,7 @@ export const useShiftCalendarLogic = (
       const firstDay = monthDays[0].dateStr;
       const lastDay = monthDays[monthDays.length - 1].dateStr;
       try {
-        const assignmentsToRemove = await db.assignments.where('date').between(firstDay, lastDay, true, true).primaryKeys(); 
+        const assignmentsToRemove = await db.assignments.where('date').between(firstDay, lastDay, true, true).primaryKeys();
         if (assignmentsToRemove.length > 0) await db.assignments.bulkDelete(assignmentsToRemove);
         const currentState = store.getState().assignment.present;
         const assignmentsToKeep = currentState.assignments.filter(a => a.date < firstDay || a.date > lastDay);

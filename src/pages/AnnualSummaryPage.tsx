@@ -1,12 +1,12 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { 
+import {
   Box, Paper, Typography, IconButton, CircularProgress, FormControl, Select, MenuItem,
-  ToggleButtonGroup, ToggleButton, Divider // ★ 追加
+  ToggleButtonGroup, ToggleButton, Divider
 } from '@mui/material';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
-import EditIcon from '@mui/icons-material/Edit'; // ★ 追加
-import SelectAllIcon from '@mui/icons-material/SelectAll'; // ★ 追加
+import EditIcon from '@mui/icons-material/Edit';
+import SelectAllIcon from '@mui/icons-material/SelectAll';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../store';
 import { db, IAssignment, IPaidLeaveAdjustment, IStaff } from '../db/dexie';
@@ -29,7 +29,6 @@ export default function AnnualSummaryPage() {
     return saved ? Number(saved) : 4;
   });
 
-  // ★ モード管理State追加
   const [clickMode, setClickMode] = useState<'normal' | 'select'>('normal');
 
   const [loading, setLoading] = useState(false);
@@ -39,7 +38,7 @@ export default function AnnualSummaryPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalTarget, setModalTarget] = useState<{ staff: IStaff, dateStr: string, monthLabel: string } | null>(null);
   const [modalHistory, setModalHistory] = useState<IPaidLeaveAdjustment[]>([]);
-  
+
   const scrollerRef = useRef<HTMLElement | null>(null);
 
   const staffList = useSelector((state: RootState) => state.staff.staff);
@@ -74,14 +73,18 @@ export default function AnnualSummaryPage() {
       const firstPm = periodMonths[0];
       const startStr = `${firstPm.year}-${String(firstPm.month).padStart(2, '0')}-01`;
       const lastPm = periodMonths[11];
-      const lastDate = new Date(lastPm.year, lastPm.month, 0); 
+      const lastDate = new Date(lastPm.year, lastPm.month, 0);
       const endStr = `${lastPm.year}-${String(lastPm.month).padStart(2, '0')}-${String(lastDate.getDate()).padStart(2, '0')}`;
 
-      const [assignData, adjustData] = await Promise.all([
-        db.assignments.where('date').between(startStr, endStr, true, true).toArray(),
-        db.paidLeaveAdjustments.toArray() 
-      ]);
-        
+      const assignData = await db.assignments.where('date').between(startStr, endStr, true, true).toArray();
+      let adjustData: IPaidLeaveAdjustment[] = [];
+      try {
+        adjustData = await db.paidLeaveAdjustments.toArray();
+      } catch (e) {
+        console.error(e);
+        adjustData = [];
+      }
+
       setAssignments(assignData);
       setAdjustments(adjustData);
     } catch (e) {
@@ -97,12 +100,21 @@ export default function AnnualSummaryPage() {
 
   const rows = useMemo<AnnualRowData[]>(() => {
     if (staffList.length === 0 || patterns.length === 0) return [];
-    
+
+    // ★ 修正: シフト表と同じソート順（ユニット > displayOrder > 名前）に変更
     const sortedStaff = [...staffList].sort((a, b) => {
-        const uA = a.unitId || 'ZZZ';
-        const uB = b.unitId || 'ZZZ';
-        if (uA !== uB) return uA.localeCompare(uB);
-        return a.name.localeCompare(b.name);
+      // 1. Unit ID (最優先)
+      const uA = a.unitId || 'ZZZ';
+      const uB = b.unitId || 'ZZZ';
+      if (uA !== uB) return uA.localeCompare(uB);
+
+      // 2. displayOrder (次点)
+      const oA = a.displayOrder ?? 999999;
+      const oB = b.displayOrder ?? 999999;
+      if (oA !== oB) return oA - oB;
+
+      // 3. Name (Fallback)
+      return a.name.localeCompare(b.name);
     });
 
     const resultRows: AnnualRowData[] = [];
@@ -124,23 +136,20 @@ export default function AnnualSummaryPage() {
 
       const stats: { [key: string]: number[] } = {};
       SUMMARY_ITEMS.forEach(item => { stats[item.key] = Array(12).fill(0); });
-      
+
       const stockEventDisplay: (AnnualEvent | null)[] = Array(12).fill(null);
 
       const periodStartDateStr = `${periodMonths[0].year}-${String(periodMonths[0].month).padStart(2, '0')}-01`;
       let initialStock = 0;
-      
-      const monthlyAdjustments = Array(12).fill(0);
-      
+
       adjustments.forEach(adj => {
         if (adj.staffId !== staff.staffId) return;
         const [y, m] = adj.date.split('-').map(Number);
-        
+
         const idx = periodMonths.findIndex(pm => pm.year === y && pm.month === m);
         if (idx >= 0) {
           const val = (adj.type === 'Expire') ? -adj.days : adj.days;
-          monthlyAdjustments[idx] += val;
-          stockEventDisplay[idx] = { type: adj.type, days: adj.days }; 
+          stockEventDisplay[idx] = { type: adj.type, days: adj.days };
         } else if (adj.date < periodStartDateStr) {
           const val = (adj.type === 'Expire') ? -adj.days : adj.days;
           initialStock += val;
@@ -148,7 +157,7 @@ export default function AnnualSummaryPage() {
       });
 
       const monthlyUsage = Array(12).fill(0);
-      
+
       assignments.forEach(a => {
         if (a.staffId !== staff.staffId) return;
         const [aY, aM] = a.date.split('-').map(Number);
@@ -172,20 +181,28 @@ export default function AnnualSummaryPage() {
 
       let currentStock = initialStock;
       for (let i = 0; i < 12; i++) {
+        let monthlyAdj = 0;
+        adjustments.forEach(adj => {
+          if (adj.staffId !== staff.staffId) return;
+          const [y, m] = adj.date.split('-').map(Number);
+          if (periodMonths[i].year === y && periodMonths[i].month === m) {
+            monthlyAdj += (adj.type === 'Expire' ? -adj.days : adj.days);
+          }
+        });
+
         const usage = monthlyUsage[i];
-        const adjust = monthlyAdjustments[i];
-        currentStock = currentStock + adjust - usage;
+        currentStock = currentStock + monthlyAdj - usage;
         stats['paidLeaveRemain'][i] = currentStock;
       }
 
       SUMMARY_ITEMS.forEach(item => {
         const monthlyVals = stats[item.key];
-        const total = (item.key === 'paidLeaveRemain') 
-          ? monthlyVals[11] 
+        const total = (item.key === 'paidLeaveRemain')
+          ? monthlyVals[11]
           : monthlyVals.reduce((sum, v) => sum + v, 0);
-        
+
         if (item.key === 'workHours') {
-            for(let i=0; i<12; i++) monthlyVals[i] = Math.round(monthlyVals[i] * 10) / 10;
+          for (let i = 0; i < 12; i++) monthlyVals[i] = Math.round(monthlyVals[i] * 10) / 10;
         }
 
         resultRows.push({
@@ -204,25 +221,28 @@ export default function AnnualSummaryPage() {
     return resultRows;
   }, [assignments, adjustments, staffList, patterns, patternMap, periodMonths]);
 
-  const handleCellClick = (_: number, c: number, row: AnnualRowData) => {
+  const handleCellClick = useCallback((_: number, c: number, row: AnnualRowData) => {
     if (row.isInteractive && c >= 0 && c <= 11 && row.staff) {
       const pm = periodMonths[c];
       const dateStr = `${pm.year}-${String(pm.month).padStart(2, '0')}-01`;
-      
+
       setModalTarget({
         staff: row.staff,
         dateStr: dateStr,
         monthLabel: `${pm.year}年${pm.month}月`
       });
 
-      const history = adjustments.filter(a => 
-        a.staffId === row.staff!.staffId && 
-        a.date.startsWith(`${pm.year}-${String(pm.month).padStart(2, '0')}`)
-      );
+      const targetPrefix = `${pm.year}-${String(pm.month).padStart(2, '0')}`;
+      const history = adjustments.filter(a => {
+        const isStaffMatch = a.staffId === row.staff!.staffId;
+        const isDateMatch = a.date.startsWith(targetPrefix);
+        return isStaffMatch && isDateMatch;
+      });
+
       setModalHistory(history);
       setModalOpen(true);
     }
-  };
+  }, [adjustments, periodMonths]);
 
   const handleSaveAdjustment = async (type: 'Grant' | 'Expire' | 'Adjustment', days: number, memo: string) => {
     if (!modalTarget) return;
@@ -238,7 +258,7 @@ export default function AnnualSummaryPage() {
 
       const id = await db.paidLeaveAdjustments.add(newRecord);
       setModalHistory(prev => [...prev, { ...newRecord, id: id as number }]);
-      loadData(); 
+      loadData();
     } catch (e) {
       console.error(e);
       alert('保存に失敗しました');
@@ -250,7 +270,7 @@ export default function AnnualSummaryPage() {
     try {
       await db.paidLeaveAdjustments.delete(id);
       setModalHistory(prev => prev.filter(item => item.id !== id));
-      loadData(); 
+      loadData();
     } catch (e) {
       console.error(e);
       alert('削除に失敗しました');
@@ -260,8 +280,7 @@ export default function AnnualSummaryPage() {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', p: '24px', gap: 2 }}>
       <Paper sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        
-        {/* 年月選択エリア */}
+
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <IconButton onClick={() => setYear(year - 1)}><ChevronLeftIcon /></IconButton>
           <Typography variant="h5" sx={{ minWidth: 80, textAlign: 'center' }}>{year}年</Typography>
@@ -280,15 +299,14 @@ export default function AnnualSummaryPage() {
           {loading && <CircularProgress size={24} sx={{ ml: 2 }} />}
         </Box>
 
-        {/* ★ モード切替UI */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <ToggleButtonGroup
             value={clickMode}
             exclusive
-            onChange={(_, newMode) => { if(newMode) setClickMode(newMode); }}
+            onChange={(_, newMode) => { if (newMode) setClickMode(newMode); }}
             size="small"
-            sx={{ 
-              '& .MuiToggleButton-root': { 
+            sx={{
+              '& .MuiToggleButton-root': {
                 px: 2, py: 0.5, border: 'none',
                 '&.Mui-selected': { bgcolor: 'rgba(25, 118, 210, 0.1)', color: 'primary.main', fontWeight: 'bold' },
                 '&:hover': { bgcolor: 'rgba(0, 0, 0, 0.04)' }
@@ -309,17 +327,17 @@ export default function AnnualSummaryPage() {
       </Paper>
 
       <Paper sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }} variant="outlined">
-        <AnnualSummaryView 
+        <AnnualSummaryView
           rows={rows}
           months={displayMonths}
           title={headerTitle}
           scrollerRef={scrollerRef}
           onCellClick={handleCellClick}
-          clickMode={clickMode} // ★ 追加
+          clickMode={clickMode}
         />
       </Paper>
 
-      <PaidLeaveAdjustmentModal 
+      <PaidLeaveAdjustmentModal
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}
         onSave={handleSaveAdjustment}

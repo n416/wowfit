@@ -84,7 +84,7 @@ const styles: { [key: string]: CSSProperties } = {
     fontSize: '0.8rem',
     whiteSpace: 'nowrap',
     overflow: 'hidden',
-    userSelect: 'none', 
+    userSelect: 'none',
     position: 'relative',
   },
   stickyCell: {
@@ -124,13 +124,13 @@ const styles: { [key: string]: CSSProperties } = {
   }
 };
 
-export default function AnnualSummaryView({ 
+export default function AnnualSummaryView({
   rows, months, title, scrollerRef, onCellClick, clickMode
 }: AnnualSummaryViewProps) {
-  
+
   const [headerHeight, setHeaderHeight] = useState(ROW_HEIGHT);
   const [colWidth, setColWidth] = useState(MIN_COL_WIDTH);
-  
+
   const containerRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
 
@@ -151,7 +151,7 @@ export default function AnnualSummaryView({
     if (!containerRef.current) return;
     const updateColWidth = () => {
       if (!containerRef.current) return;
-      const containerWidth = containerRef.current.clientWidth; 
+      const containerWidth = containerRef.current.clientWidth;
       const availableWidth = containerWidth - LEFT_COL_WIDTH - TOTAL_COL_WIDTH;
       const newColWidth = Math.max(MIN_COL_WIDTH, Math.floor(availableWidth / 12));
       setColWidth(newColWidth);
@@ -181,31 +181,30 @@ export default function AnnualSummaryView({
       const contentX = x + scrollLeft;
       c = Math.floor((contentX - LEFT_COL_WIDTH) / colWidth);
     }
-    
+
     if (r >= rows.length) return null;
     if (c >= 12 + 1) return null;
-    
+
     return { r, c };
   }, [headerHeight, colWidth, rows.length, scrollerRef]);
 
-  const handleCopyRef = useRef<() => void>(() => {});
+  const handleCopyRef = useRef<() => void>(() => { });
 
-  // ★ 修正: minRow, minCol を -1 に設定し、フックから selectAll を受け取る
-  const { 
-    containerProps, 
-    selection, 
-    isDraggingRef, 
-    clearSelection, 
-    selectAll 
+  const {
+    containerProps,
+    selection,
+    isDraggingRef,
+    clearSelection,
+    selectAll
   } = useGridInteraction({
     scrollerRef: scrollerRef as React.RefObject<HTMLElement | null>,
     converter: pointToGrid,
     maxRow: rows.length - 1,
     maxCol: 12,
-    minRow: -1, // ヘッダー行を含める
-    minCol: -1, // 左端列を含める
+    minRow: -1,
+    minCol: -1,
     isEnabled: clickMode === 'select',
-    onCopy: () => handleCopyRef.current(), 
+    onCopy: () => handleCopyRef.current(),
   });
 
   useEffect(() => {
@@ -221,8 +220,8 @@ export default function AnnualSummaryView({
     const minC = Math.min(selection.start.c, selection.end.c);
     const maxC = Math.max(selection.start.c, selection.end.c);
     const tsvRows: string[] = [];
-    
-    if (minR === -1) { 
+
+    if (minR === -1) {
       const headerCells: string[] = [];
       for (let c = minC; c <= maxC; c++) {
         if (c === -1) headerCells.push(title);
@@ -265,23 +264,23 @@ export default function AnnualSummaryView({
     const top = (minR === -1) ? 0 : headerHeight + (minR * ROW_HEIGHT);
     let height = 0;
     if (minR === -1) {
-        height += headerHeight;
-        if (maxR >= 0) height += (maxR + 1) * ROW_HEIGHT;
+      height += headerHeight;
+      if (maxR >= 0) height += (maxR + 1) * ROW_HEIGHT;
     } else {
-        height = (maxR - minR + 1) * ROW_HEIGHT;
+      height = (maxR - minR + 1) * ROW_HEIGHT;
     }
 
     const getLeftPos = (c: number) => {
       if (c === -1) return 0;
       if (c <= 11) return LEFT_COL_WIDTH + (c * colWidth);
-      return LEFT_COL_WIDTH + (12 * colWidth); 
+      return LEFT_COL_WIDTH + (12 * colWidth);
     };
     const startLeft = getLeftPos(minC);
     let width = 0;
     for (let c = minC; c <= maxC; c++) {
-        if (c === -1) width += LEFT_COL_WIDTH;
-        else if (c === 12) width += TOTAL_COL_WIDTH;
-        else width += colWidth;
+      if (c === -1) width += LEFT_COL_WIDTH;
+      else if (c === 12) width += TOTAL_COL_WIDTH;
+      else width += colWidth;
     }
     return { top, left: startLeft, width, height };
   }, [headerHeight, colWidth]);
@@ -307,8 +306,8 @@ export default function AnnualSummaryView({
         </Box>
       </TableCell>
       {months.map((m, i) => (
-        <TableCell 
-          key={`${i}-${m}`} 
+        <TableCell
+          key={`${i}-${m}`}
           {...getCellProps(HEADER_ROW_INDEX, i, { ...styles.th, width: `${colWidth}px`, minWidth: `${colWidth}px`, maxWidth: `${colWidth}px` })}
         >
           {m}月
@@ -328,10 +327,10 @@ export default function AnnualSummaryView({
       return (
         <>
           <TableCell {...getCellProps(index, LEFT_COL_INDEX, { ...styles.td, ...styles.stickyCell, ...styles.staffHeaderRow, ...rowStyle, borderTop: borderTopStyle })}>
-             {row.staff?.name} <span style={{ fontSize:'0.75rem', fontWeight:'normal', color:'#666' }}>({row.staff?.unitId || '-'})</span>
+            {row.staff?.name} <span style={{ fontSize: '0.75rem', fontWeight: 'normal', color: '#666' }}>({row.staff?.unitId || '-'})</span>
           </TableCell>
           {Array.from({ length: 12 }).map((_, i) => (
-             <TableCell key={i} {...getCellProps(index, i, { ...styles.td, backgroundColor: '#f5f5f5', borderTop: borderTopStyle })} />
+            <TableCell key={i} {...getCellProps(index, i, { ...styles.td, backgroundColor: '#f5f5f5', borderTop: borderTopStyle })} />
           ))}
           <TableCell {...getCellProps(index, TOTAL_COL_INDEX, { ...styles.td, backgroundColor: '#f5f5f5', borderLeft: '2px solid #ccc', borderTop: borderTopStyle })} />
         </>
@@ -347,24 +346,24 @@ export default function AnnualSummaryView({
         {row.monthlyValues.map((val, mIdx) => {
           const event = row.monthlyEvents ? row.monthlyEvents[mIdx] : null;
           return (
-            <TableCell 
-              key={mIdx} 
-              {...getCellProps(index, mIdx, { 
+            <TableCell
+              key={mIdx}
+              {...getCellProps(index, mIdx, {
                 ...styles.td, ...styles.cellSelectable, ...rowStyle, borderTop: borderTopStyle,
                 backgroundColor: row.isInteractive ? '#f8fbff' : 'inherit',
                 cursor: (clickMode === 'normal' && row.isInteractive) ? 'pointer' : 'cell'
               })}
             >
-              {val > 0 || row.isInteractive ? val : <span style={{color: '#eee'}}>-</span>}
-              
+              {val > 0 || row.isInteractive ? val : <span style={{ color: '#eee' }}>-</span>}
+
               {event && (
                 <Tooltip title={event.type === 'Grant' ? `+${event.days} (付与)` : `${event.days} (消滅)`}>
-                  <Chip 
-                    label={event.type === 'Grant' ? `+${event.days}` : event.days} 
+                  <Chip
+                    label={event.type === 'Grant' ? `+${event.days}` : event.days}
                     size="small"
                     color={event.type === 'Grant' ? 'success' : 'error'}
-                    sx={{ 
-                      position: 'absolute', top: 1, right: 1, 
+                    sx={{
+                      position: 'absolute', top: 1, right: 1,
                       height: 14, fontSize: '0.6rem',
                       '& .MuiChip-label': { px: 0.5 }
                     }}
@@ -380,7 +379,7 @@ export default function AnnualSummaryView({
         </TableCell>
       </>
     );
-  }, [colWidth, clickMode]); 
+  }, [colWidth, clickMode, onCellClick]); // ★ ここが重要！ onCellClickを追加
 
   const tableWidth = LEFT_COL_WIDTH + (12 * colWidth) + TOTAL_COL_WIDTH;
 
@@ -399,7 +398,7 @@ export default function AnnualSummaryView({
 
   return (
     <>
-      <Box 
+      <Box
         ref={containerRef}
         sx={{ flex: 1, minHeight: 0, height: '100%', touchAction: 'none' }}
         {...(clickMode === 'select' ? containerProps : {})}
@@ -415,12 +414,12 @@ export default function AnnualSummaryView({
           fixedHeaderContent={fixedHeaderContent}
           itemContent={itemContent}
           components={VirtuosoComponents}
-          overscan={20} 
+          overscan={20}
         />
       </Box>
-      <FloatingActionMenu 
-        visible={clickMode === 'select' && !!selection} 
-        onCopy={handleCopy} 
+      <FloatingActionMenu
+        visible={clickMode === 'select' && !!selection}
+        onCopy={handleCopy}
         onSelectAll={selectAll}
       />
     </>

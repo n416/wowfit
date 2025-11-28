@@ -46,8 +46,11 @@ export default function PaidLeaveAdjustmentModal({
 
   const handleSave = () => {
     const numDays = parseFloat(days);
-    if (isNaN(numDays) || numDays <= 0) {
-      alert('有効な日数を入力してください');
+    // ★ 修正: 0 も許可するため、numDays <= 0 ではなく numDays < 0 に変更 (マイナスはブロック)
+    // ※ 修正(Adjustment)でマイナス入力したい場合はここを外す必要がありますが、
+    //    現状のUI(Grant/Expire)の概念と合わせるため0以上とします。
+    if (isNaN(numDays) || numDays < 0) {
+      alert('有効な日数を入力してください（0以上）');
       return;
     }
     onSave(type, numDays, memo);
@@ -61,7 +64,8 @@ export default function PaidLeaveAdjustmentModal({
 
   const handleDecrement = () => {
     const val = parseFloat(days) || 0;
-    setDays(String(Math.max(0.5, val - 0.5)));
+    // ★ 修正: 0 まで下げられるように変更 (0.5 -> 0)
+    setDays(String(Math.max(0, val - 0.5)));
   };
 
   // リスト表示モード
@@ -69,8 +73,8 @@ export default function PaidLeaveAdjustmentModal({
     <>
       <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
         <Box>
-          <Typography variant="h6">有給調整履歴</Typography>
-          <Typography variant="caption" color="text.secondary">
+          <Typography variant="h6" component="div">有給調整履歴</Typography>
+          <Typography variant="caption" color="text.secondary" component="div">
             {staff?.name} / {targetMonthLabel}
           </Typography>
         </Box>
@@ -153,8 +157,7 @@ export default function PaidLeaveAdjustmentModal({
         <IconButton size="small" onClick={() => setView('list')} sx={{ ml: -1 }}>
           <ArrowBackIcon />
         </IconButton>
-        {/* ★ 修正: タイトルを変更 */}
-        <Typography variant="h6">有給調整ー新規登録</Typography>
+        <Typography variant="h6" component="div">有給調整ー新規登録</Typography>
       </DialogTitle>
 
       <DialogContent sx={{ pt: 3 }}>

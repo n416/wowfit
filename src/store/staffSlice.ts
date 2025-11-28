@@ -17,7 +17,7 @@ export const parseAndSaveConstraints = createAsyncThunk(
   'staff/parseConstraints',
   async (args: ParseConstraintsArgs, { rejectWithValue }) => { // ★ 未使用の getState を削除
     const { staffId, memo, shiftPatterns } = args;
-    
+
     const gemini = new GeminiApiClient();
     if (!gemini.isAvailable) {
       return rejectWithValue('Gemini APIが設定されていません。');
@@ -70,9 +70,9 @@ ${memo}
       };
 
       await db.staffList.update(staffId, updatedStaff);
-      
-      return { 
-        staffId, 
+
+      return {
+        staffId,
         availablePatternIds: updatedStaff.availablePatternIds,
         memo: updatedStaff.memo
       };
@@ -89,21 +89,26 @@ export const addNewStaff = createAsyncThunk(
   // (v5のスキーマに合わせて Omit を修正)
   async (newStaffData: Omit<IStaff, 'staffId' | 'constraints'>, { rejectWithValue }) => {
     try {
+      // ★ 追加: 最大のdisplayOrderを取得して +1 する
+      const allStaff = await db.staffList.toArray();
+      const maxOrder = allStaff.reduce((max, s) => Math.max(max, s.displayOrder || 0), 0);
+
       const staffId = `s${Date.now()}`;
       const staffToAdd: IStaff = {
         ...newStaffData,
         staffId: staffId,
         status: 'Active', // ★★★ デフォルトステータスを追加 ★★★
-        
+
         // ★★★ v5.4 修正: 「公休」「有給」の自動追加ロジックを削除 ★★★
         // (フォームで選択されたパターン（通常は労働パターン）のみを保存)
         availablePatternIds: newStaffData.availablePatternIds || [],
-        
+
         // (v5の簡略化された制約)
         constraints: {
           maxConsecutiveDays: 5,
           minIntervalHours: 12,
-        }
+        },
+        displayOrder: maxOrder + 1 // ★ 追加
       };
       await db.staffList.add(staffToAdd);
       return staffToAdd;
@@ -123,17 +128,41 @@ export const copyStaff = createAsyncThunk(
       if (!originalStaff) {
         throw new Error('コピー元のスタッフが見つかりません。');
       }
-      
+
+      // ★ 追加: 最大のdisplayOrderを取得して +1 する
+      const allStaff = await db.staffList.toArray();
+      const maxOrder = allStaff.reduce((max, s) => Math.max(max, s.displayOrder || 0), 0);
+
       const newStaff: IStaff = {
         ...originalStaff,
         staffId: `s${Date.now()}`, // IDを新しく採番
         name: `${originalStaff.name} (コピー)`, // 名前を変更
         status: 'Active', // ★ コピーしたスタッフは「勤務中」として作成
+        displayOrder: maxOrder + 1 // ★ 追加
       };
-      
+
       await db.staffList.add(newStaff); // 新しいスタッフとしてDBに追加
       return newStaff; // 新しいスタッフ情報を返す
 
+    } catch (e: any) {
+      return rejectWithValue(e.message);
+    }
+  }
+);
+
+// ★★★ スタッフ並び替えThunk (新規追加) ★★★
+export const reorderStaff = createAsyncThunk(
+  'staff/reorderStaff',
+  async (staffList: IStaff[], { rejectWithValue }) => {
+    try {
+      // 渡されたリストの順番で displayOrder を更新
+      await db.transaction('rw', db.staffList, async () => {
+        for (let i = 0; i < staffList.length; i++) {
+          await db.staffList.update(staffList[i].staffId, { displayOrder: i });
+        }
+      });
+      // 更新後のリスト（順番が正しい状態）を返す
+      return staffList.map((s, i) => ({ ...s, displayOrder: i }));
     } catch (e: any) {
       return rejectWithValue(e.message);
     }
@@ -170,7 +199,7 @@ export const updateStaff = createAsyncThunk(
 
 // --- スライス本体 ---
 interface StaffState {
-  staff: IStaff[]; 
+  staff: IStaff[];
   loading: boolean;
   error: string | null;
 }
@@ -206,7 +235,7 @@ const staffSlice = createSlice({
         state.loading = false;
         state.error = action.payload as string;
       })
-      
+
       // (addNewStaff)
       .addCase(addNewStaff.pending, (state) => { state.loading = true; })
       .addCase(addNewStaff.fulfilled, (state, action) => {
@@ -217,7 +246,7 @@ const staffSlice = createSlice({
         state.loading = false;
         state.error = action.payload as string;
       })
-      
+
       // ★★★ copyStaff ハンドラ (新規追加) ★★★
       .addCase(copyStaff.pending, (state) => { state.loading = true; })
       .addCase(copyStaff.fulfilled, (state, action) => {
@@ -225,6 +254,30 @@ const staffSlice = createSlice({
         state.loading = false;
       })
       .addCase(copyStaff.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      })
+
+      // ★★★ reorderStaff ハンドラ (新規追加) ★★★
+      .addCase(reorderStaff.pending, (state) => { state.loading = true; })
+      .addCase(reorderStaff.fulfilled, (state, action) => {
+        // 全体を置き換えるか、displayOrderを更新する
+        // ここでは単純に置き換え（ソート済みリストが返ってくる前提）
+        // ただし他のプロパティが欠落しないよう、IDでマージするのが安全だが、
+        // 今回はThunkが完全なリストを返すと仮定
+        // IDベースで更新をかける
+        const orderMap = new Map(action.payload.map(s => [s.staffId, s.displayOrder]));
+        state.staff.forEach(s => {
+          if (orderMap.has(s.staffId)) {
+            s.displayOrder = orderMap.get(s.staffId);
+          }
+        });
+        // ストア側でもソートしておく
+        state.staff.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+
+        state.loading = false;
+      })
+      .addCase(reorderStaff.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
       })
@@ -239,7 +292,7 @@ const staffSlice = createSlice({
         state.loading = false;
         state.error = action.payload as string;
       })
-      
+
       // (updateStaff)
       .addCase(updateStaff.pending, (state) => { state.loading = true; })
       .addCase(updateStaff.fulfilled, (state, action) => {

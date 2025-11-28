@@ -1,28 +1,28 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
-import { 
+import {
   Box, Paper, Tabs, Tab, Button, ToggleButton, ToggleButtonGroup,
   Stack, Divider, Tooltip, Typography
 } from '@mui/material';
 import { useSelector, useDispatch } from 'react-redux';
 import { ActionCreators as UndoActionCreators } from 'redux-undo';
-import { db } from '../db/dexie'; 
-import { setStaffList } from '../store/staffSlice'; 
+import { db } from '../db/dexie';
+import { setStaffList } from '../store/staffSlice';
 import { setPatterns } from '../store/patternSlice';
 import { setUnits } from '../store/unitSlice';
-import { _syncAssignments } from '../store/assignmentSlice'; 
-import { goToNextMonth, goToPrevMonth, _setIsMonthLoading } from '../store/calendarSlice'; 
+import { _syncAssignments } from '../store/assignmentSlice';
+import { goToNextMonth, goToPrevMonth, _setIsMonthLoading } from '../store/calendarSlice';
 import type { AppDispatch, RootState } from '../store';
-import { getMonthDays, getPrevDateStr } from '../utils/dateUtils'; 
+import { getMonthDays, getPrevDateStr } from '../utils/dateUtils';
 
 // Components
 import StaffCalendarView from '../components/calendar/StaffCalendarView';
 import WorkSlotCalendarView from '../components/calendar/WorkSlotCalendarView';
-import AssignPatternModal from '../components/calendar/AssignPatternModal'; 
-import AiSupportPane from '../components/calendar/AiSupportPane'; 
-import BurdenSidebar from '../components/calendar/BurdenSidebar'; 
+import AssignPatternModal from '../components/calendar/AssignPatternModal';
+import AiSupportPane from '../components/calendar/AiSupportPane';
+import BurdenSidebar from '../components/calendar/BurdenSidebar';
 import DailyUnitGanttModal from '../components/calendar/DailyUnitGanttModal';
-import ClearStaffAssignmentsModal from '../components/calendar/ClearStaffAssignmentsModal'; 
-import TabPanel from '../components/TabPanel'; 
+import ClearStaffAssignmentsModal from '../components/calendar/ClearStaffAssignmentsModal';
+import TabPanel from '../components/TabPanel';
 import MonthNavigation from '../components/calendar/MonthNavigation';
 import FloatingActionMenu from '../components/calendar/FloatingActionMenu';
 import WeeklyShareModal from '../components/calendar/WeeklyShareModal';
@@ -39,13 +39,13 @@ import { useShiftCalendarModals } from '../hooks/useShiftCalendarModals';
 import { useShiftCalendarLogic } from '../hooks/useShiftCalendarLogic';
 
 // Icons
-import EditIcon from '@mui/icons-material/Edit'; 
-import HolidayIcon from '@mui/icons-material/BeachAccess'; 
-import PaidLeaveIcon from '@mui/icons-material/FlightTakeoff'; 
-import SelectAllIcon from '@mui/icons-material/SelectAll'; 
-import UndoIcon from '@mui/icons-material/Undo'; 
-import RedoIcon from '@mui/icons-material/Redo'; 
-import RefreshIcon from '@mui/icons-material/Refresh'; 
+import EditIcon from '@mui/icons-material/Edit';
+import HolidayIcon from '@mui/icons-material/BeachAccess';
+import PaidLeaveIcon from '@mui/icons-material/FlightTakeoff';
+import SelectAllIcon from '@mui/icons-material/SelectAll';
+import UndoIcon from '@mui/icons-material/Undo';
+import RedoIcon from '@mui/icons-material/Redo';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import ImageIcon from '@mui/icons-material/Image';
 
 const useDataSync = (currentYear: number, currentMonth: number, monthDays: { dateStr: string }[]) => {
@@ -61,57 +61,57 @@ const useDataSync = (currentYear: number, currentMonth: number, monthDays: { dat
         const [units, patterns, staff] = await Promise.all([
           db.units.toArray(), db.shiftPatterns.toArray(), db.staffList.toArray()
         ]);
-        
-        if (patterns.length === 0) { 
-          await db.shiftPatterns.bulkPut(MOCK_PATTERNS_V5); 
-          dispatch(setPatterns(MOCK_PATTERNS_V5)); 
+
+        if (patterns.length === 0) {
+          await db.shiftPatterns.bulkPut(MOCK_PATTERNS_V5);
+          dispatch(setPatterns(MOCK_PATTERNS_V5));
         } else {
           dispatch(setPatterns(patterns));
         }
-        
-        if (units.length === 0) { 
-          await db.units.bulkPut(MOCK_UNITS_V5); 
-          dispatch(setUnits(MOCK_UNITS_V5)); 
+
+        if (units.length === 0) {
+          await db.units.bulkPut(MOCK_UNITS_V5);
+          dispatch(setUnits(MOCK_UNITS_V5));
         } else {
           dispatch(setUnits(units));
         }
-        
-        if (staff.length === 0) { 
-          await db.staffList.bulkPut(MOCK_STAFF_V4); 
-          dispatch(setStaffList(MOCK_STAFF_V4)); 
+
+        if (staff.length === 0) {
+          await db.staffList.bulkPut(MOCK_STAFF_V4);
+          dispatch(setStaffList(MOCK_STAFF_V4));
         } else {
           dispatch(setStaffList(staff));
         }
-      } catch (e) { 
-        console.error("[useDataSync] Master load failed", e); 
+      } catch (e) {
+        console.error("[useDataSync] Master load failed", e);
       }
     };
-    
+
     const loadAssignments = async () => {
       if (!monthDays || monthDays.length === 0) return;
-      
+
       try {
-        dispatch(_setIsMonthLoading(true)); 
-        
+        dispatch(_setIsMonthLoading(true));
+
         const firstDay = monthDays[0].dateStr;
         const lastDay = monthDays[monthDays.length - 1].dateStr;
         const prevDay = getPrevDateStr(firstDay);
-        
+
         const assignmentsDB = await db.assignments
           .where('date')
-          .between(prevDay, lastDay, true, true) 
+          .between(prevDay, lastDay, true, true)
           .toArray();
-        
+
         if (staffList.length === 0) {
           dispatch(_syncAssignments(assignmentsDB));
         } else {
           dispatch(_syncAssignments(assignmentsDB));
           dispatch(UndoActionCreators.clearHistory());
         }
-      } catch (e) { 
-        console.error("[useDataSync] Assignment load failed", e); 
-      } finally { 
-        dispatch(_setIsMonthLoading(false)); 
+      } catch (e) {
+        console.error("[useDataSync] Assignment load failed", e);
+      } finally {
+        dispatch(_setIsMonthLoading(false));
       }
     };
 
@@ -119,7 +119,7 @@ const useDataSync = (currentYear: number, currentMonth: number, monthDays: { dat
       loadMasterData();
     }
     loadAssignments();
-  }, [dispatch, currentYear, currentMonth, monthDays, unitList.length, shiftPatterns.length, staffList.length]); 
+  }, [dispatch, currentYear, currentMonth, monthDays, unitList.length, shiftPatterns.length, staffList.length]);
 };
 
 const ControlToolbar = React.memo(({
@@ -131,7 +131,7 @@ const ControlToolbar = React.memo(({
       <MonthNavigation currentYear={currentYear} currentMonth={currentMonth} onPrevMonth={onPrevMonth} onNextMonth={onNextMonth} isLoading={isLoading} />
       {showTools && setClickMode && (
         <>
-          <ToggleButtonGroup value={clickMode} exclusive onChange={(_, newMode) => { if(newMode) setClickMode(newMode); }} size="small" disabled={isLoading} sx={{ border: '1px solid #e0e0e0', borderRadius: 1 }}>
+          <ToggleButtonGroup value={clickMode} exclusive onChange={(_, newMode) => { if (newMode) setClickMode(newMode); }} size="small" disabled={isLoading} sx={{ border: '1px solid #e0e0e0', borderRadius: 1 }}>
             <ToggleButton value="normal"><EditIcon fontSize="small" sx={{ mr: 0.5 }} /> 通常</ToggleButton>
             <Divider flexItem orientation="vertical" />
             <ToggleButton value="holiday"><HolidayIcon fontSize="small" sx={{ mr: 0.5 }} /> 公休</ToggleButton>
@@ -141,12 +141,12 @@ const ControlToolbar = React.memo(({
             <ToggleButton value="select"><SelectAllIcon fontSize="small" sx={{ mr: 0.5 }} /> 選択</ToggleButton>
           </ToggleButtonGroup>
           <Stack direction="row" spacing={1} alignItems="center">
-             <Tooltip title="週間シフト画像を保存"><Button onClick={onShareClick} disabled={isLoading} sx={{ minWidth: 'auto', p: 0.5 }}><ImageIcon fontSize="small" /><Typography variant="caption" sx={{ fontSize: '0.6rem', fontWeight: 'bold' }}>Weekly</Typography></Button></Tooltip>
-             <Divider orientation="vertical" flexItem />
-             <Button variant="text" size="small" onClick={onUndo} disabled={!canUndo || isLoading} startIcon={<UndoIcon fontSize="small" />} sx={{ minWidth: 'auto', px: 1 }} />
-             <Button variant="text" size="small" onClick={onRedo} disabled={!canRedo || isLoading} startIcon={<RedoIcon fontSize="small" />} sx={{ minWidth: 'auto', px: 1 }} />
-             <Divider orientation="vertical" flexItem />
-             <Button variant="outlined" color="error" onClick={onReset} size="small" startIcon={<RefreshIcon />} disabled={isLoading} sx={{ fontSize: '0.75rem' }}>リセット</Button>
+            <Tooltip title="週間シフト画像を保存"><Button onClick={onShareClick} disabled={isLoading} sx={{ minWidth: 'auto', p: 0.5 }}><ImageIcon fontSize="small" /><Typography variant="caption" sx={{ fontSize: '0.6rem', fontWeight: 'bold' }}>Weekly</Typography></Button></Tooltip>
+            <Divider orientation="vertical" flexItem />
+            <Button variant="text" size="small" onClick={onUndo} disabled={!canUndo || isLoading} startIcon={<UndoIcon fontSize="small" />} sx={{ minWidth: 'auto', px: 1 }} />
+            <Button variant="text" size="small" onClick={onRedo} disabled={!canRedo || isLoading} startIcon={<RedoIcon fontSize="small" />} sx={{ minWidth: 'auto', px: 1 }} />
+            <Divider orientation="vertical" flexItem />
+            <Button variant="outlined" color="error" onClick={onReset} size="small" startIcon={<RefreshIcon />} disabled={isLoading} sx={{ fontSize: '0.75rem' }}>リセット</Button>
           </Stack>
         </>
       )}
@@ -156,7 +156,7 @@ const ControlToolbar = React.memo(({
 
 function ShiftCalendarPage() {
   const [tabValue, setTabValue] = useState(0);
-  const dispatch: AppDispatch = useDispatch(); 
+  const dispatch: AppDispatch = useDispatch();
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => { const saved = localStorage.getItem('isBurdenSidebarOpen'); return saved !== null ? JSON.parse(saved) : true; });
   useEffect(() => { localStorage.setItem('isBurdenSidebarOpen', JSON.stringify(isSidebarOpen)); }, [isSidebarOpen]);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
@@ -165,7 +165,7 @@ function ShiftCalendarPage() {
   const { past, future, present: { assignments, isSyncing, adjustmentLoading, adjustmentError, analysisLoading, analysisResult, analysisError, patchLoading, patchError, adviceLoading } } = useSelector((state: RootState) => state.assignment);
   const { patterns: shiftPatterns } = useSelector((state: RootState) => state.pattern);
   const { units: unitList } = useSelector((state: RootState) => state.unit);
-  
+
   const { currentYear, currentMonth, isMonthLoading } = useSelector((state: RootState) => state.calendar);
 
   const monthDays = useMemo(() => {
@@ -175,25 +175,42 @@ function ShiftCalendarPage() {
 
   useDataSync(currentYear, currentMonth, monthDays);
 
-  const { staffList: activeStaffList, staffBurdenData, staffHolidayRequirements, updateHolidayRequirement } = useStaffBurdenData(currentYear, currentMonth, monthDays); 
-  
-  const sortedStaffList = useMemo(() => [...activeStaffList].sort((a, b) => (a.unitId || 'ZZZ').localeCompare(b.unitId || 'ZZZ') || a.name.localeCompare(b.name)), [activeStaffList]);
-  
-  const demandMap = useDemandMap(monthDays); 
+  const { staffList: activeStaffList, staffBurdenData, staffHolidayRequirements, updateHolidayRequirement } = useStaffBurdenData(currentYear, currentMonth, monthDays);
+
+  // ★ 修正: displayOrder を最優先でソート
+  const sortedStaffList = useMemo(() => {
+    return [...activeStaffList].sort((a, b) => {
+      // 1. displayOrder (小さい順)
+      const orderA = a.displayOrder ?? 999999;
+      const orderB = b.displayOrder ?? 999999;
+      if (orderA !== orderB) return orderA - orderB;
+
+      // 2. Unit ID (Fallback)
+      const uA = a.unitId || 'ZZZ';
+      const uB = b.unitId || 'ZZZ';
+      const unitDiff = uA.localeCompare(uB);
+      if (unitDiff !== 0) return unitDiff;
+
+      // 3. Name (Fallback)
+      return a.name.localeCompare(b.name);
+    });
+  }, [activeStaffList]);
+
+  const demandMap = useDemandMap(monthDays);
 
   const {
-    clickMode, setClickMode, 
+    clickMode, setClickMode,
     selectionRange, setSelectionRange,
-    handleCellClick: handleInteractionCellClick, 
+    handleCellClick: handleInteractionCellClick,
     handleCopy, handlePaste,
     selectAll,
     invalidateSyncLock,
-  } = useCalendarInteractions(sortedStaffList, monthDays); 
+  } = useCalendarInteractions(sortedStaffList, monthDays);
 
   const { editingTarget, showingGanttTarget, clearingStaff, statusTarget, openAssignModal, openGanttModal, openClearStaffModal, openStatusModal, closeModals, handleClearStaffAssignments } = useShiftCalendarModals();
   const { aiInstruction, setAiInstruction, handleFillRental, handleRunAiAdjustment, handleRunAiDefault, handleRunAiAnalysis, handleRunAiHolidayPatch, handleResetClick, handleClearError, handleClearAnalysis } = useShiftCalendarLogic(currentYear, currentMonth, monthDays, activeStaffList, staffHolidayRequirements, demandMap);
 
-  useUndoRedoKeyboard(invalidateSyncLock); 
+  useUndoRedoKeyboard(invalidateSyncLock);
 
   const handleTabChange = useCallback((_: React.SyntheticEvent, newValue: number) => { setTabValue(newValue); setClickMode('normal'); }, [setClickMode]);
   const handleCellClick = useCallback((e: React.MouseEvent | React.TouchEvent, date: string, staffIdOrUnitId: string | null, staffIndex?: number, dateIndex?: number) => {
@@ -205,9 +222,9 @@ function ShiftCalendarPage() {
   }, [tabValue, clickMode, openGanttModal, openAssignModal, handleInteractionCellClick]);
 
   const handleDateHeaderClick = useCallback((date: string) => openGanttModal(date, null), [openGanttModal]);
-  
+
   const isOverallLoading = isSyncing || adjustmentLoading || patchLoading || isMonthLoading || analysisLoading || adviceLoading;
-  
+
   const handleGoToPrevMonth = useCallback(() => { if (past.length > 0 && !window.confirm("移動するとデータが固定されます。")) return; dispatch(goToPrevMonth()); }, [past.length, dispatch]);
   const handleGoToNextMonth = useCallback(() => { if (past.length > 0 && !window.confirm("移動するとデータが固定されます。")) return; dispatch(goToNextMonth()); }, [past.length, dispatch]);
 
@@ -230,7 +247,7 @@ function ShiftCalendarPage() {
               <Tab label="勤務枠ビュー" />
             </Tabs>
           </Box>
-          
+
           <TabPanel value={tabValue} index={0}>
             <ControlToolbar
               currentYear={currentYear} currentMonth={currentMonth}
@@ -239,22 +256,22 @@ function ShiftCalendarPage() {
               clickMode={clickMode} setClickMode={setClickMode}
               onUndo={() => dispatch(UndoActionCreators.undo())} canUndo={past.length > 0}
               onRedo={() => dispatch(UndoActionCreators.redo())} canRedo={future.length > 0}
-              onReset={handleResetClick} sx={{ bgcolor: 'background.paper' }} 
+              onReset={handleResetClick} sx={{ bgcolor: 'background.paper' }}
               onShareClick={() => setIsShareModalOpen(true)}
             />
-            <StaffCalendarView 
-              sortedStaffList={sortedStaffList} onCellClick={handleCellClick} 
-              staffHolidayRequirements={staffHolidayRequirements} 
+            <StaffCalendarView
+              sortedStaffList={sortedStaffList} onCellClick={handleCellClick}
+              staffHolidayRequirements={staffHolidayRequirements}
               onStatusCellClick={openStatusModal}
-              onStaffNameClick={openClearStaffModal} onDateHeaderClick={handleDateHeaderClick} 
+              onStaffNameClick={openClearStaffModal} onDateHeaderClick={handleDateHeaderClick}
               clickMode={clickMode} selectionRange={selectionRange} onSelectionChange={handleSelectionChange}
               mainCalendarScrollerRef={mainCalendarScrollerRef} monthDays={monthDays}
-              onCopy={() => handleCopy(false)} 
-              onCut={() => handleCopy(true)} 
+              onCopy={() => handleCopy(false)}
+              onCut={() => handleCopy(true)}
               onPaste={handlePaste}
             />
           </TabPanel>
-          
+
           <TabPanel value={tabValue} index={1}>
             <ControlToolbar currentYear={currentYear} currentMonth={currentMonth} onPrevMonth={handleGoToPrevMonth} onNextMonth={handleGoToNextMonth} isLoading={isOverallLoading} showTools={false} />
             <Box sx={{ height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
@@ -265,46 +282,46 @@ function ShiftCalendarPage() {
         <BurdenSidebar isOpen={isSidebarOpen} onToggle={() => setIsSidebarOpen(!isSidebarOpen)} staffBurdenData={staffBurdenData} />
       </Box>
 
-      <AiSupportPane 
-        instruction={aiInstruction} 
-        onInstructionChange={setAiInstruction} 
-        isLoading={adjustmentLoading || patchLoading} 
-        error={adjustmentError || patchError} 
-        onClearError={handleClearError} 
-        onExecuteDefault={handleRunAiDefault} 
-        onExecuteCustom={handleRunAiAdjustment} 
-        isAnalysisLoading={analysisLoading} 
-        analysisResult={analysisResult} 
-        analysisError={analysisError} 
-        onClearAnalysis={handleClearAnalysis} 
-        onExecuteAnalysis={handleRunAiAnalysis} 
-        onFillRental={handleFillRental} 
-        onForceAdjustHolidays={handleRunAiHolidayPatch} 
-        isOverallDisabled={isOverallLoading} 
+      <AiSupportPane
+        instruction={aiInstruction}
+        onInstructionChange={setAiInstruction}
+        isLoading={adjustmentLoading || patchLoading}
+        error={adjustmentError || patchError}
+        onClearError={handleClearError}
+        onExecuteDefault={handleRunAiDefault}
+        onExecuteCustom={handleRunAiAdjustment}
+        isAnalysisLoading={analysisLoading}
+        analysisResult={analysisResult}
+        analysisError={analysisError}
+        onClearAnalysis={handleClearAnalysis}
+        onExecuteAnalysis={handleRunAiAnalysis}
+        onFillRental={handleFillRental}
+        onForceAdjustHolidays={handleRunAiHolidayPatch}
+        isOverallDisabled={isOverallLoading}
         // ★★★ 追加: 下書き判定フラグを渡す ★★★
         hasDraftAssignments={hasDraftAssignments}
       />
-      
-      <FloatingActionMenu 
-        visible={clickMode === 'select' && !!selectionRange} 
-        onCopy={() => handleCopy(false)} 
-        onCut={() => handleCopy(true)} 
-        onPaste={handlePaste} 
+
+      <FloatingActionMenu
+        visible={clickMode === 'select' && !!selectionRange}
+        onCopy={() => handleCopy(false)}
+        onCut={() => handleCopy(true)}
+        onPaste={handlePaste}
         onSelectAll={selectAll}
       />
-      
+
       <AssignPatternModal target={editingTarget} allStaff={activeStaffList} allPatterns={shiftPatterns} allUnits={unitList} allAssignments={assignments} burdenData={Array.from(staffBurdenData.values())} onClose={closeModals} />
       <DailyUnitGanttModal target={showingGanttTarget} onClose={closeModals} allAssignments={assignments} demandMap={demandMap} monthDays={monthDays} />
       <ClearStaffAssignmentsModal staff={clearingStaff} onClose={closeModals} onClear={handleClearStaffAssignments} />
       <WeeklyShareModal open={isShareModalOpen} onClose={() => setIsShareModalOpen(false)} monthDays={monthDays} staffList={sortedStaffList} assignments={assignments} shiftPatterns={shiftPatterns} />
-      
-      <StaffStatusModal 
-        staff={statusTarget} 
-        isOpen={!!statusTarget} 
-        onClose={closeModals} 
-        onSave={updateHolidayRequirement} 
+
+      <StaffStatusModal
+        staff={statusTarget}
+        isOpen={!!statusTarget}
+        onClose={closeModals}
+        onSave={updateHolidayRequirement}
         currentSetting={statusTarget ? staffHolidayRequirements.get(statusTarget.staffId) : undefined}
-        monthDays={monthDays} 
+        monthDays={monthDays}
       />
     </Box>
   );

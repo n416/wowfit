@@ -54,6 +54,8 @@ export interface IStaff {
   memo?: string;
   // ★ v8追加: 勤務可能時間帯 (パート用)
   workableTimeRanges?: ITimeRange[];
+  // ★ v10追加: 表示順序
+  displayOrder?: number;
 }
 
 // --- 5. アサイン結果 ---
@@ -97,13 +99,22 @@ export class ShiftWorkDB extends Dexie {
   constructor() {
     super('ShiftWorkAppDB');
 
+    // ★ v10: displayOrder 追加
+    this.version(10).stores({
+      units: '&unitId, name',
+      shiftPatterns: '&patternId, name, mainCategory, workType, crossUnitWorkType',
+      staffList: '&staffId, name, employmentType, unitId, status, displayOrder, *availablePatternIds, *skills', // displayOrder追加
+      assignments: '++id, [date+staffId], [date+patternId], [date+unitId], staffId, patternId, unitId, locked',
+      paidLeaveAdjustments: '++id, staffId, date, type'
+    });
+
     // ★ v9: paidLeaveAdjustments 追加
     this.version(9).stores({
       units: '&unitId, name',
       shiftPatterns: '&patternId, name, mainCategory, workType, crossUnitWorkType',
       staffList: '&staffId, name, employmentType, unitId, status, *availablePatternIds, *skills',
       assignments: '++id, [date+staffId], [date+patternId], [date+unitId], staffId, patternId, unitId, locked',
-      paidLeaveAdjustments: '++id, staffId, date, type' // ★ 追加
+      paidLeaveAdjustments: '++id, staffId, date, type'
     });
 
     // ★★★ スキーマを v8 にバージョンアップ (TimeRanges対応) ★★★

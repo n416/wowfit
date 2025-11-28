@@ -1,8 +1,7 @@
-// src/components/data/StaffManagementTab.tsx
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Box, Paper, Typography, IconButton, Button,
-  List, ListItem, ListItemAvatar, Avatar, // ListItemText 削除
+  List, ListItem, ListItemAvatar, Avatar,
   Chip, Divider, TextField, Stack, FormControl, InputLabel, Select, MenuItem,
   InputAdornment, Grid, Accordion, AccordionSummary, AccordionDetails,
   Tooltip,
@@ -20,13 +19,14 @@ import {
   ContentCopy as CopyIcon,
   Check as CheckIcon,
   CheckCircle as CheckCircleIcon,
-  RadioButtonUnchecked as RadioButtonUncheckedIcon
+  RadioButtonUnchecked as RadioButtonUncheckedIcon,
+  DragIndicator as DragIndicatorIcon // ★ 追加: ドラッグハンドル用アイコン
 } from '@mui/icons-material';
 import { alpha } from '@mui/material/styles';
 import { useSelector, useDispatch } from 'react-redux';
 import type { RootState, AppDispatch } from '../../store';
 import { IStaff, IShiftPattern } from '../../db/dexie';
-import { addNewStaff, updateStaff, deleteStaff } from '../../store/staffSlice'; // copyStaff 削除
+import { addNewStaff, updateStaff, deleteStaff, reorderStaff } from '../../store/staffSlice';
 
 // --- Constants ---
 const DEFAULT_CONSTRAINTS = { maxConsecutiveDays: 5, minIntervalHours: 12 };
@@ -79,7 +79,7 @@ const SkillsInput = ({ skills, onChange }: { skills: string[], onChange: (s: str
 
 export default function StaffManagementTab() {
   const dispatch: AppDispatch = useDispatch();
-  const staffList = useSelector((state: RootState) => state.staff.staff);
+  const reduxStaffList = useSelector((state: RootState) => state.staff.staff);
   const unitList = useSelector((state: RootState) => state.unit.units);
   const patternList = useSelector((state: RootState) => state.pattern.patterns);
 
@@ -93,20 +93,43 @@ export default function StaffManagementTab() {
 
   const [formData, setFormData] = useState<Partial<IStaff>>({});
 
+  // ★ ドラッグアンドドロップ用のローカルState (リアルタイム並び替え用)
+  const [localStaffList, setLocalStaffList] = useState<IStaff[]>([]);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+
+  // ★ 初期化 & Reduxとの同期 (ドラッグ中以外)
+  useEffect(() => {
+    if (!draggingId) {
+      // displayOrder順にソートしてローカルStateにセット
+      const sorted = [...reduxStaffList].sort((a, b) => {
+        const oA = a.displayOrder ?? 999999;
+        const oB = b.displayOrder ?? 999999;
+        if (oA !== oB) return oA - oB;
+        // fallback
+        const uA = a.unitId || 'ZZZ';
+        const uB = b.unitId || 'ZZZ';
+        if (uA !== uB) return uA.localeCompare(uB);
+        return a.name.localeCompare(b.name);
+      });
+      setLocalStaffList(sorted);
+    }
+  }, [reduxStaffList, draggingId]);
+
+  // ★ フィルタ適用 (ローカルリストに対してフィルタ)
   const filteredStaffList = useMemo(() => {
-    return staffList.filter(staff => {
+    return localStaffList.filter(staff => {
       const matchName = staff.name.toLowerCase().includes(searchTerm.toLowerCase());
       const matchUnit = filterUnit === 'All' || (filterUnit === 'Unassigned' ? !staff.unitId : staff.unitId === filterUnit);
       const matchType = filterType === 'All' || staff.employmentType === filterType;
       const matchStatus = filterStatus === 'All' || (filterStatus === 'Active' ? staff.status !== 'OnLeave' : staff.status === 'OnLeave');
       return matchName && matchUnit && matchType && matchStatus;
     });
-  }, [staffList, searchTerm, filterUnit, filterType, filterStatus]);
+  }, [localStaffList, searchTerm, filterUnit, filterType, filterStatus]);
 
   const targetStaff = useMemo(() => {
     if (isEditingNew) return formData;
-    return staffList.find(s => s.staffId === selectedStaffId) || null;
-  }, [selectedStaffId, isEditingNew, staffList, formData]);
+    return reduxStaffList.find(s => s.staffId === selectedStaffId) || null;
+  }, [selectedStaffId, isEditingNew, reduxStaffList, formData]);
 
   const { groupedPatterns, categoryOrder } = useMemo(() => {
     const filtered = patternList.filter(p => p.workType === 'Work' || p.isFlex);
@@ -130,7 +153,44 @@ export default function StaffManagementTab() {
     return { groupedPatterns: groups, categoryOrder: sortedKeys };
   }, [patternList]);
 
-  // --- Handlers ---
+  // --- Drag & Drop Handlers (Live Sorting) ---
+
+  const handleDragStart = (e: React.DragEvent, staffId: string) => {
+    setDraggingId(staffId);
+    e.dataTransfer.effectAllowed = 'move';
+    // ドラッグ中のゴースト画像の透明度調整などはブラウザのデフォルトに任せる
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault(); // ドロップ可能にするために必須
+  };
+
+  // ★ アグレッシブに動く: 重なった瞬間にリストを入れ替える
+  const handleDragEnter = (targetId: string) => {
+    if (!draggingId || targetId === draggingId) return;
+
+    setLocalStaffList((prevList) => {
+      const newList = [...prevList];
+      const srcIndex = newList.findIndex((s) => s.staffId === draggingId);
+      const tgtIndex = newList.findIndex((s) => s.staffId === targetId);
+
+      if (srcIndex === -1 || tgtIndex === -1) return prevList;
+
+      // 配列内の位置を移動 (SwapではなくMove)
+      const [movedItem] = newList.splice(srcIndex, 1);
+      newList.splice(tgtIndex, 0, movedItem);
+
+      return newList;
+    });
+  };
+
+  const handleDragEnd = () => {
+    setDraggingId(null);
+    // 確定した並び順をRedux(DB)に保存
+    dispatch(reorderStaff(localStaffList));
+  };
+
+  // --- Other Handlers ---
 
   const handleSelect = (staff: IStaff) => {
     if (isEditingNew) return;
@@ -161,6 +221,7 @@ export default function StaffManagementTab() {
       ...staff,
       staffId: undefined, 
       name: `${staff.name} (コピー)`,
+      displayOrder: undefined, 
     };
     setFormData(copyData);
     setIsEditingNew(true);
@@ -339,28 +400,57 @@ export default function StaffManagementTab() {
           {filteredStaffList.map((staff) => {
             const unitName = unitList.find(u => u.unitId === staff.unitId)?.name || '未所属';
             const isSelected = staff.staffId === selectedStaffId;
+            const isDragging = staff.staffId === draggingId;
             
             return (
               <ListItem 
                 key={staff.staffId} 
                 divider 
                 disablePadding
+                draggable={!isEditingNew} // 編集モードでない時のみドラッグ可能
+                onDragStart={(e) => handleDragStart(e, staff.staffId)}
+                onDragOver={handleDragOver}
+                onDragEnter={() => handleDragEnter(staff.staffId)} // ★ ここで入れ替えを実行
+                onDragEnd={handleDragEnd} // ★ ドロップ（終了）時に保存
+                sx={{
+                  opacity: isDragging ? 0.3 : 1, // ドラッグ元の透明度を下げる
+                  cursor: isEditingNew ? 'default' : 'move',
+                  bgcolor: isDragging ? '#e3f2fd' : (isSelected ? 'action.selected' : 'inherit'),
+                  transition: 'background-color 0.2s, opacity 0.2s', // アニメーション
+                }}
                 secondaryAction={
-                   <Tooltip title="コピーして新規作成">
-                     <IconButton edge="end" onClick={(e) => handleCopy(e, staff)} size="small" disabled={isEditingNew}>
-                       <CopyIcon fontSize="small" />
-                     </IconButton>
-                   </Tooltip>
+                   <Stack direction="row" spacing={0}>
+                      <Tooltip title="コピーして新規作成">
+                        <IconButton edge="end" onClick={(e) => handleCopy(e, staff)} size="small" disabled={isEditingNew}>
+                          <CopyIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                   </Stack>
                 }
               >
                 <Box 
                   onClick={() => handleSelect(staff)}
                   sx={{ 
-                    width: '100%', display: 'flex', alignItems: 'center', p: 1.5, cursor: 'pointer',
-                    bgcolor: isSelected ? 'action.selected' : 'inherit',
+                    width: '100%', display: 'flex', alignItems: 'center', p: 1.5,
+                    cursor: 'pointer',
                     '&:hover': { bgcolor: 'action.hover' }
                   }}
                 >
+                  {/* ★ ドラッグハンドルアイコン */}
+                  <Box 
+                    component="span" 
+                    sx={{ 
+                      mr: 1.5, 
+                      color: 'text.secondary', 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      cursor: isEditingNew ? 'default' : 'grab',
+                      '&:active': { cursor: 'grabbing' }
+                    }}
+                  >
+                    <DragIndicatorIcon fontSize="small" sx={{ opacity: 0.4 }} />
+                  </Box>
+
                   <ListItemAvatar>
                     <Avatar sx={{ 
                       bgcolor: staff.status === 'OnLeave' ? 'grey.400' : (staff.employmentType === 'FullTime' ? 'primary.main' : 'warning.main'),

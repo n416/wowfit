@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   Box, Paper, Typography, IconButton, Button,
   List, ListItem, ListItemAvatar, Avatar,
@@ -20,7 +20,7 @@ import {
   Check as CheckIcon,
   CheckCircle as CheckCircleIcon,
   RadioButtonUnchecked as RadioButtonUncheckedIcon,
-  DragIndicator as DragIndicatorIcon // ★ 追加: ドラッグハンドル用アイコン
+  DragIndicator as DragIndicatorIcon
 } from '@mui/icons-material';
 import { alpha } from '@mui/material/styles';
 import { useSelector, useDispatch } from 'react-redux';
@@ -96,24 +96,32 @@ export default function StaffManagementTab() {
   // ★ ドラッグアンドドロップ用のローカルState (リアルタイム並び替え用)
   const [localStaffList, setLocalStaffList] = useState<IStaff[]>([]);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  
+  // ★ フリーズ防止用のRef
+  const isProcessingRef = useRef(false);
+  const localStaffListRef = useRef<IStaff[]>([]); 
 
   // ★ 初期化 & Reduxとの同期 (ドラッグ中以外)
   useEffect(() => {
     if (!draggingId) {
-      // displayOrder順にソートしてローカルStateにセット
       const sorted = [...reduxStaffList].sort((a, b) => {
         const oA = a.displayOrder ?? 999999;
         const oB = b.displayOrder ?? 999999;
         if (oA !== oB) return oA - oB;
-        // fallback
         const uA = a.unitId || 'ZZZ';
         const uB = b.unitId || 'ZZZ';
         if (uA !== uB) return uA.localeCompare(uB);
         return a.name.localeCompare(b.name);
       });
       setLocalStaffList(sorted);
+      localStaffListRef.current = sorted;
     }
   }, [reduxStaffList, draggingId]);
+
+  // localStaffListが更新されたらRefも更新
+  useEffect(() => {
+    localStaffListRef.current = localStaffList;
+  }, [localStaffList]);
 
   // ★ フィルタ適用 (ローカルリストに対してフィルタ)
   const filteredStaffList = useMemo(() => {
@@ -153,21 +161,25 @@ export default function StaffManagementTab() {
     return { groupedPatterns: groups, categoryOrder: sortedKeys };
   }, [patternList]);
 
-  // --- Drag & Drop Handlers (Live Sorting) ---
+  // --- Drag & Drop Handlers ---
 
   const handleDragStart = (e: React.DragEvent, staffId: string) => {
     setDraggingId(staffId);
     e.dataTransfer.effectAllowed = 'move';
-    // ドラッグ中のゴースト画像の透明度調整などはブラウザのデフォルトに任せる
+    e.dataTransfer.dropEffect = 'move';
+    e.dataTransfer.setData('text/plain', staffId);
   };
 
   const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault(); // ドロップ可能にするために必須
+    e.preventDefault(); 
+    e.dataTransfer.dropEffect = 'move';
   };
 
-  // ★ アグレッシブに動く: 重なった瞬間にリストを入れ替える
   const handleDragEnter = (targetId: string) => {
+    if (isProcessingRef.current) return;
     if (!draggingId || targetId === draggingId) return;
+
+    isProcessingRef.current = true;
 
     setLocalStaffList((prevList) => {
       const newList = [...prevList];
@@ -176,19 +188,43 @@ export default function StaffManagementTab() {
 
       if (srcIndex === -1 || tgtIndex === -1) return prevList;
 
-      // 配列内の位置を移動 (SwapではなくMove)
       const [movedItem] = newList.splice(srcIndex, 1);
       newList.splice(tgtIndex, 0, movedItem);
 
       return newList;
     });
+
+    setTimeout(() => {
+      isProcessingRef.current = false;
+    }, 50);
+  };
+
+  const finalizeDrag = () => {
+    if (draggingId) {
+      setDraggingId(null);
+      dispatch(reorderStaff(localStaffListRef.current));
+    }
   };
 
   const handleDragEnd = () => {
-    setDraggingId(null);
-    // 確定した並び順をRedux(DB)に保存
-    dispatch(reorderStaff(localStaffList));
+    finalizeDrag();
   };
+
+  useEffect(() => {
+    const handleWindowDragEnd = () => {
+      setDraggingId((prev) => {
+        if (prev) {
+          dispatch(reorderStaff(localStaffListRef.current));
+          return null;
+        }
+        return prev;
+      });
+    };
+
+    window.addEventListener('dragend', handleWindowDragEnd);
+    return () => window.removeEventListener('dragend', handleWindowDragEnd);
+  }, [dispatch]);
+
 
   // --- Other Handlers ---
 
@@ -407,16 +443,22 @@ export default function StaffManagementTab() {
                 key={staff.staffId} 
                 divider 
                 disablePadding
-                draggable={!isEditingNew} // 編集モードでない時のみドラッグ可能
+                draggable={!isEditingNew}
                 onDragStart={(e) => handleDragStart(e, staff.staffId)}
                 onDragOver={handleDragOver}
-                onDragEnter={() => handleDragEnter(staff.staffId)} // ★ ここで入れ替えを実行
-                onDragEnd={handleDragEnd} // ★ ドロップ（終了）時に保存
+                onDragEnter={() => handleDragEnter(staff.staffId)} 
+                onDragEnd={handleDragEnd}
                 sx={{
-                  opacity: isDragging ? 0.3 : 1, // ドラッグ元の透明度を下げる
-                  cursor: isEditingNew ? 'default' : 'move',
+                  // ★ 青い罫線を強調
+                  border: isDragging ? '2px solid #1976d2' : '2px solid transparent',
+                  // ★ 少し浮かせる演出
+                  boxShadow: isDragging ? '0 4px 12px rgba(0,0,0,0.15)' : 'none',
+                  zIndex: isDragging ? 2 : 1,
+                  opacity: isDragging ? 0.9 : 1, 
+                  cursor: isEditingNew ? 'default' : 'grab',
                   bgcolor: isDragging ? '#e3f2fd' : (isSelected ? 'action.selected' : 'inherit'),
-                  transition: 'background-color 0.2s, opacity 0.2s', // アニメーション
+                  transition: 'transform 0.2s cubic-bezier(0.2, 0, 0, 1), background-color 0.2s',
+                  transform: isDragging ? 'scale(1.02)' : 'none',
                 }}
                 secondaryAction={
                    <Stack direction="row" spacing={0}>
@@ -436,7 +478,6 @@ export default function StaffManagementTab() {
                     '&:hover': { bgcolor: 'action.hover' }
                   }}
                 >
-                  {/* ★ ドラッグハンドルアイコン */}
                   <Box 
                     component="span" 
                     sx={{ 
